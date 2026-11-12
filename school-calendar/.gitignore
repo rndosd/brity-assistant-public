@@ -1,0 +1,6 @@
+/node_modules/
+/data/
+/inbox/
+/.qa/
+/.npm-cache/
+/.demo/

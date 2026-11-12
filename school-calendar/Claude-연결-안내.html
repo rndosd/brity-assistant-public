@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude 연결 안내</title>
+<style>
+:root{
+  --paper:#f7f4ec; --sheet:#fffdf8; --rule:#ddd7c8; --ink:#1f1d1a; --ink-2:#5c574d; --ink-3:#8f887a;
+  --red:#b8322a; --blue:#2b5b9c; --mark:#f1e3a6;
+}
+*{box-sizing:border-box}
+html{background:var(--paper)}
+body{margin:0;color:var(--ink);background:var(--paper);
+  font-family:"Noto Sans KR","Malgun Gothic","맑은 고딕",sans-serif;font-size:16px;line-height:1.75;word-break:keep-all;overflow-wrap:anywhere}
+main{max-width:760px;margin:0 auto;padding:40px 24px 64px;background:var(--sheet);border-inline:1px solid var(--rule);min-height:100vh}
+h1{font-size:28px;line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.lead{color:var(--ink-2);margin:0 0 28px;padding-bottom:18px;border-bottom:2px solid var(--ink)}
+h2{font-size:19px;margin:36px 0 10px;display:flex;gap:10px;align-items:baseline}
+h2 .n{flex:none;font-family:"Noto Serif KR","Batang",serif;font-size:26px;line-height:1;width:30px}
+h3{font-size:16px;margin:22px 0 6px}
+p{margin:0 0 10px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+b{font-weight:700}
+.ui{display:inline-block;border:1px solid var(--ink);padding:0 6px;font-size:14px;line-height:1.6;background:var(--sheet);white-space:nowrap}
+.en{font-family:Consolas,"Noto Sans KR",monospace;font-size:14.5px;background:#efeadc;padding:0 4px}
+.box{border:1px solid var(--rule);background:var(--paper);padding:14px 16px;margin:12px 0 16px}
+.box.warn{border-color:var(--red)}
+.box.warn strong{color:var(--red)}
+.facts{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;margin:0}
+.facts dt{font-weight:700}
+.facts dd{margin:0}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:8px 0 14px}
+th,td{border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:8px 8px;text-align:left;vertical-align:top}
+th{width:34%;font-weight:700}
+a{color:var(--blue)}
+.small{font-size:14px;color:var(--ink-2)}
+.check{list-style:none;padding-left:0}
+.check li{padding-left:26px;position:relative}
+.check li::before{content:"";position:absolute;left:2px;top:7px;width:13px;height:13px;border:1.5px solid var(--ink)}
+footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
+@media print{
+  html,body{background:#fff}
+  main{border:0;padding:0;max-width:none;min-height:0}
+  h2{break-after:avoid}
+  .box,table{break-inside:avoid}
+  a{color:var(--ink);text-decoration:none}
+}
+@media (max-width:520px){ main{padding:28px 16px 48px} .facts{grid-template-columns:1fr} h1{font-size:24px} }
+</style>
+</head>
+<body>
+<main>
+  <h1>브리티 메신저 캘린더 · Claude로 연결하기</h1>
+  <p class="lead">Claude 구독(Pro 이상)이 있으면 Claude Code의 Haiku 모델로 쪽지를 정리할 수 있습니다. 보통은 앱이 설치와 로그인을 안내해 줍니다. 이 안내서는 <b>자동 설치가 안 될 때</b> 직접 하는 방법입니다.</p>
+
+  <h2><span class="n">0</span>먼저 알아 두기</h2>
+  <div class="box">
+    <dl class="facts">
+      <dt>필요한 것</dt><dd>Claude <b>Pro 이상</b> 구독(무료 플랜은 안 됩니다), Windows 10 이상, 인터넷</dd>
+      <dt>비용</dt><dd>구독 안에서 씁니다. 따로 돈이 나가지 않고 구독 사용 한도에서 빠집니다. 한도에 닿으면 풀릴 때까지 정리가 멈춥니다.</dd>
+      <dt>관리자 권한</dt><dd>필요 없습니다. 내 Windows 사용자 폴더(<span class="en">C:\Users\내이름\.local\bin</span>)에 설치됩니다.</dd>
+      <dt>이미 있으면</dt><dd>Claude <b>데스크톱 앱</b>이 깔려 있으면 그 안에 Claude Code가 들어 있어 설치가 필요 없습니다. 로그인만 한 번 하면 됩니다.</dd>
+    </dl>
+  </div>
+  <div class="box warn">
+    <p><strong>꼭 확인하세요.</strong> 연결하면 <b>쪽지 본문이 Anthropic(Claude)으로 전송</b>됩니다. 첨부 파일은 보내지 않고 PC에 남습니다. 학교·교육청 지침에 맞는지 먼저 확인해 주세요.</p>
+  </div>
+
+  <h2><span class="n">1</span>보통은 이렇게 됩니다</h2>
+  <ol>
+    <li>캘린더 <span class="ui">설정</span> → AI 연결 방식에서 <b>Claude Code CLI · Haiku (Claude 구독)</b>를 고릅니다.</li>
+    <li><span class="ui">연결 시험 및 저장</span>을 누릅니다.</li>
+    <li>Claude Code가 없으면 “지금 설치할까요?”가 뜹니다. <span class="ui">설치</span>를 누르고 1~2분 기다립니다.</li>
+    <li>로그인 창(검은 창)이 뜨면 안내대로 로그인합니다(아래 3번). 다 되면 그 창을 닫습니다.</li>
+    <li>캘린더가 자동으로 다시 시험하고 “연결 시험을 통과했습니다”가 나오면 끝입니다.</li>
+  </ol>
+  <p class="small">이 중 어디에서 막혔는지에 따라 아래 2번(설치) 또는 3번(로그인)을 따라 하세요.</p>
+
+  <h2><span class="n">2</span>설치가 안 될 때: 직접 설치하기</h2>
+  <h3>방법 가. PowerShell에 한 줄 붙여 넣기 (권장)</h3>
+  <ol>
+    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">설치 명령 복사</span>를 누릅니다. (또는 아래 줄을 직접 복사합니다.)
+      <div class="box"><span class="en">irm https://claude.ai/install.ps1 | iex</span></div></li>
+    <li>키보드의 <b>Windows 키</b>를 누르고 <b>PowerShell</b>을 입력한 뒤 <b>Windows PowerShell</b>을 엽니다. 파란 창에 <span class="en">PS C:\Users\…&gt;</span>가 보이면 맞습니다.</li>
+    <li>창 안에서 <b>마우스 오른쪽 단추</b>를 누르면 붙여 넣어집니다. <b>Enter</b>를 누릅니다.</li>
+    <li>1~2분 동안 <b>아무것도 안 보여도</b> 기다립니다. 다시 <span class="en">PS C:\…&gt;</span>가 나오면 끝난 것입니다.</li>
+    <li>확인: PowerShell 창을 <b>새로 열고</b> <span class="en">claude --version</span>을 입력합니다. 숫자(예: 2.1.321)가 나오면 설치된 것입니다.</li>
+  </ol>
+  <h3>방법 나. 명령 프롬프트(CMD)에서</h3>
+  <p>PowerShell이 막혀 있으면 Windows 키 → <b>cmd</b> → <b>명령 프롬프트</b>를 열고 아래 줄을 붙여 넣습니다.</p>
+  <div class="box"><span class="en">curl -fsSL https://claude.ai/install.cmd -o install.cmd &amp;&amp; install.cmd &amp;&amp; del install.cmd</span></div>
+  <h3>방법 다. winget으로</h3>
+  <p>PowerShell에서 <span class="en">winget install Anthropic.ClaudeCode</span>. 이 방법은 자동 업데이트가 안 되므로 가끔 <span class="en">winget upgrade Anthropic.ClaudeCode</span>를 실행합니다.</p>
+  <h3>방법 라. Claude 데스크톱 앱 설치</h3>
+  <p><a href="https://claude.com/download">claude.com/download</a>에서 Windows용 Claude 앱을 설치합니다. 앱 안에 Claude Code가 들어 있어 캘린더가 알아서 찾습니다. 설치한 뒤 3번 로그인으로 갑니다.</p>
+
+  <h2><span class="n">3</span>로그인이 안 될 때: 직접 로그인하기</h2>
+  <ol>
+    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">로그인 창 열기</span>를 누릅니다. 창이 안 뜨면 PowerShell을 열고 <span class="en">claude</span>를 입력합니다.</li>
+    <li>처음이면 글자 색(테마)을 고르라고 합니다. 아무거나 고르고 Enter.</li>
+    <li>로그인 방법을 물으면 <b>Claude account with subscription</b>(Claude 구독 계정)을 고릅니다. 질문 없이 입력 칸만 보이면 <span class="en">/login</span>을 입력합니다.</li>
+    <li>브라우저가 열리면 평소 쓰는 Claude 계정으로 로그인하고 <b>승인</b>을 누릅니다.</li>
+    <li>창으로 돌아와 로그인됐다고 나오면 <span class="en">/exit</span>를 입력하거나 창을 닫습니다.</li>
+    <li>캘린더에서 <span class="ui">연결 시험 및 저장</span>을 다시 누릅니다.</li>
+  </ol>
+  <p class="small">Claude 데스크톱 앱에 로그인돼 있어도 Claude Code 로그인은 따로 한 번 해야 합니다.</p>
+
+  <h2><span class="n">4</span>이런 글이 보이면</h2>
+  <table>
+    <tr><th>“'irm'은(는) 내부 또는 외부 명령… 아닙니다”</th><td>명령 프롬프트(CMD)에 PowerShell 명령을 넣었습니다. PowerShell을 열어 다시 하거나 방법 나를 씁니다.</td></tr>
+    <tr><th>“'&amp;&amp;' 토큰은 올바른 문 구분 기호가 아닙니다”</th><td>PowerShell에 CMD 명령을 넣었습니다. 명령 프롬프트를 열어 다시 하거나 방법 가를 씁니다.</td></tr>
+    <tr><th>“403”, “원격 서버에 연결할 수 없습니다”, 아무 반응 없이 끝남</th><td>학교망이나 보안 프로그램이 내려받기를 막았을 수 있습니다. 정보 담당자에게 <span class="en">claude.ai</span> 접속과 Claude Code 설치가 가능한지 물어보세요. 집이나 다른 망에서 설치해도 됩니다.</td></tr>
+    <tr><th>보안 프로그램이 “차단”, “위험” 창을 띄움</th><td>학교 보안 프로그램의 정책입니다. 임의로 끄지 말고 정보 담당자에게 문의하세요.</td></tr>
+    <tr><th>“claude을(를) 찾을 수 없습니다”</th><td>설치 직후에는 <b>새 창</b>을 열어야 인식됩니다. 캘린더는 설치 위치를 직접 찾으므로 캘린더에서 바로 연결 시험을 눌러도 됩니다.</td></tr>
+    <tr><th>“로그인되어 있지 않습니다”</th><td>3번 로그인을 합니다.</td></tr>
+    <tr><th>“무료 플랜” 또는 접근할 수 없다는 글</th><td>Claude Code는 Pro 이상 구독에서만 됩니다.</td></tr>
+    <tr><th>“사용 한도에 닿았습니다”</th><td>구독 한도가 풀릴 때까지 기다리거나, 그동안 다른 연결 방식을 씁니다.</td></tr>
+  </table>
+
+  <h2><span class="n">5</span>그래도 안 되면</h2>
+  <ul>
+    <li><b>API 키 방식</b>(개인 OpenAI API 키 · Luna)으로 연결합니다. 설치가 필요 없고 키만 붙여 넣으면 됩니다. 같은 폴더의 <b>AI-SETUP.txt</b>와 <b>API-연결-안내.html</b>을 보세요.</li>
+    <li>AI 없이도 쪽지 가져오기와 달력은 그대로 쓸 수 있습니다. 정리만 손으로 합니다.</li>
+  </ul>
+
+  <footer class="small">
+    <p>설치 명령은 Claude Code 공식 안내(code.claude.com/docs/en/setup, 2026년 11월)를 따랐습니다. Anthropic이 명령을 바꾸면 그 안내를 따르세요. 이 앱은 Anthropic이나 브리티의 공식 프로그램이 아닙니다.</p>
+  </footer>
+</main>
+</body>
+</html>

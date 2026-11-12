@@ -1,0 +1,19 @@
+# 실제 쪽지·시험 자료·결과물은 올리지 않는다(동료 이름·학생 관련 내용).
+.qa/
+outputs/
+**/inbox/
+**/data/
+**/calendar-data/
+*.zip
+*.xlsx
+
+# 설치물·캐시
+**/node_modules/
+**/.npm-cache/
+**/.demo/
+
+# 릴리스 올릴 파일(tools/build-zip.ps1 -Patch)
+/release/
+
+# 실행기 빌드 결과(tools/launcher/build-launcher.ps1)
+/tools/launcher/out/

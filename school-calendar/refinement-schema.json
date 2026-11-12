@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "할 일",
+        "알아 둘 것",
+        "없음"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "dates": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "까지",
+              "그날",
+              "기간"
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "end",
+          "label",
+          "kind"
+        ]
+      }
+    },
+    "uncertain": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "summary",
+    "dates",
+    "uncertain"
+  ]
+}

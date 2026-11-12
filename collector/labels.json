@@ -1,0 +1,18 @@
+{
+  "processName": "BrityMessenger",
+  "windowTitle": "Brity Messenger",
+  "noteMenu": "쪽지 메뉴",
+  "noteListName": "쪽지",
+  "unreadPrefix": "읽지 않음",
+  "attachWord": "첨부파일",
+  "detailName": "상세 보기",
+  "replyButton": "답장",
+  "composeWindow": "쪽지 쓰기",
+  "composeSubject": "제목",
+  "recipientLabel": "수신",
+  "downloadPrefix": "다운로드",
+  "toastTitle": "새 쪽지 {0}건을 모았습니다",
+  "digestNotSaved": "저장 안 됨",
+  "digestCollected": "모은 시각",
+  "downloadDir": "C:\\BrityWorks\\BrityMessenger\\download"
+}

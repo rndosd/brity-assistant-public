@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>브리티 메신저 캘린더</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="periods.js"></script>
+  <script defer src="task-model.js"></script>
+  <script defer src="note-view.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <h1>브리티 메신저 캘린더 <span class="badge" id="demo-badge" hidden>샘플</span></h1>
+    <section class="connection" id="collector-bar" aria-label="브리티 연결" hidden>
+      <strong id="collector-title">브리티 쪽지 연결</strong>
+      <span class="small-note" id="collector-status" role="status">브리티에 로그인한 뒤 연결하면 안 읽은 쪽지를 가져옵니다. 가져온 쪽지는 브리티에서 읽음 처리됩니다.</span>
+      <button type="button" class="button" id="collector-connect">브리티 연결</button>
+    </section>
+    <section class="update-bar" id="update-bar" aria-label="새 판 알림" hidden>
+      <strong id="update-title">새 판이 나왔습니다</strong>
+      <span class="small-note" id="update-status" role="status"></span>
+      <button type="button" class="button text-button small" id="update-notes">바뀐 점 보기</button>
+      <button type="button" class="button primary" id="update-apply">업데이트</button>
+    </section>
+    <div class="header-actions">
+      <div class="zoom" role="group" aria-label="글자 크기">
+        <button type="button" class="zoom-small" id="zoom-out" aria-label="글자 작게">가</button>
+        <output id="zoom-value" aria-live="polite">100%</output>
+        <button type="button" class="zoom-big" id="zoom-in" aria-label="글자 크게">가</button>
+      </div>
+      <button type="button" class="button" id="settings-open" aria-haspopup="dialog">설정</button>
+      <button type="button" class="button primary" id="add-today">업무 추가</button>
+    </div>
+  </header>
+
+  <main class="workspace" id="calendar-workspace">
+    <aside class="todo" id="calendar-list-pane" aria-labelledby="todo-title">
+      <h2 class="sr-only" id="todo-title">목록</h2>
+      <p class="today-line"><span id="today-label"></span></p>
+      <!-- 접는 목록 대신 탭. 탭마다 건수가 늘 보여서 다른 목록에 쌓인 것을 놓치지 않는다. -->
+      <div class="list-tabs" role="tablist" aria-label="목록 고르기">
+        <button type="button" role="tab" data-view="todo" id="tab-todo" aria-controls="view-todo">
+          <span class="tab-title">할 일</span> <span class="tab-counts"><b id="todo-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="todo-unread"></b></span></span>
+        </button>
+        <button type="button" role="tab" data-view="candidate" id="tab-candidate" aria-controls="view-candidate">
+          <span class="tab-title">분류할 것</span> <span class="tab-counts candidate-tab-count"><span id="candidate-count-label" aria-hidden="true">방</span><b id="candidate-count" aria-hidden="true"></b><span class="sr-only" id="candidate-count-detail"></span></span>
+        </button>
+        <button type="button" role="tab" data-view="reference" id="tab-reference" aria-controls="view-reference">
+          <span class="tab-title">확인할 것</span> <span class="tab-counts"><b id="reference-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="reference-unread"></b></span></span>
+        </button>
+        <button type="button" role="tab" data-view="done" id="tab-done" aria-controls="view-done">
+          <span class="tab-title">끝낸 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
+        </button>
+        <button type="button" role="tab" data-view="hidden" id="tab-hidden" aria-controls="view-hidden">
+          <span class="tab-title">숨기기</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
+        </button>
+      </div>
+      <p class="inbox-note" id="inbox-note" role="status"></p>
+      <p class="setup-note" id="ai-setup-note" hidden>AI를 연결하면 쪽지의 제목과 날짜를 다듬을 수 있습니다. <button type="button" class="button text-button small" id="ai-setup-open">설정에서 연결</button></p>
+      <div class="list-view" id="view-todo" data-view="todo" role="tabpanel" aria-labelledby="tab-todo"><div id="todo-list"></div></div>
+      <div class="list-view" id="view-candidate" data-view="candidate" role="tabpanel" aria-labelledby="tab-candidate" hidden><div id="candidate-list"></div></div>
+      <div class="list-view" id="view-reference" data-view="reference" role="tabpanel" aria-labelledby="tab-reference" hidden><ul class="rows refs" id="reference-list"></ul></div>
+      <div class="list-view" id="view-done" data-view="done" role="tabpanel" aria-labelledby="tab-done" hidden><ul class="rows" id="done-list"></ul></div>
+      <div class="list-view" id="view-hidden" data-view="hidden" role="tabpanel" aria-labelledby="tab-hidden" hidden><ul class="rows" id="hidden-list"></ul></div>
+    </aside>
+
+    <div class="pane-divider" id="list-divider" role="separator" tabindex="0"
+         aria-orientation="vertical" aria-label="왼쪽 목록 너비" aria-controls="calendar-list-pane"
+         title="끌어서 목록 너비 조절 · 두 번 누르면 기본값"></div>
+    <section class="calendar" aria-labelledby="month-title">
+      <div class="calendar-header">
+        <h2 class="month-number" id="month-title" aria-live="polite"><span id="month-value"></span><span class="month-unit">월</span></h2>
+        <p class="year" id="year-label"></p>
+        <ul class="legend" aria-label="표시 기호">
+          <li><span class="box" aria-hidden="true"></span>마감</li>
+          <li><span class="disc" aria-hidden="true"></span>그날</li>
+          <li><span class="bar" aria-hidden="true"></span>기간</li>
+          <li class="ref-label">확인할 것</li>
+          <li><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
+        </ul>
+        <div class="calendar-controls" aria-label="달력 이동">
+          <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
+          <button type="button" class="button" id="today">오늘</button>
+          <button type="button" class="button" id="next" aria-label="다음 달">›</button>
+        </div>
+      </div>
+      <div class="weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+      <div class="month" id="month" aria-label="날짜별 업무"></div>
+    </section>
+
+    <div class="pane-divider" id="detail-divider" role="separator" tabindex="0"
+         aria-orientation="vertical" aria-label="오른쪽 자세히 너비" aria-controls="detail-panel"
+         title="끌어서 자세히 너비 조절 · 두 번 누르면 기본값"></div>
+    <aside class="detail-panel" id="detail-panel" aria-labelledby="detail-heading">
+      <div class="detail-heading">
+        <h2 id="detail-heading" tabindex="-1">자세히</h2>
+        <div class="detail-heading-actions">
+          <button type="button" class="button text-button small" id="detail-edit-jump" aria-label="업무 편집으로 이동" aria-controls="edit-form" hidden>업무 편집</button>
+          <button type="button" class="button text-button close" id="detail-close" aria-label="자세히 닫기">닫기</button>
+        </div>
+      </div>
+      <div class="type-row detail-toolbar" id="detail-toolbar" role="group" aria-label="분류와 표시" hidden>
+        <div class="seg" role="group" aria-label="분류" id="type-seg">
+          <button type="button" data-type="할 일">할 일</button>
+          <button type="button" data-type="알아 둘 것">확인할 것</button>
+          <button type="button" id="to-greeting" data-type="없음" hidden>숨기기</button>
+        </div>
+        <div class="task-marks" role="group" aria-label="업무 표시">
+          <button type="button" class="button small task-mark" id="important" hidden aria-pressed="false" title="중요 표시 · 목록에서 위에 두고 달력에서 굵게 표시합니다"><span class="box" aria-hidden="true"></span>중요</button>
+          <button type="button" class="button small task-mark" id="pin" hidden aria-pressed="false" title="목록의 상시 묶음에 띄웁니다"><span class="box" aria-hidden="true"></span>상시</button>
+          <button type="button" class="button small task-mark" id="done" hidden><span class="box" aria-hidden="true"></span><span id="done-label">끝냄</span></button>
+        </div>
+        <span class="badge" id="source-badge"></span><span class="badge warning" id="verify-badge" hidden>확인 필요</span>
+      </div>
+      <p class="detail-message" id="detail-message" role="status" hidden></p>
+      <section class="detail-section note-reading" id="chat-original" aria-labelledby="chat-original-heading" hidden>
+        <h3 id="chat-original-heading">대화 원문</h3>
+        <div class="paper">
+          <p class="original-title" id="chat-room"></p>
+          <div class="forwarded-source" id="forwarded-source" hidden></div>
+          <div id="chat-forwarded-lists"></div>
+          <ul class="chat-lines" id="chat-lines"></ul>
+        </div>
+      </section>
+      <div class="detail-content" id="detail-content" hidden>
+        <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
+          <div class="detail-section-heading"><h3 id="original-heading">쪽지 원문</h3><button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button></div>
+          <div class="paper">
+            <p class="original-title" id="original-title"></p>
+            <div class="original-meta-row" id="original-meta-row">
+              <p class="small-note original-meta" id="original-meta"></p>
+              <span class="small-note" id="note-recipient-summary" hidden></span>
+              <p class="note-recipients" id="note-recipients" hidden>
+                <span id="note-recipient-list"></span>
+                <span class="small-note" id="note-recipient-limited" hidden>· 전체 명단은 브리티에서 확인</span>
+              </p>
+            </div>
+            <div id="reply-section" class="note-part" hidden>
+              <h4>회신</h4>
+              <p class="formatted original" id="reply-body"></p>
+            </div>
+            <div id="previous-note" class="note-part" hidden>
+              <h4>이전 쪽지</h4>
+              <p class="previous-subject" id="previous-subject"></p>
+              <p class="formatted original" id="previous-body"></p>
+            </div>
+            <p class="formatted original" id="original-body"></p>
+            <details class="raw-note" id="raw-note" hidden>
+              <summary>전체 원문 보기</summary>
+              <p class="formatted original" id="raw-note-body"></p>
+            </details>
+          </div>
+        </section>
+
+        <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
+          <div class="detail-section-heading"><h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3><button type="button" class="button text-button small" id="attachment-folder" hidden>폴더 열기</button></div>
+          <ul class="attachment-list" id="attachments"></ul>
+        </section>
+
+        <section class="detail-section" id="refine-section" aria-labelledby="refine-heading">
+          <div class="detail-section-heading"><h3 id="refine-heading">AI 정리</h3><button type="button" class="button text-button small" id="refine">다듬기</button></div>
+          <p class="formatted summary" id="refinement"></p>
+          <p class="small-note" id="refine-note" hidden></p>
+        </section>
+
+        <form class="edit-form" id="edit-form" tabindex="-1" aria-label="업무 편집">
+          <div class="forwarded-source forwarded-draft-source" id="forwarded-draft-source" hidden>
+            <p class="forwarded-source-label">선택한 원문</p>
+            <p class="formatted" id="forwarded-draft-text"></p>
+          </div>
+          <div class="title-field">
+            <div class="detail-field-heading">
+              <span id="edit-title-label">업무 제목</span>
+              <button type="button" class="button text-button small" id="note-title-edit" aria-label="업무 제목 고치기" aria-controls="edit-title" aria-expanded="false" hidden>고치기</button>
+            </div>
+            <p class="task-title-view" id="task-title-view" hidden></p>
+            <input id="edit-title" aria-labelledby="edit-title-label" required maxlength="180" autocomplete="off">
+          </div>
+          <p class="when" id="when-line"></p>
+          <fieldset class="dates-field" id="dates-field">
+            <legend class="sr-only">날짜</legend>
+            <div class="detail-field-heading">
+              <span aria-hidden="true">날짜</span>
+              <div class="date-tools">
+                <button type="button" class="button text-button small" id="edit-dates" aria-controls="date-rows" aria-expanded="false">고치기</button>
+                <button type="button" class="button text-button small" id="add-date" hidden>+ 날짜 추가</button>
+              </div>
+            </div>
+            <ul class="date-rows" id="date-rows"></ul>
+          </fieldset>
+          <label class="field memo-field"><span id="memo-label">메모</span><textarea id="edit-memo" rows="2" maxlength="4000"></textarea></label>
+          <section class="candidate-box" id="candidate-box" aria-labelledby="candidate-heading" hidden>
+            <h3 id="candidate-heading">기존 업무 고치기</h3>
+            <p class="small-note" id="candidate-change-note">앞 업무는 자동으로 고치지 않습니다. 같은 방에서 올린 업무 가운데 이 말이 가리키는 것을 골라 반영하세요.</p>
+            <ul class="candidate-targets" id="candidate-targets"></ul>
+          </section>
+          <div class="edit-actions">
+            <button type="button" class="button text-button" id="candidate-discard" hidden>버리기</button>
+            <button type="button" class="button text-button" id="candidate-restore" hidden>후보로 되살리기</button>
+            <button type="button" class="button primary" id="candidate-accept" hidden>올리기</button>
+            <button type="button" class="button text-button" id="reference-seen" hidden>다 봄</button>
+            <button type="submit" class="button primary" id="save" disabled>변경 저장</button>
+          </div>
+        </form>
+
+        <section class="detail-actions work-section" id="work-section" aria-label="채팅에서 이어서">
+          <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note" title="Claude나 ChatGPT 채팅에 붙여 넣을 지시문을 복사합니다">채팅용 지시문 복사</button>
+          <p class="small-note" id="work-edit-note" hidden>저장한 뒤 복사할 수 있습니다.</p>
+          <p class="small-note work-message" id="work-message" role="status" hidden></p>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="create-dialog" aria-labelledby="create-heading">
+    <form id="create-form">
+      <h2 id="create-heading">업무 추가</h2>
+      <label class="field">제목<input id="create-title" required maxlength="180" autocomplete="off" autofocus placeholder="예: 학년 협의회 자료 준비"></label>
+      <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
+      <label class="field">내용 <span class="field-hint">(선택)</span><textarea id="create-memo" rows="4" maxlength="4000" placeholder="준비물, 제출처, 할 일 순서 등"></textarea></label>
+      <p class="form-error" id="create-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" class="button" id="create-cancel">취소</button><button type="submit" class="button primary" id="create-save">업무 추가</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-heading">
+    <div class="settings-head">
+      <h2 id="settings-heading" tabindex="-1" autofocus>설정</h2>
+      <button type="button" class="button primary" id="settings-close">닫기</button>
+    </div>
+    <div class="settings-body">
+      <section class="settings-section" aria-labelledby="set-ai-title">
+        <h3 id="set-ai-title">AI 정리</h3>
+        <div class="ai-settings" id="ai-settings">
+          <label class="field">AI 연결 방식
+            <select id="ai-provider">
+              <option value="factchat" hidden disabled>서룡 팩트챗 API · Luna (권장)</option>
+              <option value="openai">개인 OpenAI API 키 · Luna</option>
+              <option value="claude">Claude Code CLI · Haiku (Claude 구독)</option>
+              <option value="codex">Codex CLI (ChatGPT 구독)</option>
+              <option value="none">사용 안 함</option>
+            </select>
+          </label>
+          <p class="small-note" id="ai-hint"></p>
+          <div class="ai-key-options" id="ai-key-options" hidden>
+            <label class="field"><span id="ai-key-label">API 키</span><input type="password" id="ai-key" maxlength="512" autocomplete="off" spellcheck="false"></label>
+            <div class="ai-actions">
+              <button type="button" class="button text-button small" id="ai-key-guide" data-ai-guide="key">API 키 발급 ↗</button>
+              <button type="button" class="button text-button small" id="ai-billing-guide" data-ai-guide="billing">API 결제 설정 ↗</button>
+            </div>
+          </div>
+          <div class="ai-actions" id="claude-steps" hidden>
+            <button type="button" class="button small" id="claude-login">로그인 창 열기</button>
+            <button type="button" class="button text-button small" id="claude-install-copy">설치 명령 복사</button>
+          </div>
+          <div class="ai-actions">
+            <button type="button" class="button" id="ai-connect">연결 시험 및 저장</button>
+            <button type="button" class="button text-button small" id="cli-guide" hidden>CLI 설치와 로그인 안내 ↗</button>
+          </div>
+          <p class="small-note" id="ai-status" role="status" hidden></p>
+        </div>
+        <div class="setting-check">
+          <label class="check-field"><input type="checkbox" id="automatic">새 쪽지 자동 분류</label>
+          <p class="small-note">새 쪽지의 본문을 AI에 보내 정리합니다. 첨부 파일은 PC에 남습니다.</p>
+        </div>
+        <div class="rules-update" id="rules-update" role="alert" hidden>
+          <p><b>새 정리 기준이 나왔습니다.</b> 지금 쓰는 정리 기준 파일이 처음 설치한 것과 달라(고친 흔적) 그대로 두었습니다.</p>
+          <div class="ai-actions">
+            <button type="button" class="button" id="rules-replace">새 기준으로 바꾸기</button>
+            <button type="button" class="button text-button small" id="rules-keep">지금 것 계속 쓰기</button>
+          </div>
+          <p class="small-note">바꾸면 지금 파일은 data 폴더에 '정리-기준.내가-고친-날짜.md'로 남습니다.</p>
+        </div>
+        <div class="ai-actions"><button type="button" class="button text-button small" id="rules">정리 기준 파일 열기 ↗</button></div>
+      </section>
+
+      <fieldset class="settings-section" id="profile-settings">
+        <legend>내 역할</legend>
+        <p class="small-note section-note">쪽지가 나에게 해당하는지 가릴 때 씁니다.</p>
+        <div class="form-grid">
+          <label class="field span-2">근무처
+            <select id="profile-workplace">
+              <option value="학교">학교</option>
+              <option value="교육청">교육청(시도교육청·교육지원청)</option>
+            </select>
+          </label>
+        </div>
+        <div id="profile-school" class="form-grid">
+          <label class="field">학교급
+            <select id="profile-school-level">
+              <option value="초등">초등학교</option>
+              <option value="중학교">중학교</option>
+              <option value="고등학교">고등학교</option>
+            </select>
+          </label>
+          <label class="field">학년<input id="profile-grade" type="number" min="1" max="6" inputmode="numeric"></label>
+          <label class="field">반<input id="profile-classroom" type="number" min="1" max="30" inputmode="numeric"></label>
+          <label class="field">역할<select id="profile-role"></select></label>
+          <div class="form-grid span-4 nested" id="profile-specialist" hidden>
+            <label class="field span-3"><span id="profile-subjects-label">전담 과목</span><input id="profile-subjects" maxlength="200" autocomplete="off" placeholder="예: 영어, 체육"></label>
+            <label class="field">맡은 학년<input id="profile-subject-grades" maxlength="40" autocomplete="off" placeholder="예: 3, 4"></label>
+          </div>
+          <p class="small-note span-4" id="profile-school-note"></p>
+        </div>
+        <div id="profile-office" class="form-grid" hidden>
+          <label class="field span-2">기관
+            <select id="profile-office-type">
+              <option value="">고르지 않음</option>
+              <option value="시도교육청">시도교육청</option>
+              <option value="교육지원청">교육지원청</option>
+            </select>
+          </label>
+          <label class="field span-2">직위
+            <select id="profile-position">
+              <option value="">고르지 않음</option>
+              <option value="장학관·장학사">장학관·장학사</option>
+              <option value="연구관·연구사">연구관·연구사</option>
+              <option value="일반직">일반직(주무관 등)</option>
+              <option value="그 밖">그 밖</option>
+            </select>
+          </label>
+          <label class="field span-4">부서·팀<input id="profile-department" maxlength="60" autocomplete="off" placeholder="예: 초등교육과 교육과정팀"></label>
+          <div class="field span-4 covered-levels" role="group" aria-labelledby="covered-label">
+            <span id="covered-label">담당 학교급</span>
+            <div class="check-row">
+              <label class="check-field small"><input type="checkbox" data-covered="초등">초등</label>
+              <label class="check-field small"><input type="checkbox" data-covered="중학교">중학교</label>
+              <label class="check-field small"><input type="checkbox" data-covered="고등학교">고등학교</label>
+            </div>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label class="field span-4">담당 업무<input id="profile-duties" maxlength="200" autocomplete="off" placeholder="쉼표로 나눠 적기 · 예: 학생자치, 방송"></label>
+          <label class="field span-4">소속<input id="profile-memberships" maxlength="200" autocomplete="off" placeholder="예: 4학년 교과연구회, 기획위원회"></label>
+        </div>
+        <div class="ai-actions"><button type="button" class="button" id="profile-save">역할 저장</button><span class="small-note" id="profile-status" role="status"></span></div>
+      </fieldset>
+
+      <fieldset class="settings-section" id="auto-settings">
+        <legend>자동 갱신</legend>
+        <p class="small-note section-note">캘린더가 켜져 있을 때 가져옵니다.</p>
+        <div class="auto-notes-group">
+          <div class="auto-row">
+            <label class="check-field"><input type="checkbox" id="auto-notes">쪽지</label>
+            <label class="field inline-field">주기<select id="auto-notes-minutes"></select></label>
+          </div>
+          <p class="small-note">수동은 위쪽 ‘쪽지 가져오기’에서</p>
+        </div>
+        <div class="auto-row">
+          <label class="check-field"><input type="checkbox" id="auto-chats">대화방</label>
+          <label class="field inline-field">주기<select id="auto-chats-minutes"></select></label>
+        </div>
+        <details class="chat-room-settings" id="chat-room-settings">
+          <summary>가져올 대화방 <span class="small-note" id="chat-room-count"></span></summary>
+          <div class="chat-room-controls">
+            <div class="chat-room-actions">
+              <label class="field chat-room-search" id="chat-room-search-field" hidden><span class="sr-only">방 이름 검색</span><input type="search" id="chat-room-search" placeholder="방 이름 검색" autocomplete="off"></label>
+              <button type="button" class="button small" id="chat-rooms-load">방 목록 불러오기</button>
+            </div>
+            <p class="small-note" id="chat-rooms-status" role="status" hidden></p>
+            <ul class="chat-room-options" id="chat-room-options" aria-label="가져올 대화방" hidden></ul>
+            <p class="small-note" id="chat-room-no-matches" hidden>검색한 이름과 일치하는 방이 없습니다.</p>
+            <div class="chat-room-actions" id="chat-room-selection" hidden>
+              <button type="button" class="button small primary" id="chat-rooms-save" disabled>선택 저장</button>
+            </div>
+          </div>
+        </details>
+        <p class="small-note" id="chat-collection-status" role="status" hidden></p>
+        <p class="small-note" id="auto-status" role="status" hidden></p>
+      </fieldset>
+
+      <fieldset class="settings-section">
+        <legend>PC에 저장된 자료</legend>
+        <div class="ai-actions">
+          <button type="button" class="button small" id="refresh">저장된 자료 다시 읽기</button>
+          <p class="small-note" id="refresh-status" role="status"></p>
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-section" id="range-settings">
+        <legend>지난 쪽지 불러오기</legend>
+        <p class="small-note section-note">브리티 쪽지 목록에 <b>지금 보이는 쪽지까지만</b> 불러옵니다(오래된 쪽지는 목록에 없어 닿지 않을 수 있습니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
+        <div class="form-grid">
+          <label class="field span-2">시작일<input type="date" id="range-from" min="2000-01-01" max="9999-12-31"></label>
+          <label class="field span-2">끝일<input type="date" id="range-to" min="2000-01-01" max="9999-12-31"></label>
+        </div>
+        <div class="ai-actions">
+          <button type="button" class="button" id="range-preview">몇 건인지 보기</button>
+          <button type="button" class="button primary" id="range-import" disabled>불러오기</button>
+          <button type="button" class="button text-button small" id="range-stop" hidden>멈추기</button>
+        </div>
+        <p class="small-note" id="range-status" role="status" hidden></p>
+        <div class="ai-actions" id="range-classify-row" hidden>
+          <button type="button" class="button" id="range-classify">불러온 쪽지 분류하기</button>
+          <span class="small-note" id="range-classify-note"></span>
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-section" id="downloads-settings">
+        <legend>첨부 저장 폴더</legend>
+        <p class="small-note section-note">새로 받은 쪽지의 첨부를 여기에 복사합니다.</p>
+        <p class="folder-path" id="downloads-folder"></p>
+        <div class="ai-actions">
+          <button type="button" class="button" id="downloads-choose">폴더 고르기</button>
+          <button type="button" class="button text-button small" id="downloads-reset" hidden>기본 다운로드 폴더로</button>
+          <button type="button" class="button text-button small" id="downloads-open">폴더 열기 ↗</button>
+        </div>
+        <p class="small-note" id="downloads-status" role="status" hidden></p>
+      </fieldset>
+
+      <fieldset class="settings-section" id="backup-settings">
+        <legend>백업</legend>
+        <p class="small-note section-note">업무·설정·정리 기준·대화방 기록과 받은 쪽지·첨부를 ZIP 하나로 저장합니다. 쪽지 원문(동료 이름·학생 관련 내용)이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. AI 키는 넣지 않으므로 다른 PC에서 되돌리면 AI를 다시 연결합니다.</p>
+        <div class="ai-actions">
+          <button type="button" class="button" id="backup-create">백업 만들기</button>
+          <button type="button" class="button text-button small" id="backup-restore">백업에서 되돌리기</button>
+        </div>
+        <p class="small-note" id="backup-status" role="status" hidden></p>
+      </fieldset>
+
+      <section class="settings-section settings-about" aria-label="앱 정보">
+        <div class="ai-actions" id="shortcut-row" hidden>
+          <button type="button" class="button" id="shortcut-create">바탕 화면에 바로 가기 만들기</button>
+          <span class="small-note" id="shortcut-status" role="status"></span>
+        </div>
+        <div class="version-row">
+          <span class="small-note" id="app-version"></span>
+          <button type="button" class="button text-button small" id="changes-open">바뀐 점</button>
+          <button type="button" class="button text-button small" id="update-check" hidden>새 판 확인</button>
+        </div>
+        <p class="small-note" id="update-check-status" role="status" hidden></p>
+      </section>
+      <p class="form-error" id="settings-error" role="alert" hidden></p>
+    </div>
+  </dialog>
+  <dialog id="finish-chat-dialog" aria-labelledby="finish-chat-heading" aria-describedby="finish-chat-copy">
+    <div class="dialog-body">
+      <h2 id="finish-chat-heading">이 묶음 정리 끝</h2>
+      <p id="finish-chat-copy"></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="finish-chat-cancel">돌아가기</button>
+        <button type="button" class="button primary" id="finish-chat-confirm">정리 끝</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="first-import-dialog" aria-labelledby="first-import-heading">
+    <div class="dialog-body">
+      <h2 id="first-import-heading">첫 쪽지 가져오기</h2>
+      <p id="first-import-connection" class="small-note" role="status"></p>
+      <button type="button" class="button first-import-retry" id="first-import-retry" hidden>브리티 연결 다시 확인</button>
+      <div id="first-import-range"></div>
+      <fieldset class="settings-section first-import-mode">
+        <legend>앞으로 쪽지 가져오기</legend>
+        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-auto" value="auto">자동 갱신 <span class="small-note" id="first-import-auto-label"></span></label>
+        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-manual" value="manual">수동 가져오기 <span class="small-note">위쪽 ‘쪽지 가져오기’를 누를 때만</span></label>
+      </fieldset>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="first-import-close">나중에</button>
+        <button type="button" class="button primary" id="first-import-finish">기간 가져오기 건너뛰기</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="send-dialog" aria-labelledby="send-heading">
+    <div class="dialog-body">
+      <h2 id="send-heading">이 내용을 AI로 보냅니다</h2>
+      <p class="small-note" id="send-provider"></p>
+      <div class="send-preview" id="send-preview" tabindex="0"></div>
+      <p class="small-note">첨부 파일 자체는 보내지 않습니다. 보낸 내용은 학습에 쓰이지 않지만 OpenAI에 최대 30일 보관될 수 있습니다.</p>
+      <div class="dialog-actions"><button type="button" class="button" id="send-cancel">보내지 않기</button><button type="button" class="button primary" id="send-confirm">보내고 다듬기</button></div>
+    </div>
+  </dialog>
+  <dialog id="changes-dialog" aria-labelledby="changes-heading">
+    <div class="dialog-body">
+      <h2 id="changes-heading">바뀐 점</h2>
+      <p class="small-note" id="changes-lead"></p>
+      <div class="changes-list" id="changes-list" tabindex="0"></div>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="changes-close">닫기</button>
+        <button type="button" class="button primary" id="changes-update" hidden>지금 업데이트</button>
+      </div>
+    </div>
+  </dialog>
+  <div id="notice" class="notice" role="status" hidden></div>
+</body>
+</html>
