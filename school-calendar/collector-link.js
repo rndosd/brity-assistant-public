@@ -11,6 +11,13 @@ const statuses = new Set(['ready', 'offline', 'unavailable', 'conflict', 'unveri
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+const HOLD_REASONS = new Set(['missing', 'unstable', 'mismatch', 'error', 'gap']);
+// 방마다 보류·끊김 사유(collect-chats.ps1). 형식이 맞는 것만 넘긴다.
+function roomHolds(value) {
+  const list = Array.isArray(value) ? value : value && typeof value === 'object' ? [value] : [];
+  return list.filter(item => typeof item?.key === 'string' && /^[0-9a-f]{64}$/.test(item.key) && HOLD_REASONS.has(item.reason))
+    .map(({ key, reason }) => ({ key, reason }));
+}
 
 function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, from = '', to = '' } = {}) {
   if (process.platform !== 'win32' || typeof scriptsDir !== 'string' || !path.isAbsolute(scriptsDir) || signal?.aborted) {
@@ -34,6 +41,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
     // Collection can mark a message read. Once a tick has started, allow it to finish and save the note.
     const options = { windowsHide: true, encoding: 'utf8', maxBuffer: 16 * 1024 };
     if (mode === 'Inspect' || mode === 'RangePreview' || mode === 'ChatRooms') options.timeout = 45_000;
+    // 기간 세기는 쪽지 목록을 끝까지 내려 가며 읽는다(한 번에 5줄쯤, 약 1초).
+    if (mode === 'RangePreview') options.timeout = 180_000;
     if (mode === 'ChatRooms') options.maxBuffer = 512 * 1024;
     const child = execFile(powershell, args, options, (error, stdout) => {
       if (error) return resolve(unavailable);
@@ -55,6 +64,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
         if (chatMode) {
           Object.assign(value, {
             read: count(result.read), added: count(result.added), retry: count(result.retry), needsReview: count(result.needsReview),
+            baselines: count(result.baselines), gaps: count(result.gaps), holds: roomHolds(result.holds),
             roomChoices: Array.isArray(result.roomChoices) ? result.roomChoices : []
           });
         }
@@ -95,7 +105,8 @@ function openBrityReply({ id, title, sender, datetime }, { scriptsDir } = {}) {
   const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', collector, '-ShowNote', '-Reply'];
   return new Promise(resolve => {
     const child = execFile(powershell, args, {
-      windowsHide: true, encoding: 'utf8', maxBuffer: 16 * 1024, timeout: 20_000
+      // 옛 쪽지는 목록을 내려 가며 찾으므로 20초로는 모자랄 수 있다.
+      windowsHide: true, encoding: 'utf8', maxBuffer: 16 * 1024, timeout: 60_000
     }, (error, stdout) => resolve(error ? 'unavailable' : stdout.trim()));
     child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify({ id, title, sender, datetime }), 'utf8');

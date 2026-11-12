@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('calendar', {
   stopRange: () => invoke('calendar:range-stop'),
   classifyRange: () => invoke('calendar:range-classify'),
   setAutoRefresh: input => invoke('calendar:auto-refresh', input),
+  collectChatsNow: () => invoke('calendar:chats-collect-now'),
   listChatRooms: () => invoke('calendar:chat-rooms-list'),
   setChatRooms: rooms => invoke('calendar:chat-rooms-save', rooms),
   setAutomatic: enabled => invoke('calendar:automatic', enabled),

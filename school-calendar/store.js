@@ -17,8 +17,16 @@ const TASK_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const BATCH_ID = /^[a-f0-9]{64}$/;
 const SAFE_DOCUMENTS = new Set(['.hwp', '.hwpx', '.pdf', '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp']);
 const LEGACY_DOWNLOAD_FOLDER = '브리티 첨부';
+// 분류 실패: 잠깐 생긴 오류(시간 초과·서버·형식)는 1분 뒤 다음 자동 분류 때 한 번 더 보낸다.
+const REFINE_ATTEMPTS = 2;
+const REFINE_RETRY_DELAY = 60_000;
 
 class CalendarError extends Error {}
+
+// AI 연결 자체가 막힌 오류(키·크레딧·권한·로그인·설치). 쪽지마다 다시 보내 봐야 같은 결과라 자동 분류를 멈춘다.
+function aiStopError(message) {
+  return Object.assign(new CalendarError(message), { aiStop: true });
+}
 
 // 백업에 넣는 것(이름을 정해 둔다). 브라우저 캐시(profile)와 이전 백업은 넣지 않는다.
 const BACKUP_DATA_FILES = ['tasks.json', 'settings.json', 'message-views.json', '정리-기준.md', 'chat-choices.jsonl'];
@@ -91,7 +99,7 @@ function fields(input) {
   try {
     dates = input.type === '없음' ? [] : model.normalizeDates(input.dates ?? [], title, true);
   } catch {
-    throw new CalendarError(`날짜는 ${model.MAX_DATES}개까지, 날짜·이름·까지/그날을 모두 채워 주세요.`);
+    throw new CalendarError(`날짜는 ${model.MAX_DATES}개까지, 날짜·이름·까지/일정/기간을 모두 채워 주세요.`);
   }
   return { title, type: input.type, dates, reply: input.type !== '없음' && input.reply === true };
 }
@@ -350,6 +358,8 @@ class CalendarStore {
     this.messageViews = new Set();
     this.notes = new Map();
     this.refining = new Set();
+    // AI 연결이 막혀 자동 분류를 멈춘 사유(키·크레딧·로그인 등). 연결을 다시 저장하거나 한 건이 성공하면 푼다.
+    this.aiBlocked = null;
     this.queue = Promise.resolve();
     this.inbox = { status: 'loading', pending: 0 };
   }
@@ -612,7 +622,9 @@ class CalendarStore {
       datetime: note?.datetime || chatSource?.observedAt || '',
       attachmentCount: note?.attachments.length || 0,
       recipients: model.recipientCount(note?.recipients),
-      refining: this.refining.has(task.id)
+      refining: this.refining.has(task.id),
+      // AI 분류 차례를 기다리는 쪽지(목록의 "분류 대기", 머리줄의 남은 건수)
+      queued: autoPending === true && task.refined === 'none' && note?.verified === true
     };
   }
 
@@ -621,6 +633,7 @@ class CalendarStore {
       tasks: this.tasks.map(task => this.taskView(task)), inbox: { ...this.inbox }, messages: this.messageList(),
       defaultTool: TOOLS.includes(this.settings.defaultTool) ? this.settings.defaultTool : 'claude',
       automatic: this.settings.automatic === true, showPeriods: this.settings.showPeriods !== false,
+      aiBlocked: this.aiBlocked?.message ?? null,
       aiProvider: this.aiProvider, collectorConnected: this.settings.collectorConnected === true,
       collectorFirstImportPending: this.settings.collectorFirstImportPending === true,
       profile: this.settings.profile ?? null,
@@ -773,6 +786,7 @@ class CalendarStore {
     return this.serialize(async () => {
       // 새 쪽지 자동 분류는 AI를 연결하면 켜진다(2026-11-11 결정: 본문은 자동 전송).
       const settings = { ...this.settings, aiProvider: provider, automatic: provider !== 'none' };
+      this.aiBlocked = null;
       if (provider === 'openai') settings.openaiKeyEncrypted = encryptedKey;
       else delete settings.openaiKeyEncrypted;
       if (provider === 'factchat') settings.factchatKeyEncrypted = encryptedKey;
@@ -880,9 +894,18 @@ class CalendarStore {
       const title = titleValue(input?.title);
       const due = dueValue(input?.due);
       if (!due) throw new CalendarError('날짜를 선택해 주세요.');
-      const entry = input?.kind === '그날' ? { date: due, label: title.slice(0, model.LABEL_MAX), kind: '그날' }
-        : { date: due, label: title.slice(0, model.LABEL_MAX), kind: '까지', done: false };
-      const task = { ...newTask(null, title, [entry]), memo: memoValue(input?.memo) };
+      // 종류(마감·일정·기간)와 끝 날짜·시간·교시는 날짜 고치기와 같은 규칙으로 확인한다.
+      const kind = model.DATE_KINDS.includes(input?.kind) ? input.kind : '까지';
+      let dates;
+      try {
+        dates = model.normalizeDates([{
+          date: due, label: title.slice(0, model.LABEL_MAX), kind, done: false,
+          ...(kind === '기간' && { end: input?.end }), time: input?.time
+        }], title, true);
+      } catch {
+        throw new CalendarError(kind === '기간' ? '끝 날짜는 시작 날짜보다 뒤로 골라 주세요.' : '날짜를 확인해 주세요.');
+      }
+      const task = { ...newTask(null, title, dates), memo: memoValue(input?.memo) };
       await this.commit([...this.tasks, task]);
       return this.taskView(task);
     });
@@ -912,7 +935,7 @@ class CalendarStore {
       if (updates.type !== '할 일') updates.pinned = false;
       if (!updates.reply) updates.replied = false;
       updates.done = updates.type === '할 일' && !updates.dates.length ? task.done === true : false;
-      return this.replace(task, { ...updates, uncertain: false, revision: task.revision + 1, autoPending: false });
+      return this.replace(task, { ...updates, uncertain: false, refineFailure: undefined, revision: task.revision + 1, autoPending: false });
     });
   }
 
@@ -1313,17 +1336,25 @@ class CalendarStore {
     });
   }
 
-  nextAutomatic() {
+  // 자동 분류 차례인 쪽지: 처음 받은 쪽지, 또는 잠깐 생긴 오류로 실패해 아직 한 번 더 해 볼 수 있는 쪽지(1분 뒤부터).
+  autoRefinable(task, now = Date.now()) {
+    if (this.notes.get(task.noteId)?.verified !== true) return false;
+    if (task.autoPending && task.refined === 'none') return true;
+    const failure = task.refineFailure;
+    return task.refined === 'failed' && failure?.retry === true && failure.attempts < REFINE_ATTEMPTS && now - Date.parse(failure.at) >= REFINE_RETRY_DELAY;
+  }
+
+  nextAutomatic(now = Date.now()) {
     // autoPending은 자동 분류가 켜져 있을 때나 "쪽지 가져오기" 버튼으로 받은 쪽지에만 붙는다.
-    if (this.inbox.status !== 'ready') return null;
-    return this.tasks.find(task => task.autoPending && task.refined === 'none' && !this.refining.has(task.id) && this.notes.get(task.noteId)?.verified === true)?.id || null;
+    if (this.inbox.status !== 'ready' || this.aiBlocked) return null;
+    return this.tasks.find(task => !this.refining.has(task.id) && this.autoRefinable(task, now))?.id || null;
   }
 
   async refine(id, refiner, { automatic = false, onStarted } = {}) {
     const start = await this.serialize(async () => {
       const task = this.getTask(id);
       const note = this.notes.get(task.noteId);
-      if (automatic && (!task.autoPending || note?.verified !== true || task.refined !== 'none')) return null;
+      if (automatic && (this.aiBlocked || !this.autoRefinable(task))) return null;
       if (this.refining.has(id)) return null;
       if (!note || this.inbox.status !== 'ready') throw new CalendarError('다듬을 원문을 불러올 수 없습니다.');
       this.refining.add(id);
@@ -1333,6 +1364,7 @@ class CalendarStore {
     onStarted?.();
     let result;
     let failure;
+    let stopped = false;
     try {
       const { attachments, ...note } = start.note;
       const answer = resultValue(await refiner({ ...note, attachmentNames: attachments.map(item => item.name) }, {
@@ -1342,16 +1374,25 @@ class CalendarStore {
       result = { ...closePastDeadlines(withReceivedDay(answer, note.datetime), start.task.rangeImported), aiAnswer: { ...answerOf(answer), uncertain: answer.uncertain === true } };
     } catch (error) {
       failure = error instanceof CalendarError ? error.message : 'AI 정리를 완료하지 못했습니다. 다시 시도해 주세요.';
+      stopped = error?.aiStop === true;
     }
     try {
       return await this.serialize(async () => {
         this.refining.delete(id);
         const current = this.getTask(id);
         if (current.revision !== start.task.revision) return { status: 'edited', task: this.taskView(current) };
-        const updated = await this.replace(current, failure ? { refined: 'failed', autoPending: false } : {
+        if (stopped) this.aiBlocked = { message: failure, at: new Date().toISOString() };
+        else if (!failure) this.aiBlocked = null;
+        // 연결이 막힌 것은 이 쪽지 탓이 아니다. 자동 분류였으면 차례를 그대로 두고 연결이 풀리면 다시 보낸다.
+        if (stopped && automatic) return { status: 'blocked', task: this.taskView(current), message: failure };
+        const attempts = (current.refined === 'failed' ? current.refineFailure?.attempts ?? 1 : 0) + 1;
+        const updated = await this.replace(current, failure ? {
+          refined: 'failed', autoPending: false,
+          refineFailure: { message: failure, at: new Date().toISOString(), attempts, retry: !stopped }
+        } : {
           ...result, ...(result.type === '없음' && { dates: current.dates || [] }),
           done: false, replied: false, referenceSeen: false,
-          refined: 'done', autoPending: false, revision: current.revision + 1
+          refined: 'done', autoPending: false, refineFailure: undefined, revision: current.revision + 1
         });
         return { status: failure ? 'failed' : 'done', task: updated, message: failure };
       });
@@ -1442,4 +1483,4 @@ function workMarkdown(task, note, attachments) {
   return `${sections.join('\n\n')}\n`;
 }
 
-module.exports = { CalendarStore, CalendarError, TYPES, TOOLS };
+module.exports = { CalendarStore, CalendarError, aiStopError, TYPES, TOOLS };

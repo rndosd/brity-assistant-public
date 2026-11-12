@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 
-const WINDOW = 5 * 60_000;
+// 묶음 = 한 번 가져올 때 들어온 새 글(같은 observedAt). 가져오자마자 처리한다(2026-11-12 사용자: 5분 기다림 없앰).
 const CONTEXT_AGE = 24 * 60 * 60_000;
 const CONTEXT_COUNT = 30;
 const ROOM_FILE = /^[a-f0-9]{64}\.json$/;
@@ -31,10 +31,9 @@ function* roomBatches(roomKey, roomTitle, messages, start, limit, now, processed
   const arrival = index => arrivals[index - firstRelevant];
   while (start < validEnd) {
     const openedAt = arrival(start);
-    const closesAt = openedAt + WINDOW;
-    if (closesAt > now) break;
+    if (openedAt > now) break;
     let end = start + 1;
-    while (end < validEnd && arrival(end) < closesAt && arrival(end) <= now) end++;
+    while (end < validEnd && arrival(end) === openedAt) end++;
     let contextStart = start;
     while (contextStart > firstRelevant && start - contextStart < CONTEXT_COUNT &&
            arrival(contextStart - 1) >= openedAt - CONTEXT_AGE) contextStart--;

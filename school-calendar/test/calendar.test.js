@@ -299,7 +299,7 @@ test('팩트챗 연결은 암호화된 키를 저장하고 자동 분류를 켜�
   assert.equal(off.settings.automatic, false);
 });
 
-test('대화방별 5분 묶음은 후보로 남고, 올린 업무의 변경·취소는 선생님이 고른 업무에만 반영한다', async (t) => {
+test('대화방 묶음(한 번 가져온 새 글)은 바로 후보로 남고, 올린 업무의 변경·취소는 선생님이 고른 업무에만 반영한다', async (t) => {
   const { dataDir, makeStore } = await setup(t);
   const chats = path.join(dataDir, 'chats');
   await fs.mkdir(chats, { recursive: true });
@@ -322,9 +322,10 @@ test('대화방별 5분 묶음은 후보로 남고, 올린 업무의 변경·취
   const store = await makeStore();
   const manual = await store.create({ title: '직접 입력한 시험 업무', due: '2026-11-12' });
   const chatTasks = instance => instance.snapshot().tasks.filter(task => task.chatSource);
-  await store.refreshChat(now(4));
+  // 기다리지 않고 바로 처리한다(묶음은 같은 때 가져온 글).
+  await store.refreshChat(now(2));
   assert.deepEqual(chatTasks(store), []);
-  assert.equal(store.chatProgress.size, 0);
+  assert.equal(store.chatProgress.size, 2);
   await store.refreshChat(now(6));
   assert.deepEqual(chatTasks(store), []);
   assert.deepEqual([...store.chatProgress.values()].map(point => point.count).sort(), [1, 8]);
@@ -332,9 +333,7 @@ test('대화방별 5분 묶음은 후보로 남고, 올린 업무의 변경·취
   conversation.push(chat(7, '그럼 그 시간으로 확정하겠습니다.'));
   await journal(room, conversation);
   const restarted = await makeStore();
-  await restarted.refreshChat(now(11));
-  assert.deepEqual(chatTasks(restarted), []);
-  await restarted.refreshChat(now(12));
+  await restarted.refreshChat(now(7));
   const [meeting] = chatTasks(restarted);
   assert.equal(chatTasks(restarted).length, 1);
   assert.equal(meeting.title, '연구부 회의');
@@ -392,8 +391,8 @@ test('대화방별 5분 묶음은 후보로 남고, 올린 업무의 변경·취
 
   conversation.push(
     chat(26, '연구부 회의는 11월 25일 오후 2시로 확정합니다.'),
-    chat(27, '연구부 회의는 11월 26일 오후 2시로 확정합니다.'),
-    chat(28, '연구부 회의는 11월 25일 오후 2시로 확정합니다.')
+    chat(26, '연구부 회의는 11월 26일 오후 2시로 확정합니다.'),
+    chat(26, '연구부 회의는 11월 25일 오후 2시로 확정합니다.')
   );
   await journal(room, conversation);
   await finished.refreshChat(now(31));
@@ -411,7 +410,7 @@ test('대화방별 5분 묶음은 후보로 남고, 올린 업무의 변경·취
 
   conversation.push(
     chat(32, '연구부 회의는 11월 27일 오후 2시로 확정합니다.'),
-    chat(33, '연구부 회의는 11월 27일에서 11월 28일 오후 3시로 변경되었습니다.')
+    chat(32, '연구부 회의는 11월 27일에서 11월 28일 오후 3시로 변경되었습니다.')
   );
   await journal(room, conversation);
   await finished.refreshChat(now(37));
@@ -914,4 +913,62 @@ test('AI의 원래 답에 확인 필요 표시를 남기고, 같은 유형으로
   assert.equal(moved.type, '할 일');
   assert.equal(store.tasks[0].correction.ai.uncertain, true);
   assert.equal(store.tasks[0].correction.value.type, '할 일');
+});
+
+test('분류 실패는 사유를 남겨 다시 정하게 하고, 잠깐 생긴 오류는 1분 뒤 한 번 더, 연결 오류면 자동 분류를 멈춘다', async (t) => {
+  const { CalendarError, aiStopError } = require('../store');
+  const { makeStore, notes } = await setup(t);
+  const store = await makeStore();
+  await store.setAutomatic(true);
+  await store.refresh();
+  await writeNote(notes, note(noteId));
+  await writeNote(notes, note(otherId));
+  await store.refresh();
+  const first = store.nextAutomatic();
+  assert.ok(first);
+
+  // 키 오류: 쪽지를 실패로 두지 않고 차례를 남긴 채 자동 분류를 멈춘다.
+  const blocked = await store.refine(first, async () => { throw aiStopError('키가 올바르지 않습니다.'); }, { automatic: true });
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(store.snapshot().aiBlocked, '키가 올바르지 않습니다.');
+  assert.equal(store.snapshot().tasks.find(task => task.id === first).queued, true);
+  assert.equal(store.nextAutomatic(), null);
+  await store.saveAiConnection('factchat', 'ENCRYPTED');
+  assert.equal(store.snapshot().aiBlocked, null);
+
+  // 시간 초과: 실패로 남기고 사유를 저장한다. 1분이 지나면 한 번 더, 두 번째 실패 뒤에는 더 보내지 않는다.
+  await store.setAutomatic(true);
+  await writeNote(notes, note('0_202611100000000005_0'));
+  await store.refresh();
+  const id = store.nextAutomatic();
+  const timeout = async () => { throw new CalendarError('90초 안에 응답하지 않았습니다.'); };
+  const failed = await store.refine(id, timeout, { automatic: true });
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.task.refineFailure.message, '90초 안에 응답하지 않았습니다.');
+  assert.equal(failed.task.refineFailure.attempts, 1);
+  assert.equal(store.nextAutomatic(), null);
+  const later = Date.now() + 61_000;
+  assert.equal(store.nextAutomatic(later), id);
+  t.mock.timers.enable({ apis: ['Date'], now: later });
+  const again = await store.refine(id, timeout, { automatic: true });
+  assert.equal(again.task.refineFailure.attempts, 2);
+  assert.equal(store.nextAutomatic(later + 120_000), null);
+  t.mock.timers.reset();
+
+  // 선생님이 유형을 고르면 실패 표시를 지운다.
+  const chosen = await store.update(id, { type: '알아 둘 것', revision: again.task.revision });
+  assert.equal(chosen.refineFailure, undefined);
+});
+
+test('업무 추가는 날짜 고치기와 같이 마감·일정·기간과 시간·교시를 받는다', async (t) => {
+  const { makeStore } = await setup(t);
+  const store = await makeStore();
+  await store.refresh();
+  const plain = await store.create({ title: '자료 제출', due: '2026-11-20' });
+  assert.deepEqual(plain.dates, [{ date: '2026-11-20', label: '자료 제출', kind: '까지', done: false }]);
+  const event = await store.create({ title: '학년 협의', due: '2026-11-20', kind: '그날', time: ' 6교시 ' });
+  assert.deepEqual(event.dates, [{ date: '2026-11-20', label: '학년 협의', kind: '그날', time: '6교시' }]);
+  const span = await store.create({ title: '독서 주간', due: '2026-11-23', kind: '기간', end: '2026-11-27', time: '' });
+  assert.deepEqual(span.dates, [{ date: '2026-11-23', label: '독서 주간', kind: '기간', end: '2026-11-27' }]);
+  await assert.rejects(store.create({ title: '틀린 기간', due: '2026-11-23', kind: '기간', end: '2026-11-22' }), /끝 날짜/);
 });

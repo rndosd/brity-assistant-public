@@ -22,7 +22,7 @@ $AE = [System.Windows.Automation.AutomationElement]
 $CT = [System.Windows.Automation.ControlType]
 $TS = [System.Windows.Automation.TreeScope]
 
-Add-Type -TypeDefinition @'
+$brityWinSource = @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -54,6 +54,23 @@ namespace BrityWin {
     }
 }
 '@
+# Compiling this on every run costs about 0.45 s (measured 2026-11-12), so keep the compiled DLL per source hash.
+# Any problem with the cache falls back to compiling in memory.
+try {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($brityWinSource))[0..7] | ForEach-Object { $_.ToString('x2') })
+    $cacheDir = Join-Path $env:LOCALAPPDATA 'BrityAssistant'
+    $dll = Join-Path $cacheDir "BrityWin-$hash.dll"
+    if (-not (Test-Path -LiteralPath $dll)) {
+        New-Item -ItemType Directory -Force $cacheDir | Out-Null
+        $tmp = "$dll.$PID.tmp"
+        Add-Type -TypeDefinition $brityWinSource -OutputAssembly $tmp -OutputType Library
+        try { Move-Item -LiteralPath $tmp -Destination $dll -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
+    }
+    Add-Type -Path $dll
+} catch {
+    Add-Type -TypeDefinition $brityWinSource
+}
 
 function New-Cond($prop, $val) { New-Object System.Windows.Automation.PropertyCondition($prop, $val) }
 function Norm([string]$s) { if ($null -eq $s) { return '' }; return ($s -replace '\s+', ' ').Trim() }
@@ -93,20 +110,41 @@ function Test-NoteHeader($detail, $note) {
         (Norm $detail.datetime) -ceq (Norm $note.datetime) -and (Norm $detail.title) -ceq (Norm $note.title)
 }
 
+# Reply buttons named like the label: exact, with spaces around it, or with an ending such as "Reply (R)".
+# A name that only contains the label elsewhere (for example "reply all") does not count.
+function Find-ReplyButtons($root) {
+    $found = @()
+    $label = Norm $L.replyButton
+    foreach ($b in $root.FindAll($TS::Descendants, (New-Cond $AE::ControlTypeProperty $CT::Button))) {
+        $n = Norm $b.Current.Name
+        if ($n -ceq $label -or ($n.StartsWith($label) -and $n.Length -gt $label.Length -and $n[$label.Length] -match '[\s(\[]')) {
+            $found += $b
+        }
+    }
+    return $found
+}
+
+# The note is already shown in Brity when this runs. Every failure here still leaves it on screen.
 function Open-ReplyComposer($win, $note, $detailGroup) {
     if (@(Get-ComposeHandles).Count) { return 'reply-in-use' }
-    $condition = [System.Windows.Automation.AndCondition]::new(
-        (New-Cond $AE::ControlTypeProperty $CT::Button),
-        (New-Cond $AE::NameProperty $L.replyButton)
-    )
-    $buttons = $detailGroup.FindAll($TS::Descendants, $condition)
-    if ($buttons.Count -ne 1) { return 'reply-unavailable' }
-    $replyButton = $buttons.Item(0)
+    # The button can draw a moment after the detail pane, and can sit outside it (a toolbar above).
+    $replyButton = $null
+    # Short polls everywhere below: each lookup takes about 20 ms (measured 2026-11-12), the wait was the cost.
+    for ($i = 0; $i -lt 30 -and -not $replyButton; $i++) {
+        if ($i) { Start-Sleep -Milliseconds 100 }
+        $detail = Read-Detail $win
+        if ($detail) { $detailGroup = $detail.group }
+        $buttons = @()
+        if ($detailGroup) { $buttons = @(Find-ReplyButtons $detailGroup) }
+        if (-not $buttons.Count) { $buttons = @(Find-ReplyButtons $win) }
+        if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { $replyButton = $buttons[0] }
+    }
+    if (-not $replyButton) { return 'reply-unavailable' }
     if (-not (Test-NoteHeader (Read-Detail $win) $note)) { return 'unverified' }
-    if (-not $replyButton.Current.IsEnabled -or -not (Invoke-El $replyButton)) { return 'reply-unavailable' }
+    if (-not (Invoke-El $replyButton)) { return 'reply-unavailable' }
 
-    for ($i = 0; $i -lt 20; $i++) {
-        Start-Sleep -Milliseconds 250
+    for ($i = 0; $i -lt 50; $i++) {
+        Start-Sleep -Milliseconds 100
         $handles = @(Get-ComposeHandles)
         if ($handles.Count -gt 1) { return 'reply-in-use' }
         if ($handles.Count -eq 1) {
@@ -133,7 +171,7 @@ function Show-OriginalNote($note, [switch]$Reply) {
     try {
         try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
         if (-not $locked) { return 'busy' }
-        if ($Reply -and @(Get-ComposeHandles).Count) { return 'reply-in-use' }
+        # A compose window already open: still show the note; Open-ReplyComposer reports reply-in-use.
         $win = Get-AppWindow -MainOnly
         if (-not $win) { return 'offline' }
         $handle = [IntPtr]$win.Current.NativeWindowHandle
@@ -141,21 +179,24 @@ function Show-OriginalNote($note, [switch]$Reply) {
         if ([BrityWin.Finder]::IsIconic($handle) -or -not [BrityWin.Finder]::IsWindowVisible($handle)) {
             [void][BrityWin.Finder]::ShowWindowAsync($handle, 9)
         }
-        for ($i = 0; $i -lt 8 -and [BrityWin.Finder]::GetForegroundWindow() -ne $handle; $i++) {
+        for ($i = 0; $i -lt 20 -and [BrityWin.Finder]::GetForegroundWindow() -ne $handle; $i++) {
             [void][BrityWin.Finder]::SetForegroundWindow($handle)
-            Start-Sleep -Milliseconds 125
+            Start-Sleep -Milliseconds 50
         }
         $list = Find-ByName $win $CT::List $L.noteListName
         if (-not $list) {
             $menu = Find-ByName $win $CT::Button $L.noteMenu
             if (-not $menu -or -not (Invoke-El $menu)) { return 'unavailable' }
+            for ($i = 0; $i -lt 40 -and -not (Find-ByName $win $CT::List $L.noteListName); $i++) { Start-Sleep -Milliseconds 150 }
         }
+        # An older note is not on screen: scroll the list to it.
+        [void](Find-NoteRow $win $note.id)
         $rowCondition = [System.Windows.Automation.AndCondition]::new(
             (New-Cond $AE::ControlTypeProperty $CT::ListItem),
             (New-Cond $AE::AutomationIdProperty $note.id)
         )
         $invoked = $false
-        for ($i = 0; $i -lt 20; $i++) {
+        for ($i = 0; $i -lt 60; $i++) {
             $list = Find-ByName $win $CT::List $L.noteListName
             if ($list) {
                 $rows = $list.FindAll($TS::Descendants, $rowCondition)
@@ -164,7 +205,7 @@ function Show-OriginalNote($note, [switch]$Reply) {
                     $row = $rows.Item(0)
                     $name = Norm $row.Current.Name
                     if (-not $name.Contains((Norm $note.sender)) -or -not $name.Contains((Norm $note.title))) { return 'not-found' }
-                    if (-not $invoked -or $i -in 7, 13) { $invoked = Invoke-El $row }
+                    if (-not $invoked -or $i -in 20, 40) { $invoked = Invoke-El $row }
                     $detail = Read-Detail $win
                     if ($invoked -and (Test-NoteHeader $detail $note)) {
                         if ($Reply) { return (Open-ReplyComposer $win $note $detail.group) }
@@ -173,7 +214,7 @@ function Show-OriginalNote($note, [switch]$Reply) {
                     }
                 }
             }
-            Start-Sleep -Milliseconds 350
+            Start-Sleep -Milliseconds 120
         }
         if ($invoked) { return 'unverified' }
         return 'not-found'
@@ -211,6 +252,74 @@ function Get-NoteItems($list) {
         })
     }
     return $items
+}
+
+# The note list is virtual: UI Automation exposes only the 10 or so rows on screen (measured 2026-11-12).
+# ScrollItemPattern on the edge row brings the next rows in, about a second later. There is no ScrollPattern.
+function Get-NoteRows($win) {
+    $list = Find-ByName $win $CT::List $L.noteListName
+    if (-not $list) { return @() }
+    return @($list.FindAll($TS::Descendants, (New-Cond $AE::ControlTypeProperty $CT::ListItem)))
+}
+
+# One step down (or up). True when the edge row changed, false at the end of the list.
+function Move-NoteList($win, [switch]$Up) {
+    try {
+        $rows = Get-NoteRows $win
+        if (-not $rows.Count) { return $false }
+        $edge = if ($Up) { $rows[0] } else { $rows[-1] }
+        $edgeId = $edge.Current.AutomationId
+        $p = $null
+        if (-not $edge.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$p)) { return $false }
+        $p.ScrollIntoView()
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 260
+            $rows = Get-NoteRows $win
+            if ($rows.Count) {
+                $now = if ($Up) { $rows[0] } else { $rows[-1] }
+                if ($now.Current.AutomationId -ne $edgeId) { return $true }
+            }
+        }
+    } catch {}
+    return $false
+}
+
+function Reset-NoteList($win) {
+    for ($i = 0; $i -lt 400; $i++) { if (-not (Move-NoteList $win -Up)) { return } }
+}
+
+# Every note in the list, newest first, read by scrolling down. With -Since (yyyy-MM-dd) stop once the rows on
+# screen are all older than that day. Leaves the list scrolled down: call Reset-NoteList when done.
+function Get-AllNoteItems($win, [string]$Since) {
+    $seen = [ordered]@{}
+    for ($i = 0; $i -lt 400; $i++) {
+        $list = Find-ByName $win $CT::List $L.noteListName
+        if (-not $list) { break }
+        $batch = @(Get-NoteItems $list)
+        foreach ($it in $batch) { if (-not $seen.Contains($it.id)) { $seen[$it.id] = $it } }
+        if ($Since -and $batch.Count) {
+            $older = @($batch | Where-Object { $d = Get-ListDate $_.text; $d -and ($d -lt $Since) })
+            if ($older.Count -eq $batch.Count) { break }
+        }
+        if (-not (Move-NoteList $win)) { break }
+    }
+    return @($seen.Values)
+}
+
+# The row of one note, scrolling to it when it is not on screen.
+function Find-NoteRow($win, [string]$id) {
+    $cond = New-Cond $AE::AutomationIdProperty $id
+    $el = $win.FindFirst($TS::Descendants, $cond)
+    if ($el) { return $el }
+    foreach ($pass in 0, 1) {
+        if ($pass -eq 1) { Reset-NoteList $win; $el = $win.FindFirst($TS::Descendants, $cond); if ($el) { return $el } }
+        for ($i = 0; $i -lt 400; $i++) {
+            if (-not (Move-NoteList $win)) { break }
+            $el = $win.FindFirst($TS::Descendants, $cond)
+            if ($el) { return $el }
+        }
+    }
+    return $null
 }
 
 function Read-Detail($win) {
@@ -326,7 +435,17 @@ if (-not $list) {
     }
     if (-not $list) { Write-Output 'ERROR: note list not found'; exit 3 }
 }
-$items = @(Get-NoteItems $list)
+# New notes are at the top. A list left scrolled down would hide them, so go back up first.
+Reset-NoteList $win
+$ranged = [bool]($From -or $To)
+if ($ranged) {
+    . (Join-Path $PSScriptRoot 'list-date.ps1')
+    $items = @(Get-AllNoteItems $win $From)
+} else {
+    $list = Find-ByName $win $CT::List $L.noteListName
+    if (-not $list) { Write-Output 'ERROR: note list not found'; exit 3 }
+    $items = @(Get-NoteItems $list)
+}
 
 $notesDir = Join-Path $Inbox 'notes'
 New-Item -ItemType Directory -Force $notesDir | Out-Null
@@ -338,8 +457,7 @@ $targets = @()
 if ($Id) { $Id = @($Id | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }  # -File passes "a,b" as one string
 if ($Id) { $targets = @($items | Where-Object { $Id -contains $_.id }) }
 elseif ($From -or $To) {
-    # Past notes by date (calendar "load past notes"). Only notes the list shows right now can be reached.
-    . (Join-Path $PSScriptRoot 'list-date.ps1')
+    # Past notes by date (calendar "load past notes"), read or unread. $items holds the whole list down to -From.
     foreach ($it in $items) { $it | Add-Member -NotePropertyName listDate -NotePropertyValue (Get-ListDate $it.text) -Force }
     $lo = if ($From) { $From } else { '0000-00-00' }
     $hi = if ($To) { $To } else { '9999-99-99' }
@@ -349,6 +467,7 @@ elseif ($From -or $To) {
     if ($ListOnly) {
         $dates = @($items | Where-Object { $_.listDate } | ForEach-Object { $_.listDate } | Sort-Object)
         $oldest = ''; if ($dates.Count) { $oldest = $dates[0] }
+        Reset-NoteList $win
         Write-Output ("range-preview visible={0} matched={1} new={2} unknown={3} oldest={4}" -f $items.Count, $inRange.Count, $fresh.Count, $unknown, $oldest)
         return
     }
@@ -358,7 +477,7 @@ elseif ($Open) { $targets = @($items | Where-Object { $_.unread -and ($processed
 
 $opened = @()
 foreach ($t in $targets) {
-    $el = $win.FindFirst($TS::Descendants, (New-Cond $AE::AutomationIdProperty $t.id))
+    $el = Find-NoteRow $win $t.id
     if (-not $el) { $opened += [pscustomobject]@{ id = $t.id; error = 'list item not found' }; continue }
     # The pane updates in steps (header first, body and files later), so a matching header is not enough.
     # Accept only when two reads in a row are identical AND the body/files are no longer the previous note's.
@@ -402,6 +521,7 @@ foreach ($t in $targets) {
     if ($ok -and ($processed -notcontains $t.id)) { $processed += $t.id }
     $opened += $note
 }
+if ($ranged -or $Id) { Reset-NoteList $win }
 
 [pscustomobject]@{ processed = $processed } | ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8
 [pscustomobject]@{ collectedAt = (Get-Date).ToString('s'); list = $items; opened = $opened } |

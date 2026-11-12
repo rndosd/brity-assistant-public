@@ -30,3 +30,19 @@ test('기간 날짜는 시작일·끝일을 갖고, AI가 끝일을 틀리게 �
   // 상시 기준일: 끝나지 않은 기간은 오늘도 걸린다.
   assert.equal(model.pinnedDue({ dates: [ai.dates[0]] }, '2030-05-15'), ai.dates[0]);
 });
+
+test('시간·교시는 선생님 입력에서만 남고 AI 답에서는 버린다', () => {
+  const typed = model.normalizeDates([
+    { date: '2030-05-13', label: '학년 협의', kind: '그날', time: ' 6교시 ' },
+    { date: '2030-05-14', label: '자료 제출', kind: '까지', time: '' },
+    { date: '2030-05-15', label: '전교직원 회의', kind: '그날', time: '15:30부터 아주 길게 적은 시간' }
+  ], '업무', true);
+  assert.equal(typed[0].time, '6교시');
+  assert.equal('time' in typed[1], false);
+  assert.equal(typed[2].time.length <= model.TIME_MAX, true);
+  const ai = model.fromResult({
+    type: '할 일', title: '협의', summary: '', uncertain: false,
+    dates: [{ date: '2030-05-13', label: '학년 협의', kind: '그날', time: '15:30' }]
+  }, '협의');
+  assert.equal('time' in ai.dates[0], false);
+});

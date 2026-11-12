@@ -8,6 +8,13 @@ const taskModel = (() => {
   const DATE_KINDS = ['까지', '그날', '기간'];
   const MAX_DATES = 3;
   const LABEL_MAX = 40;
+  // 시간·교시(선택): 선생님이 직접 적은 그대로("6교시", "15:30"). AI는 채우지 않는다
+  // (2026-11-12 시험에서 시작 시각과 준비·회신 시각을 못 가려 자동 분류는 뺐다).
+  const TIME_MAX = 12;
+
+  function cleanTime(value) {
+    return (typeof value === 'string' ? value : '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, TIME_MAX).trim();
+  }
 
   function validDate(value) {
     if (typeof value !== 'string' || !/^(?!0000)\d{4}-\d\d-\d\d$/.test(value)) return false;
@@ -46,6 +53,9 @@ const taskModel = (() => {
         continue;
       }
       if (entry.kind === '까지') entry.done = item.done === true;
+      // 시간·교시는 선생님 입력(strict)에서만 받는다. AI 답에 있어도 버린다.
+      const time = strict ? cleanTime(item.time) : '';
+      if (time) entry.time = time;
       if (result.some(other => other.date === entry.date && other.kind === entry.kind)) continue;
       result.push(entry);
     }
@@ -136,7 +146,7 @@ const taskModel = (() => {
     return value.split(/[,;]/).map(part => part.trim()).filter(Boolean).length || null;
   }
 
-  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, boxes, finished, isPinned, pinnedDue, recipientCount };
+  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, boxes, finished, isPinned, pinnedDue, recipientCount };
 })();
 
 if (typeof module !== 'undefined') module.exports = taskModel;

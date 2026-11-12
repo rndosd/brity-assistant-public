@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
-const { CalendarError } = require('./store');
+const { CalendarError, aiStopError } = require('./store');
 const { buildNoteInput } = require('./note-text');
 
 const WINDOWS = process.env.SystemRoot || 'C:\\Windows';
@@ -52,14 +52,14 @@ function run(file, args, { input = '', signal, tree = false, ...options } = {}) 
 async function resolveCodex(explicit, signal) {
   const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', RESOLVER];
   if (explicit) {
-    if (typeof explicit !== 'string' || !path.isAbsolute(explicit)) throw new CalendarError('settings.json에서 Codex 실행 파일 경로를 확인해 주세요.');
+    if (typeof explicit !== 'string' || !path.isAbsolute(explicit)) throw aiStopError('settings.json에서 Codex 실행 파일 경로를 확인해 주세요.');
     args.push('-Explicit', explicit);
   }
   try {
     return (await run(POWERSHELL, args, { signal })).trim();
   } catch (error) {
     if (signal.aborted) throw signal.reason;
-    throw new CalendarError('이 PC에서 Codex CLI를 찾지 못했습니다. 설정의 ‘CLI 설치와 로그인 안내’대로 설치하고 로그인한 뒤 다시 시험하거나, API 키 방식을 고르세요.');
+    throw aiStopError('이 PC에서 Codex CLI를 찾지 못했습니다. 설정의 ‘CLI 설치와 로그인 안내’대로 설치하고 로그인한 뒤 다시 시험하거나, API 키 방식을 고르세요.');
   }
 }
 

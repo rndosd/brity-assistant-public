@@ -7,9 +7,15 @@
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$summary = [pscustomobject]@{ status = 'offline'; rooms = 0; read = 0; baselines = 0; added = 0; needsReview = 0; retry = 0 }
+$summary = [pscustomobject]@{ status = 'offline'; rooms = 0; read = 0; baselines = 0; added = 0; needsReview = 0; retry = 0; gaps = 0; scrolled = 0; holds = @(); baselineKeys = @() }
+# 방마다 보류·끊김 사유를 남긴다(앱이 방 이름과 함께 보여 준다). missing: 목록에서 못 찾음, unstable: 글을 다 읽지 못함,
+# mismatch: 다른 방이 열림, error: 그 밖의 오류, gap: 겹치는 글을 못 찾아 중간 글이 빠졌을 수 있음.
+function Add-RoomHold([string]$key, [string]$reason) {
+    $summary.holds = @($summary.holds) + @([pscustomobject]@{ key = $key; reason = $reason })
+}
 if ($ListRooms -and $Rooms.Count) { throw 'List rooms separately from collecting them.' }
-if (@($Rooms | Where-Object { $_ -cnotmatch '^[0-9a-f]{64}$' }).Count) { throw 'Invalid room key.' }
+# Without -Rooms, $Rooms is $null and "$null | Where-Object" still sends one item: check only when rooms were given.
+if ($Rooms -and @($Rooms | Where-Object { $_ -cnotmatch '^[0-9a-f]{64}$' }).Count) { throw 'Invalid room key.' }
 if (-not $ListRooms -and -not $Rooms.Count) {
     $summary.status = 'ready'
     return $summary
@@ -46,10 +52,11 @@ function Assert-BrityMinimized {
     $foreground = [BrityChat.Window]::GetForegroundWindow()
     [void][BrityChat.Window]::GetWindowThreadProcessId($foreground, [ref]$foregroundProcess)
     $minimized = [BrityChat.Window]::IsIconic($handle)
+    # 브리티 창이 맨 앞에 보이면(선생님이 쓰는 중) 멈춘다. 다른 창 뒤에 있거나 최소화돼 있으면 읽는다(2026-11-12 사용자:
+    # 최소화일 때만 돌 필요는 없다). 최소화 직후에도 Windows가 브리티를 맨 앞으로 알릴 수 있어 보이는지도 본다.
     $brityWindowShown = $foregroundProcess -in $processes.Id -and
         [BrityChat.Window]::IsWindowVisible($foreground) -and -not [BrityChat.Window]::IsIconic($foreground)
-    # Windows can still report the main handle as foreground after minimizing it.
-    if (-not $minimized -or $brityWindowShown) {
+    if ($brityWindowShown) {
         $summary | Add-Member -Force -NotePropertyName windowState -NotePropertyValue ([pscustomobject]@{
             minimized = $minimized
             foregroundIsMain = $foreground -eq $handle
@@ -57,7 +64,7 @@ function Assert-BrityMinimized {
             foregroundVisible = [BrityChat.Window]::IsWindowVisible($foreground)
             foregroundMinimized = [BrityChat.Window]::IsIconic($foreground)
         })
-        throw [OperationCanceledException]::new('Brity is no longer minimized.')
+        throw [OperationCanceledException]::new('Brity is in use.')
     }
 }
 
@@ -145,6 +152,32 @@ function Read-SelectedRoom([string]$label) {
     [pscustomobject]@{ title = $titles[0]; messages = $rows; fingerprint = (ConvertTo-Json -InputObject $rows -Compress) }
 }
 
+# 지난번 마지막 글과 겹치는 곳이 화면에 없으면 맨 위 글로 스크롤해 옛 글을 더 불러온다(몇 번까지).
+# 옛 글이 실제로 더 불러와지는지는 글이 많은 방에서 아직 확인하지 못했다(2026-11-12, 최소화 상태에서는 스크롤 영역이 잡히지 않았다).
+function Read-RoomBack($snapshot, [string]$label, [string[]]$tail) {
+    if (-not $tail.Count) { return $snapshot }
+    foreach ($round in 1..6) {
+        if ((Get-BrityChatOverlap -Previous $tail -Current (Get-BrityChatFingerprints -Messages $snapshot.messages)) -gt 0) { return $snapshot }
+        Assert-BrityMinimized
+        Assert-BrityInputIdle
+        $stream = $main.FindFirst($scope::Descendants, $streams)
+        $first = if ($stream) { $stream.FindFirst($scope::Descendants, $messages) }
+        $item = $null
+        if (-not $first -or -not $first.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$item)) { return $snapshot }
+        $item.ScrollIntoView()
+        $longer = $null
+        foreach ($attempt in 1..12) {
+            Start-Sleep -Milliseconds 500
+            $current = Read-SelectedRoom $label
+            if ($current -and $current.messages.Count -gt $snapshot.messages.Count) { $longer = $current; break }
+        }
+        if (-not $longer) { return $snapshot }
+        $summary.scrolled++
+        $snapshot = $longer
+    }
+    $snapshot
+}
+
 function Read-StableRoom($button, [string]$label) {
     $first = Read-SelectedRoom $label
     $previousFingerprint = $null
@@ -180,7 +213,7 @@ try {
     if ($windows.Count -ne 1) { $summary.status = 'unavailable'; return $summary }
     $main = $windows[0]
     $handle = [IntPtr]$main.Current.NativeWindowHandle
-    if (-not [BrityChat.Window]::IsIconic($handle)) { $summary.status = 'waiting'; return $summary }
+    try { Assert-BrityMinimized } catch [OperationCanceledException] { $summary.status = 'waiting'; return $summary }
     $route = Get-BrityRoute
     if ($route -cne '#/chat') {
         $menu = Find-BrityButton '대화 메뉴'
@@ -233,27 +266,30 @@ try {
         Assert-BrityMinimized
         try {
             $candidates = @(Get-RoomButtons $panel | ForEach-Object { Get-RoomChoice $_ } | Where-Object key -CEQ $key)
-            if ($candidates.Count -ne 1) { $summary.retry++; continue }
+            if ($candidates.Count -ne 1) { $summary.retry++; Add-RoomHold $key 'missing'; continue }
             $choice = $candidates[0]
             $snapshot = Read-StableRoom $choice.button $choice.fullLabel
-            if (-not $snapshot) { $summary.retry++; continue }
+            if (-not $snapshot) { $summary.retry++; Add-RoomHold $key 'unstable'; continue }
             Assert-BrityMinimized
             $matchingTitles = @(Get-RoomButtons $panel | Where-Object { Test-RoomLabel $_.Current.Name $snapshot.title })
             if ($matchingTitles.Count -ne 1 -or
                 ($matchingTitles[0].GetRuntimeId() -join ':') -cne ($choice.button.GetRuntimeId() -join ':') -or
                 $choice.label -cnotmatch ('^' + [regex]::Escape($snapshot.title) + '(?:\s+\d+)?$')) {
                 $summary.needsReview++
+                Add-RoomHold $key 'mismatch'
                 continue
             }
+            $snapshot = Read-RoomBack $snapshot $choice.fullLabel @(Get-BrityChatTail -Directory $Directory -RoomKey $snapshot.title)
             $saved = Save-BrityChatSnapshot -Directory $Directory -RoomKey $snapshot.title -RoomTitle $snapshot.title -Messages $snapshot.messages -ObservedAt ([DateTime]::UtcNow.ToString('o'))
             $summary.read++
             $summary.added += $saved.added
-            if ($saved.status -eq 'baseline') { $summary.baselines++ }
-            if ($saved.status -in 'gap', 'ambiguous') { $summary.needsReview++ }
+            if ($saved.status -eq 'baseline') { $summary.baselines++; $summary.baselineKeys = @($summary.baselineKeys) + @($key) }
+            if ($saved.status -eq 'gap') { $summary.gaps++; Add-RoomHold $key 'gap' }
         } catch [OperationCanceledException] {
             throw
         } catch {
             $summary.retry++
+            Add-RoomHold $key 'error'
         }
     }
 } catch [OperationCanceledException] {

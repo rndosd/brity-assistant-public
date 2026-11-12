@@ -85,7 +85,7 @@ async function seedDemoChats(tasksFile) {
   const tasks = Array.isArray(saved) ? saved : saved.tasks;
   const due = day(2);
   tasks.push({
-    id: randomUUID(), noteId: null, title: '교육과정 협의회', type: '할 일', dates: [{ date: due, label: '교육과정 협의회', kind: '그날' }],
+    id: randomUUID(), noteId: null, title: '교육과정 협의회', type: '할 일', dates: [{ date: due, label: '교육과정 협의회', kind: '그날', time: '6교시' }],
     done: false, reply: false, replied: false, uncertain: false, summary: '', memo: '', refined: 'none', chats: [], autoPending: false, revision: 1,
     chatSource: {
       roomKey: roomHash('demo-room-office'), roomTitle: '샘플 교무 업무방', batchId: '0'.repeat(64),
@@ -108,11 +108,34 @@ async function seedDemoSpans(tasksFile) {
   await fs.writeFile(tasksFile, JSON.stringify(Array.isArray(saved) ? tasks : { ...saved, tasks }, null, 2));
 }
 
+// 같은 업무 쪽지 두 번(2026-11-12): 전교직원 회의 안내와 재안내. 달력·목록에는 한 줄로 묶여 보인다. 없을 때만 더한다.
+async function seedDemoDuplicates(tasksFile) {
+  const saved = JSON.parse(await fs.readFile(tasksFile, 'utf8'));
+  const tasks = Array.isArray(saved) ? saved : saved.tasks;
+  if (tasks.some(task => task.noteId === 'demo-meeting-1')) return;
+  const notes = path.join(inboxDir, 'notes');
+  await fs.mkdir(notes, { recursive: true });
+  const meeting = day(4);
+  const copies = [
+    { noteId: 'demo-meeting-1', title: '전교직원 회의 안내', received: -3, label: '전교직원 회의', body: `${spoken(meeting)} 15시 30분 시청각실에서 전교직원 회의가 있습니다.` },
+    { noteId: 'demo-meeting-2', title: '[재안내] 전교직원 회의 개최', received: -1, label: '전교직원 회의 (시청각실)', body: `다시 안내드립니다. ${spoken(meeting)} 15시 30분 전교직원 회의에 참석해 주세요.` }
+  ];
+  for (const copy of copies) {
+    await fs.writeFile(path.join(notes, `${copy.noteId}.json`), JSON.stringify({ id: copy.noteId, title: copy.title, sender: '샘플 교무부', datetime: `${day(copy.received)} 09:30`, body: copy.body, verified: true, saved: [] }));
+    tasks.push({
+      id: randomUUID(), noteId: copy.noteId, title: copy.title, type: '할 일', dates: [{ date: meeting, label: copy.label, kind: '그날', time: '15:30' }],
+      datetime: `${day(copy.received)} 09:30`, done: false, reply: false, replied: false, uncertain: false, summary: '', memo: '', refined: 'none', chats: [], autoPending: false, revision: 0
+    });
+  }
+  await fs.writeFile(tasksFile, JSON.stringify(Array.isArray(saved) ? tasks : { ...saved, tasks }, null, 2));
+}
+
 async function seedDemo() {
   const tasksFile = path.join(dataDir, 'tasks.json');
   if (await fs.stat(tasksFile).catch(error => { if (error.code !== 'ENOENT') throw error; })) {
     await seedDemoChats(tasksFile);
-    return seedDemoSpans(tasksFile);
+    await seedDemoSpans(tasksFile);
+    return seedDemoDuplicates(tasksFile);
   }
   const notes = path.join(inboxDir, 'notes');
   await fs.mkdir(notes, { recursive: true });
@@ -144,6 +167,7 @@ async function seedDemo() {
   }
   await seedDemoChats(tasksFile);
   await seedDemoSpans(tasksFile);
+  await seedDemoDuplicates(tasksFile);
 }
 
 function listChatRooms() {

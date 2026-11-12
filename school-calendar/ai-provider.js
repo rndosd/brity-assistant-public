@@ -1,6 +1,6 @@
 'use strict';
 
-const { CalendarError } = require('./store');
+const { CalendarError, aiStopError } = require('./store');
 const { refineNote, buildClassifierInput } = require('./refine');
 const { cleanReplyBody } = require('./note-text');
 const schema = require('./refinement-schema.json');
@@ -79,7 +79,7 @@ async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl }) 
 async function refineApi(provider, note, { rulesPath, apiKey, signal, profile, fetchImpl = fetch, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   const { name } = provider;
   if (typeof apiKey !== 'string' || !apiKey.trim()) {
-    throw new CalendarError(`AI 연결 설정에 ${name} 키를 먼저 등록해 주세요.`);
+    throw aiStopError(`AI 연결 설정에 ${name} 키를 먼저 등록해 주세요.`);
   }
   const failure = `${name}에서 정리를 받지 못했습니다.`;
   try {
@@ -94,7 +94,8 @@ async function refineApi(provider, note, { rulesPath, apiKey, signal, profile, f
     if (reply.value) return reply.value;
     if (reply.timeout) throw new CalendarError(`${name}가 ${REQUEST.timeoutMs / 1000}초 안에 응답하지 않았습니다. 다시 시도해 주세요.`);
     if (reply.limit) throw new CalendarError(`${failure} 답이 너무 길어 끝나지 않았습니다. 다시 시도해 주세요.`);
-    throw new CalendarError(apiError(reply.status, provider, failure));
+    const message = apiError(reply.status, provider, failure);
+    throw [401, 402, 403].includes(reply.status) ? aiStopError(message) : new CalendarError(message);
   } catch (error) {
     if (error instanceof CalendarError) throw error;
     throw new CalendarError(`${failure} 연결을 확인한 뒤 다시 시도해 주세요.`);
@@ -105,7 +106,7 @@ async function refineWithProvider(provider, note, options) {
   if (provider === 'codex') return refineNote(note, options);
   if (provider === 'claude') return require('./claude-cli').refineClaude(note, options);
   const connection = apiProviders.get(provider);
-  if (!connection) throw new CalendarError('설정에서 AI 연결 방식을 선택해 주세요.');
+  if (!connection) throw aiStopError('설정에서 AI 연결 방식을 선택해 주세요.');
   return refineApi(connection, note, options);
 }
 

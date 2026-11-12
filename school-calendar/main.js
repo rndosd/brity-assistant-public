@@ -37,6 +37,8 @@ let brityReplyRun;
 let pausingCollector = false;
 let collector = { status: 'idle', managed: false };
 let collectorCheckedAt = null;
+let activity = null;      // 'notes' | 'chats': 지금 브리티에서 읽는 중인 것(머리줄 진행 표시)
+let lastImported = null;  // 마지막 쪽지 확인에서 새로 받은 건수
 let chatRun = null;
 let lastChatCollection = null;
 let noteTimer = null;
@@ -79,7 +81,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt }, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -276,7 +278,12 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
         }
       }
       if (collector.managed && !closing && !pausingCollector) {
-        collector = await collectOnce({ scriptsDir, force, signal: lifetime.signal });
+        // 머리줄에 "브리티에서 쪽지 확인 중"을 보인다. 돌려주는 snapshot에 남지 않게 수집이 끝나면 바로 지운다.
+        activity = 'notes';
+        publish();
+        try { collector = await collectOnce({ scriptsDir, force, signal: lifetime.signal }); }
+        finally { activity = null; }
+        if (collector.status === 'ready') lastImported = Number.isSafeInteger(collector.imported) ? collector.imported : 0;
         if (collector.status === 'ready' && collector.inboxDir && collector.inboxDir !== store.inboxDir) {
           await store.saveCollectorConnection(collector.inboxDir);
         }
@@ -306,7 +313,7 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
   return collectorRun;
 }
 
-// 지난 쪽지 불러오기(3단계). 브리티 목록에 지금 보이는 쪽지만 닿는다(작업 나 실측 2026-11-12: 처음 10건, 날짜는 월·일).
+// 지난 쪽지 불러오기(3단계). 수집기가 브리티 목록을 내려 가며 시작일까지 읽는다(실측 2026-11-12: 한 번에 10줄쯤만 나와 스크롤, 날짜는 월·일).
 function rangeDays(from, to) {
   const day = /^\d{4}-\d{2}-\d{2}$/;
   if ((from && !day.test(from)) || (to && !day.test(to)) || (!from && !to)) throw new CalendarError('시작일과 끝일을 골라 주세요.');
@@ -399,18 +406,21 @@ function checkChatResult(result) {
   if (result.status === 'ready') return result;
   const messages = {
     offline: '브리티 메신저에 로그인한 뒤 다시 눌러 주세요.',
-    'in-use': '브리티 창을 최소화한 뒤 다시 눌러 주세요.',
+    'in-use': '브리티를 쓰는 중이라 읽지 않았습니다. 다른 창을 누른 뒤 다시 눌러 주세요.',
     conflict: '브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.'
   };
-  throw new CalendarError(messages[result.status] || '브리티 대화방을 읽지 못했습니다. 브리티 창을 한 번 열었다가 최소화한 뒤 다시 눌러 주세요.');
+  throw new CalendarError(messages[result.status] || '브리티 대화방을 읽지 못했습니다. 브리티 창을 한 번 열었다가 다른 창으로 옮긴 뒤 다시 눌러 주세요.');
 }
 
 function chatCollectionSummary(result, roomKeys, checkedAt) {
   const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
   const status = result.status === 'waiting' ? 'in-use' : result.status === 'busy' ? 'conflict' : result.status;
+  const holds = (Array.isArray(result.holds) ? result.holds : result.holds ? [result.holds] : [])
+    .filter(item => typeof item?.key === 'string' && typeof item.reason === 'string').map(({ key, reason }) => ({ key, reason }));
   return {
     roomKeys, checkedAt, status, added: count(result.added), read: count(result.read),
-    retry: count(result.retry), needsReview: count(result.needsReview)
+    retry: count(result.retry), needsReview: count(result.needsReview), baselines: count(result.baselines),
+    gaps: count(result.gaps), holds, candidates: count(result.candidates)
   };
 }
 
@@ -449,11 +459,41 @@ async function pollChats() {
   if (store.settings.collectorFirstImportPending || !store.autoRefreshValue('chats').enabled) return;
   const roomKeys = store.chatRooms().map(room => room.key);
   if (!roomKeys.length) return;
-  return runChatOperation(async () => {
-    const result = await collectChats({ ...chatOptions(), roomKeys });
-    lastChatCollection = chatCollectionSummary(result, roomKeys, Date.now());
-    if (!closing) await refresh();
-  });
+  return runChatOperation(() => collectChatRooms(roomKeys));
+}
+
+// 고른 방을 읽고, 새 글을 바로 묶어 후보를 찾는다(기다리지 않음). 머리줄은 읽는 중 → 후보 찾는 중으로 바뀐다.
+async function collectChatRooms(roomKeys) {
+  const live = () => new Set(store.tasks.filter(task => task.candidate && !task.candidate.discarded).map(task => task.id));
+  const before = live();
+  const result = await readChats(roomKeys);
+  if (!closing) {
+    activity = 'chat-deciding';
+    publish();
+    try { await refresh(); } finally { activity = null; }
+  }
+  const candidates = [...live()].filter(id => !before.has(id)).length;
+  lastChatCollection = chatCollectionSummary({ ...result, candidates }, roomKeys, Date.now());
+  publish();
+  return snapshot();
+}
+
+// 대화방을 읽는 동안 머리줄에 "브리티에서 대화방 읽는 중"을 보인다.
+async function readChats(roomKeys) {
+  activity = 'chats';
+  publish();
+  try { return await collectChats({ ...chatOptions(), roomKeys }); }
+  finally { activity = null; }
+}
+
+// 설정의 대화방 "지금 가져오기". 자동이 꺼져 있어도 저장한 방을 한 번 읽는다.
+// 브리티를 쓰는 중(창이 맨 앞) 같은 사정은 오류로 던지지 않고 마지막 확인 기록에 남겨 화면이 보여 준다.
+async function collectChatsNow() {
+  if (demo || store.inboxOverride) throw new CalendarError('샘플에서는 대화방을 가져올 수 없습니다.');
+  const roomKeys = store.chatRooms().map(room => room.key);
+  if (!roomKeys.length) throw new CalendarError('가져올 대화방을 먼저 골라 저장해 주세요.');
+  if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  return runChatOperation(() => collectChatRooms(roomKeys));
 }
 
 // 설정의 자동 갱신 주기로 타이머를 다시 건다.
@@ -522,14 +562,18 @@ async function replyInBrity(id) {
   try {
     const result = await brityReplyRun;
     if (result === 'opened' || result === 'opened-background') return { foreground: result === 'opened' };
+    // 답장창은 못 열었어도 브리티에 그 쪽지는 띄워 둔 경우: 실패가 아니라 안내로 돌려준다.
+    const shown = {
+      'reply-unavailable': '브리티에 쪽지를 띄웠습니다. 답장 버튼을 찾지 못해 답장창은 열지 않았습니다. 브리티에서 답장을 눌러 주세요.',
+      'reply-in-use': '브리티에 쪽지를 띄웠습니다. 작성 중인 쪽지 창이 있어 답장창은 열지 않았습니다.',
+      'reply-unconfirmed': '브리티에 쪽지를 띄웠습니다. 답장창이 열렸는지는 확인하지 못했습니다. 작업 표시줄에서 브리티 창을 확인해 주세요.'
+    };
+    if (shown[result]) return { foreground: false, notice: shown[result] };
     const messages = {
       busy: '브리티 수집기가 사용 중입니다. 아래 보낸 사람과 받은 시각으로 브리티에서 쪽지를 찾을 수 있습니다.',
       offline: '브리티 메신저에 로그인한 뒤 다시 눌러 주세요.',
       'not-found': '현재 쪽지 목록에서 찾지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.',
-      unverified: '브리티에 표시된 쪽지를 확인하지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.',
-      'reply-unavailable': '쪽지를 열었습니다. 브리티에서 해당 쪽지의 답장 버튼을 확인해 주세요.',
-      'reply-in-use': '브리티에 작성 중인 쪽지 창이 있습니다. 그 창을 먼저 확인해 주세요.',
-      'reply-unconfirmed': '답장창이 열렸는지 확인하지 못했습니다. 작업 표시줄에서 브리티 창을 확인해 주세요.'
+      unverified: '브리티에 표시된 쪽지를 확인하지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.'
     };
     throw new CalendarError(messages[result] || '브리티 답장창을 열 수 없습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.');
   } finally {
@@ -644,6 +688,7 @@ function bindHandlers() {
     publish();
     return snapshot();
   });
+  bind('chats-collect-now', collectChatsNow);
   bind('chat-rooms-list', loadChatRooms);
   bind('chat-rooms-save', rooms => {
     if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 저장해 주세요.');

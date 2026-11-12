@@ -76,7 +76,7 @@
         <p class="year" id="year-label"></p>
         <ul class="legend" aria-label="표시 기호">
           <li><span class="box" aria-hidden="true"></span>마감</li>
-          <li><span class="disc" aria-hidden="true"></span>그날</li>
+          <li><span class="disc" aria-hidden="true"></span>일정</li>
           <li><span class="bar" aria-hidden="true"></span>기간</li>
           <li class="ref-label">확인할 것</li>
           <li><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
@@ -98,7 +98,7 @@
       <div class="detail-heading">
         <h2 id="detail-heading" tabindex="-1">자세히</h2>
         <div class="detail-heading-actions">
-          <button type="button" class="button text-button small" id="detail-edit-jump" aria-label="업무 편집으로 이동" aria-controls="edit-form" hidden>업무 편집</button>
+          <button type="button" class="button text-button small" id="detail-edit-jump" aria-label="날짜·제목 고치는 칸으로 내려가기" aria-controls="edit-form" hidden>날짜·제목 고치기 ↓</button>
           <button type="button" class="button text-button close" id="detail-close" aria-label="자세히 닫기">닫기</button>
         </div>
       </div>
@@ -116,6 +116,7 @@
         <span class="badge" id="source-badge"></span><span class="badge warning" id="verify-badge" hidden>확인 필요</span>
       </div>
       <p class="detail-message" id="detail-message" role="status" hidden></p>
+      <div class="same-work" id="same-work" hidden></div>
       <section class="detail-section note-reading" id="chat-original" aria-labelledby="chat-original-heading" hidden>
         <h3 id="chat-original-heading">대화 원문</h3>
         <div class="paper">
@@ -186,10 +187,17 @@
               <span aria-hidden="true">날짜</span>
               <div class="date-tools">
                 <button type="button" class="button text-button small" id="edit-dates" aria-controls="date-rows" aria-expanded="false">고치기</button>
-                <button type="button" class="button text-button small" id="add-date" hidden>+ 날짜 추가</button>
               </div>
             </div>
             <ul class="date-rows" id="date-rows"></ul>
+            <!-- 날짜 추가는 날짜 칸 아래에 둔다. 위에 두면 "고치기"를 누를 때 그 버튼이 옆으로 밀린다. -->
+            <button type="button" class="button text-button small add-date" id="add-date" hidden>+ 날짜 추가</button>
+            <!-- 시간·교시 칸의 고를 거리. 목록에 없으면(15:30 등) 직접 적는다. -->
+            <datalist id="time-presets">
+              <option value="1교시"></option><option value="2교시"></option><option value="3교시"></option>
+              <option value="4교시"></option><option value="5교시"></option><option value="6교시"></option>
+              <option value="점심시간"></option><option value="방과 후"></option>
+            </datalist>
           </fieldset>
           <label class="field memo-field"><span id="memo-label">메모</span><textarea id="edit-memo" rows="2" maxlength="4000"></textarea></label>
           <section class="candidate-box" id="candidate-box" aria-labelledby="candidate-heading" hidden>
@@ -219,7 +227,13 @@
     <form id="create-form">
       <h2 id="create-heading">업무 추가</h2>
       <label class="field">제목<input id="create-title" required maxlength="180" autocomplete="off" autofocus placeholder="예: 학년 협의회 자료 준비"></label>
-      <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
+      <!-- 날짜 고치기와 같은 칸: 날짜 | 종류, (기간이면) 끝 날짜, 시간·교시(선택) -->
+      <div class="create-date-row">
+        <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
+        <label class="field">종류<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option></select></label>
+        <label class="field" id="create-end-field" hidden>끝 날짜<input id="create-end" type="date" required max="9999-12-31" disabled></label>
+        <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 예: 6교시"></label>
+      </div>
       <label class="field">내용 <span class="field-hint">(선택)</span><textarea id="create-memo" rows="4" maxlength="4000" placeholder="준비물, 제출처, 할 일 순서 등"></textarea></label>
       <p class="form-error" id="create-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" class="button" id="create-cancel">취소</button><button type="submit" class="button primary" id="create-save">업무 추가</button></div>
@@ -340,19 +354,25 @@
       </fieldset>
 
       <fieldset class="settings-section" id="auto-settings">
-        <legend>자동 갱신</legend>
-        <p class="small-note section-note">캘린더가 켜져 있을 때 가져옵니다.</p>
-        <div class="auto-notes-group">
+        <legend>브리티에서 가져오기</legend>
+        <p class="small-note section-note"><b>자동</b>은 캘린더가 켜져 있는 동안 주기마다, <b>지금 가져오기</b>는 바로 한 번 가져옵니다.</p>
+        <div class="fetch-group">
+          <h3 class="fetch-title">쪽지</h3>
           <div class="auto-row">
-            <label class="check-field"><input type="checkbox" id="auto-notes">쪽지</label>
+            <label class="check-field"><input type="checkbox" id="auto-notes">자동으로 가져오기</label>
             <label class="field inline-field">주기<select id="auto-notes-minutes"></select></label>
+            <button type="button" class="button small" id="notes-collect-now">지금 가져오기</button>
           </div>
-          <p class="small-note">수동은 위쪽 ‘쪽지 가져오기’에서</p>
+          <p class="small-note" id="notes-collection-status" role="status" hidden></p>
         </div>
-        <div class="auto-row">
-          <label class="check-field"><input type="checkbox" id="auto-chats">대화방</label>
-          <label class="field inline-field">주기<select id="auto-chats-minutes"></select></label>
-        </div>
+        <div class="fetch-group">
+          <h3 class="fetch-title">대화방</h3>
+          <div class="auto-row">
+            <label class="check-field"><input type="checkbox" id="auto-chats">자동으로 가져오기</label>
+            <label class="field inline-field">주기<select id="auto-chats-minutes"></select></label>
+            <button type="button" class="button small" id="chats-collect-now">지금 가져오기</button>
+          </div>
+          <p class="small-note">고른 방만 가져옵니다. 브리티 창이 맨 앞에 있을 때(쓰는 중)는 가져오지 않습니다.</p>
         <details class="chat-room-settings" id="chat-room-settings">
           <summary>가져올 대화방 <span class="small-note" id="chat-room-count"></span></summary>
           <div class="chat-room-controls">
@@ -369,24 +389,25 @@
           </div>
         </details>
         <p class="small-note" id="chat-collection-status" role="status" hidden></p>
+        </div>
         <p class="small-note" id="auto-status" role="status" hidden></p>
-      </fieldset>
-
-      <fieldset class="settings-section">
-        <legend>PC에 저장된 자료</legend>
-        <div class="ai-actions">
-          <button type="button" class="button small" id="refresh">저장된 자료 다시 읽기</button>
-          <p class="small-note" id="refresh-status" role="status"></p>
+        <div class="fetch-reread">
+          <p class="small-note">브리티는 건드리지 않고, 이미 받아 둔 쪽지와 대화만 다시 읽습니다. 평소에는 누를 일이 없습니다.</p>
+          <div class="ai-actions">
+            <button type="button" class="button text-button small" id="refresh">받아 둔 자료 다시 읽기</button>
+            <p class="small-note" id="refresh-status" role="status"></p>
+          </div>
         </div>
       </fieldset>
 
       <fieldset class="settings-section" id="range-settings">
         <legend>지난 쪽지 불러오기</legend>
-        <p class="small-note section-note">브리티 쪽지 목록에 <b>지금 보이는 쪽지까지만</b> 불러옵니다(오래된 쪽지는 목록에 없어 닿지 않을 수 있습니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
+        <p class="small-note section-note">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 세는 동안 브리티의 쪽지 목록이 움직입니다. 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
         <div class="form-grid">
           <label class="field span-2">시작일<input type="date" id="range-from" min="2000-01-01" max="9999-12-31"></label>
           <label class="field span-2">끝일<input type="date" id="range-to" min="2000-01-01" max="9999-12-31"></label>
         </div>
+        <label class="check-field" id="range-auto-classify-field"><input type="checkbox" id="range-auto-classify" checked>불러온 뒤 AI로 분류 <span class="small-note" id="range-auto-classify-note"></span></label>
         <div class="ai-actions">
           <button type="button" class="button" id="range-preview">몇 건인지 보기</button>
           <button type="button" class="button primary" id="range-import" disabled>불러오기</button>
@@ -454,8 +475,8 @@
       <div id="first-import-range"></div>
       <fieldset class="settings-section first-import-mode">
         <legend>앞으로 쪽지 가져오기</legend>
-        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-auto" value="auto">자동 갱신 <span class="small-note" id="first-import-auto-label"></span></label>
-        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-manual" value="manual">수동 가져오기 <span class="small-note">위쪽 ‘쪽지 가져오기’를 누를 때만</span></label>
+        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-auto" value="auto">자동으로 가져오기 <span class="small-note" id="first-import-auto-label"></span></label>
+        <label class="check-field"><input type="radio" name="first-import-mode" id="first-import-manual" value="manual">누를 때만 가져오기 <span class="small-note">위쪽 ‘쪽지 가져오기’를 누를 때만</span></label>
       </fieldset>
       <div class="dialog-actions">
         <button type="button" class="button" id="first-import-close">나중에</button>
@@ -481,6 +502,13 @@
         <button type="button" class="button" id="changes-close">닫기</button>
         <button type="button" class="button primary" id="changes-update" hidden>지금 업데이트</button>
       </div>
+    </div>
+  </dialog>
+  <dialog id="day-dialog" aria-labelledby="day-heading">
+    <div class="dialog-body">
+      <h2 id="day-heading"></h2>
+      <div id="day-items-list"></div>
+      <div class="dialog-actions"><button type="button" class="button" id="day-close">닫기</button></div>
     </div>
   </dialog>
   <div id="notice" class="notice" role="status" hidden></div>

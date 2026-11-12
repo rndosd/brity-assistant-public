@@ -13,7 +13,8 @@ const state = {
   snapshot: { tasks: [], messages: [], inbox: { status: 'loading', pending: 0 } },
   month: new Date(), dayKey: '', selected: null, detailToken: 0, detail: null,
   spanColors: new Map(), expandedForwarded: new Set(), selectedChat: null, forwardedDraft: null,
-  chatLoaded: false, readingSelection: false, dirty: false, revision: null, saving: false
+  chatLoaded: false, readingSelection: false, dirty: false, revision: null, saving: false,
+  taskViews: new Map()
 };
 const markingOpened = new Set();
 let noticeTimer;
@@ -101,12 +102,18 @@ function isLate(task, today = key(new Date())) {
   return (task.dates || []).some(entry => entryLate(task, entry, today));
 }
 
+// AI 분류에 실패한 쪽지: 제목·유형이 처음 받은 그대로(할 일·날짜 없음)라 선생님이 정해야 한다.
+function classifyFailed(task) {
+  return !!task.noteId && task.refined === 'failed' && !!task.refineFailure && !task.refining;
+}
+
 function needsCheck(task) {
-  return !!task.noteId && (task.noteState === 'unverified' || task.noteState === 'missing' || !!task.uncertain);
+  return !!task.noteId && (task.noteState === 'unverified' || task.noteState === 'missing' || !!task.uncertain || classifyFailed(task));
 }
 
 function checkLabel(task) {
   if (task.noteState === 'missing') return '원문 없음';
+  if (classifyFailed(task)) return '분류 실패';
   if (task.uncertain) return task.type === '할 일' ? '확인 필요' : `${typeLabels[task.type]}?`;
   return '확인';
 }
@@ -114,6 +121,7 @@ function checkLabel(task) {
 // 미완료 할 일과 분류가 애매한 쪽지 가운데 확인이 필요한 것.
 function needsNoteReview(task) {
   if (!task.noteId || !needsCheck(task)) return false;
+  if (classifyFailed(task)) return true;
   if (task.type === '할 일') return !finished(task);
   return task.uncertain === true && !(task.type === '알아 둘 것' && task.referenceSeen);
 }
@@ -123,10 +131,16 @@ function checkActions(task) {
   const bar = element('div', 'check-actions');
   bar.setAttribute('role', 'group');
   bar.setAttribute('aria-label', `${task.title} 바로 고르기`);
-  const quick = task.uncertain && task.noteState === 'available';
+  const failed = classifyFailed(task);
+  const quick = (task.uncertain || failed) && task.noteState === 'available';
   const choices = quick ? Object.entries(typeLabels) : [];
+  if (failed) {
+    const retrying = task.refineFailure.retry && task.refineFailure.attempts < 2;
+    bar.append(element('span', 'check-reason', `AI 분류 실패: ${task.refineFailure.message}${retrying ? ' 다음 확인 때 한 번 더 시도합니다.' : ''} 유형을 고르거나 열어서 다시 다듬어 주세요.`));
+  }
   for (const [type, label] of choices) {
-    const choice = button(`chip${task.type === type ? ' current' : ''}`, task.type === type ? `${label} 맞음` : label);
+    const current = task.type === type && !failed;
+    const choice = button(`chip${current ? ' current' : ''}`, current ? `${label} 맞음` : label);
     choice.dataset.focusKey = `check-${task.id}-${type}`;
     choice.addEventListener('click', () => void resolveCheck(task, type));
     bar.append(choice);
@@ -169,6 +183,14 @@ function notice(message) {
   noticeTimer = setTimeout(() => setMessage('notice', ''), 3800);
 }
 
+// 끝냄·중요 같은 짧은 결과 안내는 잠깐 보였다가 사라진다. 오류와 진행 중 안내는 setMessage로 그대로 둔다.
+const flashTimers = {};
+function flash(id, message) {
+  clearTimeout(flashTimers[id]);
+  setMessage(id, message);
+  flashTimers[id] = setTimeout(() => { if ($(id).textContent === message && !$(id).classList.contains('error')) setMessage(id, ''); }, 3000);
+}
+
 function getFocusedKey() {
   return document.activeElement?.dataset.focusKey;
 }
@@ -193,25 +215,110 @@ async function toggleDone(task, index, done) {
 }
 
 
-function calendarItem(task, entry, index, today) {
+// 같은 업무 묶기: 같은 회의 쪽지가 두 번 와도 달력·목록에는 한 줄만 보이게 한다(저장된 업무는 그대로).
+// 같은 날(기간이면 같은 시작·끝), 같은 기호이고 이름이 같거나 한쪽이 다른 쪽을 품으면 같은 업무로 본다.
+function workKey(text) {
+  return displayTitle(String(text || ''))
+    .replace(/\[[^\]]*\]|\([^)]*\)/g, '')
+    .replace(/재?(?:안내|알림|공지|개최|일정|변경|협조|요청|드립니다|합니다|입니다)/g, '')
+    .replace(/[^0-9a-z가-힣]/gi, '').toLowerCase();
+}
+function sameWork(a, b) {
+  const x = workKey(a), y = workKey(b);
+  if (!x || !y) return false;
+  return x === y || (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x)));
+}
+function sameEntry(a, b) {
+  return a.task.id !== b.task.id && a.entry.date === b.entry.date && (a.entry.end || '') === (b.entry.end || '') &&
+    markType(a.task, a.entry) === markType(b.task, b.entry) && isCandidate(a.task) === isCandidate(b.task) && sameWork(a.entry.label, b.entry.label);
+}
+// items: [{ task, entry, index }]. 묶음마다 가장 늦게 받은 쪽지를 대표로 두고 나머지는 dupes에 넣는다.
+function mergeSame(items) {
+  const groups = [];
+  for (const item of items) {
+    const group = groups.find(list => list.every(other => sameEntry(other, item)));
+    if (group) group.push(item); else groups.push([item]);
+  }
+  return groups.map(list => {
+    const [first, ...rest] = list.slice().sort((a, b) => (b.task.datetime || '').localeCompare(a.task.datetime || ''));
+    return { ...first, dupes: rest };
+  });
+}
+const groupTasks = item => [item.task, ...(item.dupes || []).map(dupe => dupe.task)];
+const groupSelected = item => groupTasks(item).some(task => task.id === state.selected);
+// 자세히에서 보여 줄, 같은 업무로 묶인 다른 업무들.
+function sameWorkTasks(task) {
+  const others = new Map();
+  for (const entry of task.dates || []) {
+    for (const other of state.snapshot.tasks) {
+      if (other.id === task.id || other.type === '없음' || other.candidate?.discarded) continue;
+      if ((other.dates || []).some(item => sameEntry({ task, entry }, { task: other, entry: item }))) others.set(other.id, other);
+    }
+  }
+  return [...others.values()].sort((a, b) => (b.datetime || '').localeCompare(a.datetime || ''));
+}
+function sameCountBadge(count) {
+  const badge = element('span', 'same-count', `${count}건`);
+  badge.title = `같은 업무 쪽지 ${count}건을 한 줄로 묶었습니다`;
+  return badge;
+}
+
+// 그날 안의 순서: 시간·교시를 적은 항목이 먼저, 이른 순서대로. 교시는 초등 보통 시정의 시작 시각으로 어림한다
+// (1교시 9:00, 40분 수업·10분 쉬는 시간, 점심 뒤 5교시). 읽을 수 없는 글은 적은 항목 맨 뒤, 안 적은 항목은 그 뒤.
+const PERIOD_START = [0, 540, 590, 640, 690, 790, 840, 890];
+function timeOrder(time) {
+  if (!time) return 100000;
+  const text = time.replace(/\s/g, '');
+  const clock = text.match(/^(오전|오후)?(\d{1,2})(?::|시)(\d{2})?/);
+  if (clock) {
+    let hour = Number(clock[2]);
+    if (clock[1] === '오후' && hour < 12) hour += 12;
+    // "3:30"처럼 오전·오후 없이 1~7시를 적으면 학교 일과로 보아 오후로 읽는다.
+    if (!clock[1] && hour >= 1 && hour <= 7) hour += 12;
+    return hour * 60 + Number(clock[3] || 0);
+  }
+  // "3~4교시"는 앞 교시로 읽는다.
+  const period = text.match(/^(\d)(?:[~-]\d)?교시/);
+  if (period) return PERIOD_START[Number(period[1])] ?? 50000;
+  if (/아침|조회/.test(text)) return 500;
+  if (/점심/.test(text)) return 740;
+  if (/방과\s*후|방과후|종례/.test(text)) return 900;
+  return 50000;
+}
+
+// 시간·교시 꼬리표: 선생님이 적은 그대로 제목 앞에 붙인다. 칸이 좁아도 줄지 않고 제목만 줄어든다.
+function timeTag(time) {
+  return element('span', 'item-time', time);
+}
+
+function calendarItem(task, entry, index, today, dupes = []) {
   const type = markType(task, entry);
-  const done = type === 'task' && entry.done === true;
+  const all = [{ task, entry }, ...dupes];
+  const done = type === 'task' && all.every(item => item.entry.done === true);
+  const selected = all.some(item => item.task.id === state.selected);
+  const important = all.some(item => item.task.important === true);
   const item = button(`item type-${type}`);
-  item.classList.toggle('late', entryLate(task, entry, today));
+  item.classList.toggle('late', all.some(one => entryLate(one.task, one.entry, today)));
   item.classList.toggle('done', done);
   item.classList.toggle('past', entry.kind !== '까지' && lastDay(entry) < today);
-  item.classList.toggle('selected', task.id === state.selected);
+  item.classList.toggle('selected', selected);
   // 후보는 흐리게(점선 테두리) 미리 보인다. 분류할 것 탭을 안 열어도 놓치지 않게.
   item.classList.toggle('candidate', isCandidate(task));
-  item.title = [task.title, entry.kind === '까지' ? `${shortDate(entry.date)}까지` : null, task.chatSource?.time,
-    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : ''].filter(Boolean).join(' · ');
-  item.setAttribute('aria-pressed', String(task.id === state.selected));
+  item.title = [task.title, entry.kind === '까지' ? `${shortDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}까지` : entry.time, task.chatSource?.time,
+    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : '',
+    dupes.length ? `같은 업무 쪽지 ${all.length}건` : ''].filter(Boolean).join(' · ');
+  item.setAttribute('aria-pressed', String(selected));
   item.dataset.focusKey = `calendar-${task.id}-${index}`;
-  item.classList.toggle('important', task.important === true);
+  item.classList.toggle('important', important);
   item.append(mark(type, done));
-  if (task.important) item.append(element('span', 'imp', '!'));
-  item.append(element('span', 'item-title', entry.label));
-  item.addEventListener('click', () => selectTask(task.id, item.dataset.focusKey));
+  if (important) item.append(element('span', 'imp', '!'));
+  // 시간은 제목 글줄 맨 앞에 넣는다. 칸이 좁으면 제목이 시간 뒤에 이어지다 다음 줄로 넘어간다.
+  const title = element('span', 'item-title');
+  if (entry.time) title.append(timeTag(entry.time), ' ');
+  title.append(entry.label);
+  item.append(title);
+  if (dupes.length) item.append(sameCountBadge(all.length));
+  item.addEventListener('click', () => { if (selectTask(task.id, item.dataset.focusKey) !== false) revealInList(task.id); });
   return item;
 }
 
@@ -232,21 +339,31 @@ function spanMark(task, index) {
   return node;
 }
 
-function spanPiece({ task, entry, index }, dateKey, weekFirst, today) {
+function spanPiece(span, dateKey, weekFirst, today) {
+  const { task, entry, index, dupes = [] } = span;
+  const selected = groupSelected(span);
+  const important = groupTasks(span).some(one => one.important === true);
   const piece = button(`span-piece type-${markType(task, entry)} span-c${spanColor(task, index)}`);
   piece.classList.toggle('start', entry.date === dateKey);
   piece.classList.toggle('end', entry.end === dateKey);
   piece.classList.toggle('past', entry.end < today);
-  piece.classList.toggle('selected', task.id === state.selected);
+  piece.classList.toggle('selected', selected);
   piece.classList.toggle('candidate', isCandidate(task));
-  piece.classList.toggle('important', task.important === true);
+  piece.classList.toggle('important', important);
   piece.title = [entry.label, `${shortDate(entry.date)}~${shortDate(entry.end)}`, task.title !== entry.label ? task.title : null,
-    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : null].filter(Boolean).join(' · ');
+    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : null,
+    dupes.length ? `같은 업무 쪽지 ${dupes.length + 1}건` : null].filter(Boolean).join(' · ');
   piece.setAttribute('aria-label', `${entry.label} ${shortDate(entry.date)}부터 ${shortDate(entry.end)}까지`);
-  piece.setAttribute('aria-pressed', String(task.id === state.selected));
+  piece.setAttribute('aria-pressed', String(selected));
   piece.dataset.focusKey = `span-${task.id}-${index}-${dateKey}`;
-  if (entry.date === dateKey || weekFirst) piece.append(element('span', 'span-label', entry.label));
-  piece.addEventListener('click', () => selectTask(task.id, piece.dataset.focusKey));
+  if (entry.date === dateKey || weekFirst) {
+    if (important) piece.append(element('span', 'imp', '!'));
+    // 시간·교시는 기간의 첫날에만(그다음 주의 이어지는 칸에는 이름만).
+    if (entry.time && entry.date === dateKey) piece.append(timeTag(entry.time));
+    piece.append(element('span', 'span-label', entry.label));
+    if (dupes.length) piece.append(sameCountBadge(dupes.length + 1));
+  }
+  piece.addEventListener('click', () => { if (selectTask(task.id, piece.dataset.focusKey) !== false) revealInList(task.id); });
   return piece;
 }
 
@@ -282,7 +399,7 @@ function renderMonth() {
   // 기간은 시작일~끝일 칸을 가로지르는 선. 겹치면 줄(lane)을 나누고, 같은 기간은 그 달 내내 같은 줄에 둔다.
   const gridStart = key(first);
   const gridEnd = key(shift(first, weeks * 7 - 1));
-  const visible = spans.filter(({ entry }) => entry.date <= gridEnd && entry.end >= gridStart)
+  const visible = mergeSame(spans.filter(({ entry }) => entry.date <= gridEnd && entry.end >= gridStart))
     .sort((a, b) => a.entry.date.localeCompare(b.entry.date) || b.entry.end.localeCompare(a.entry.end) || a.task.id.localeCompare(b.task.id));
   const laneEnds = [];
   for (const span of visible) {
@@ -340,19 +457,40 @@ function renderMonth() {
       lanes.append(span ? spanPiece(span, dateKey, date.getDay() === 0, today) : element('span', 'span-gap'));
     }
     const list = element('div', 'day-items');
-    const dayTasks = (items.get(dateKey) || []).sort((a, b) => Number(isCandidate(a.task)) - Number(isCandidate(b.task)) ||
+    const dayTasks = mergeSame(items.get(dateKey) || []).sort((a, b) => Number(isCandidate(a.task)) - Number(isCandidate(b.task)) ||
+      timeOrder(a.entry.time) - timeOrder(b.entry.time) ||
       TYPE_ORDER[markType(a.task, a.entry)] - TYPE_ORDER[markType(b.task, b.entry)] ||
       Number(a.entry.done === true) - Number(b.entry.done === true));
     const MAX = 3;
     const shown = dayTasks.slice(0, MAX);
-    const chosen = dayTasks.findIndex(item => item.task.id === state.selected);
+    const chosen = dayTasks.findIndex(groupSelected);
     if (chosen >= MAX) shown[MAX - 1] = dayTasks[chosen];
-    for (const { task, entry, index } of shown) list.append(calendarItem(task, entry, index, today));
-    if (dayTasks.length > MAX) list.append(element('span', 'more', `+${dayTasks.length - MAX}`));
+    for (const { task, entry, index, dupes } of shown) list.append(calendarItem(task, entry, index, today, dupes));
+    if (dayTasks.length > MAX) {
+      // 넘친 날: +N을 누르면 그날 항목 전체를 작은 창으로 보여 준다(2026-11-12 사용자).
+      const more = button('more', `+${dayTasks.length - MAX}`);
+      more.setAttribute('aria-label', `${dateLabel.format(date)} 항목 ${dayTasks.length}개 모두 보기`);
+      more.dataset.focusKey = `more-${dateKey}`;
+      more.addEventListener('click', () => showDayItems(date, dayTasks, today));
+      list.append(more);
+    }
     day.append(hit, lanes, list);
     days.push(day);
   }
   $('month').replaceChildren(...days);
+}
+
+// 하루 전체 보기 창. 항목을 누르면 자세히가 열리고 창은 닫힌다.
+function showDayItems(date, dayTasks, today) {
+  $('day-heading').textContent = dateLabel.format(date);
+  const list = element('div', 'day-dialog-items');
+  for (const { task, entry, index, dupes } of dayTasks) {
+    const item = calendarItem(task, entry, index, today, dupes);
+    item.addEventListener('click', () => $('day-dialog').close());
+    list.append(item);
+  }
+  $('day-items-list').replaceChildren(list);
+  $('day-dialog').showModal();
 }
 
 // 왼쪽 목록은 고르는 곳이라 날짜도 짧게(11/13). 자세한 날짜·요일은 오른쪽 자세히에서 본다.
@@ -398,7 +536,7 @@ function pinnedWhen(task, today) {
   return entry.date === today ? 'D-day' : `D-${daysBetween(today, entry.date)}`;
 }
 
-function listRow(task, list, today, { entry = null, index = null, unread = false, pinned = false } = {}) {
+function listRow(task, list, today, { entry = null, index = null, unread = false, pinned = false, dupes = [] } = {}) {
   if (pinned) {
     // 상시 줄은 업무 제목 한 줄. □는 가장 이른 남은 까지 하나를 끝낸다.
     const due = pinnedDue(task, today);
@@ -416,7 +554,8 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
   const row = element('li', `row type-${type}`);
   const rowKey = entry ? `${task.id}-${index}` : task.id;
   const doneNow = entry ? entry.done === true : finished(task);
-  row.classList.toggle('selected', task.id === state.selected);
+  const selected = task.id === state.selected || dupes.some(dupe => dupe.task.id === state.selected);
+  row.classList.toggle('selected', selected);
   row.classList.toggle('late', entry ? entryLate(task, entry, today) : isLate(task, today));
   row.classList.toggle('done', doneNow);
   const canCheck = !task.candidate && type === 'task' && (entry ? entry.kind === '까지' : boxes(task).length > 0);
@@ -426,8 +565,11 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
     check.dataset.focusKey = `${list}-check-${rowKey}`;
     check.append(mark('task', doneNow));
     check.addEventListener('click', () => {
-      if (entry) void toggleDone(task, index, !doneNow);
-      else void toggleDone(task, 'all', !doneNow);
+      if (entry) {
+        void toggleDone(task, index, !doneNow);
+        // 묶인 같은 업무도 함께 끝낸다(따로 남아 다시 뜨지 않게).
+        for (const dupe of dupes) if (dupe.entry.kind === '까지' && dupe.entry.done !== !doneNow) void toggleDone(dupe.task, dupe.index, !doneNow);
+      } else void toggleDone(task, 'all', !doneNow);
     });
     row.append(check);
   } else {
@@ -437,17 +579,21 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
   }
   const pick = button('pick');
   pick.dataset.focusKey = `${list}-${rowKey}`;
-  pick.setAttribute('aria-pressed', String(task.id === state.selected));
+  pick.setAttribute('aria-pressed', String(selected));
   // 한 줄: 제목(넘치면 …) + 짧은 날짜. 전체 제목·쪽지 제목은 마우스를 올리면, 자세한 내용은 오른쪽에서 본다.
   // 표시는 확인이 필요한 것만 붙인다(빨강).
   const text = entry ? entry.label : task.title;
-  pick.title = entry && entry.label !== task.title ? `${text}\n${task.title}` : text;
+  pick.title = [entry && entry.label !== task.title ? `${text}\n${task.title}` : text, dupes.length ? `같은 업무 쪽지 ${dupes.length + 1}건` : ''].filter(Boolean).join('\n');
   pick.append(rowTitle(text));
   if (unread) markUnreadRow(row, pick);
-  if (task.important) { row.classList.add('important'); pick.append(element('span', 'imp-flag', '중요')); }
+  if (task.important || dupes.some(dupe => dupe.task.important)) { row.classList.add('important'); pick.append(element('span', 'imp-flag', '중요')); }
+  if (dupes.length) pick.append(sameCountBadge(dupes.length + 1));
   if (needsCheck(task)) pick.append(element('span', 'flag', checkLabel(task)));
+  // AI가 아직 정리하지 않은 쪽지: 제목이 쪽지 제목 그대로인 까닭을 보인다.
+  if (task.refining) pick.append(element('span', 'flag soft', '분류 중'));
+  else if (task.queued && state.snapshot.aiProvider !== 'none') pick.append(element('span', 'flag soft', '분류 대기'));
   pick.append(element('span', 'row-when', entry ? entryWhen(task, entry, today) : whenText(task, today)));
-  pick.addEventListener('click', () => selectTask(task.id, pick.dataset.focusKey));
+  pick.addEventListener('click', () => { if (selectTask(task.id, pick.dataset.focusKey) !== false) showTaskMonth(task, entry); });
   row.append(pick);
   return row;
 }
@@ -806,7 +952,7 @@ function renderLists() {
     activeDay(a.entry, today).localeCompare(activeDay(b.entry, today)) || TYPE_ORDER[markType(a.task, a.entry)] - TYPE_ORDER[markType(b.task, b.entry)] ||
     a.entry.label.localeCompare(b.entry.label, 'ko');
   const dateless = tasks.filter(task => task.type === '할 일' && !checked.has(task.id) && !task.dates?.length && !task.done).sort(byReceived);
-  const dateGroup = test => rows.filter(test).sort(byDate);
+  const dateGroup = test => mergeSame(rows.filter(test)).sort(byDate);
   const groups = [
     ['상시', pinnedTasks.map(task => ({ task, pinned: true })), 'pinned-group'],
     ['지남', dateGroup(({ task, entry }) => entryLate(task, entry, today)), 'late-group'],
@@ -817,7 +963,7 @@ function renderLists() {
     ['날짜 없음', dateless.map(task => ({ task }))],
   ];
   const todoCount = groups.reduce((sum, [, items]) => sum + items.length, 0);
-  const todoTasks = new Set(groups.flatMap(([, items]) => items.map(({ task }) => task)));
+  const todoTasks = new Set(groups.flatMap(([, items]) => items.flatMap(groupTasks)));
   const todoMessages = new Set([...todoTasks].map(taskMessageKey));
   const todoUnread = [...todoMessages].filter(message => unread.has(message)).length;
   const sections = [];
@@ -827,8 +973,8 @@ function renderLists() {
     const heading = element('h3', null, name);
     if (items.length > 1) heading.append(element('span', 'group-count', String(items.length)));
     const list = element('ul', 'rows');
-    list.append(...items.map(({ task, entry, index, pinned }) =>
-      listRow(task, 'todo', today, { entry, index, pinned, unread: unread.has(taskMessageKey(task)) })));
+    list.append(...items.map(({ task, entry, index, pinned, dupes }) =>
+      listRow(task, 'todo', today, { entry, index, pinned, dupes, unread: [task, ...(dupes || []).map(dupe => dupe.task)].some(one => unread.has(taskMessageKey(one))) })));
     section.append(heading, list);
     sections.push(section);
   }
@@ -871,6 +1017,17 @@ function renderLists() {
   $('hidden-list').replaceChildren(...(hidden.length || discarded.length
     ? [...discardedRows, ...hidden.map(hiddenMessageRow)]
     : [element('li', 'empty-row', '숨긴 항목이 없습니다.')]));
+
+  // 달력에서 업무를 누르면 왼쪽을 그 업무가 있는 탭으로 바꾼다. 앞선 탭이 우선.
+  const views = new Map();
+  const put = (view, list) => { for (const task of list) if (!views.has(task.id)) views.set(task.id, view); };
+  put('candidate', [...notesForReview, ...state.snapshot.tasks.filter(isCandidate)]);
+  put('todo', todoTasks);
+  put('reference', references);
+  put('done', done);
+  put('hidden', discarded);
+  for (const message of hidden) if (message.kind === 'note' && !views.has(message.id)) views.set(message.id, 'hidden');
+  state.taskViews = views;
 
   const { status, pending } = state.snapshot.inbox;
   // 처음 쓰는 사람: 브리티를 아직 연결하지 않았으면 오류 대신 할 일을 알려 준다.
@@ -916,7 +1073,9 @@ function readOnlyDateRow(task, entry, index, today) {
   const when = entryLate(task, entry, today) ? `${shortDate(entry.date)}까지 · ${daysBetween(entry.date, today)}일 지남`
     : entry.kind === '기간' && entry.end ? `${shortDate(entry.date)}~${shortDate(entry.end)}`
     : `${entry.date === today ? '오늘' : shortDate(entry.date)}${entry.kind === '까지' ? '까지' : ''}`;
-  row.append(element('span', 'date-when', when), element('span', 'date-name', entry.label));
+  row.append(element('span', 'date-when', when));
+  if (entry.time) row.append(timeTag(entry.time));
+  row.append(element('span', 'date-name', entry.label));
   return row;
 }
 
@@ -955,7 +1114,8 @@ function renderDateRows() {
     date.disabled = disabled;
     const kind = element('select');
     for (const name of ['까지', '그날', '기간']) {
-      const option = element('option', null, name);
+      // 저장 값은 '까지'·'그날' 그대로, 화면 이름은 범례와 같은 마감·일정·기간(2026-11-12 사용자).
+      const option = element('option', null, KIND_NAMES[name]);
       option.value = name;
       kind.append(option);
     }
@@ -1003,8 +1163,21 @@ function renderDateRows() {
       const next = $('date-rows').children[index] || $('date-rows').lastElementChild;
       (next?.querySelector('input') || $('add-date')).focus();
     });
+    // 시간·교시(선택): 고르거나(1~6교시 등) 직접 적는다(15:30). 비우면 달력에 이름만 보인다.
+    const time = element('input');
+    time.maxLength = taskModel.TIME_MAX;
+    time.autocomplete = 'off';
+    time.placeholder = '선택';
+    time.setAttribute('list', 'time-presets');
+    time.value = entry.time || '';
+    time.disabled = disabled;
+    time.addEventListener('input', () => {
+      const value = time.value.trim();
+      if (value) entry.time = value;
+      else delete entry.time;
+    });
     const nameRow = element('div', 'date-name-row');
-    nameRow.append(field('달력에 표시할 이름', label), remove);
+    nameRow.append(field('시간·교시', time), field('달력에 표시할 이름', label), remove);
     row.append(field('날짜', date), field('종류', kind), endField, nameRow);
     return row;
   }));
@@ -1105,11 +1278,16 @@ function renderNote(note, reset) {
   const recipients = note?.recipients?.trim() || '';
   const suffix = /\s*외\s*\d+\s*명?\s*$/u;
   const count = taskModel.recipientCount(recipients);
+  // 브리티가 첫 사람 이름과 "외 N명"만 줄 때는 한 줄로: "수신인 47명 · 이영덕 외 46명 · 전체 명단은 브리티에서 확인".
+  // "외 N명"을 떼면 첫 사람만 특별한 사람처럼 보인다(2026-11-12 사용자 "이름이 복잡하게 나온다").
+  const limited = suffix.test(recipients);
   $('note-recipient-summary').textContent = count ? `수신인 ${count}명` : '';
-  $('note-recipient-summary').hidden = !count;
+  $('note-recipient-summary').hidden = !count || limited;
   $('note-recipients').hidden = !recipients;
-  $('note-recipient-list').textContent = recipients.replace(suffix, '').trim();
-  $('note-recipient-limited').hidden = !suffix.test(recipients);
+  $('note-recipient-list').textContent = limited
+    ? [count ? `수신인 ${count}명` : '', recipients.replace(/\s*외\s*(\d+)\s*명?\s*$/u, ' 외 $1명')].filter(Boolean).join(' · ')
+    : recipients;
+  $('note-recipient-limited').hidden = !limited;
   $('original-meta').textContent = meta;
   $('original-meta').hidden = !meta;
   $('original-meta-row').hidden = !meta && !recipients;
@@ -1269,7 +1447,8 @@ function renderDetail(detail, reset = false) {
   }
   $('detail-content').hidden = false;
   $('detail-toolbar').hidden = false;
-  $('detail-edit-jump').hidden = false;
+  state.editJump = true;
+  requestAnimationFrame(updateEditJump);
   $('source-badge').textContent = task.forwardedSource ? '전달 글 원문' : task.candidate ? candidateBadge(task) : task.chatSource ? chatLabels[task.chatSource.action] : '직접 추가';
   $('source-badge').hidden = !!task.noteId || !!state.forwardedDraft;
   arrangeForwardedDraft(!!state.forwardedDraft);
@@ -1287,7 +1466,8 @@ function renderDetail(detail, reset = false) {
   // 안내 글은 할 일이 있을 때만(AI 연결 전, 원문 확인 필요). 평소에는 숨긴다.
   const aiName = aiNames[state.snapshot.aiProvider];
   const hint = state.demo ? '' : !aiName ? '설정에서 AI를 연결하면 제목과 날짜를 정리합니다.' : task.noteState === 'unverified' ? '원문을 확인한 뒤 다듬어 주세요.' : '';
-  const failure = task.refined === 'failed' && !task.refining ? '마지막 다듬기에 실패했습니다.' : '';
+  const failure = task.refined === 'failed' && !task.refining
+    ? `마지막 다듬기에 실패했습니다${task.refineFailure?.message ? `: ${task.refineFailure.message}` : '.'}` : '';
   setMessage('refine-note', [failure, hint].filter(Boolean).join(' '));
   $('attachments-section').hidden = !note?.attachments.length;
   $('original-section').hidden = !task.noteId;
@@ -1296,6 +1476,7 @@ function renderDetail(detail, reset = false) {
   renderChatOriginal(batch ?? detail.forwardedBatch, task.candidate && !task.candidate.discarded ? task.candidate.evidence : [],
     task.forwardedSource, detail.forwardedBatch ?? batch);
   renderCandidateTargets(task, detail.roomTasks);
+  renderSameWork(task);
   renderAttachments(task.id, note?.attachments || []);
   enableForm();
 }
@@ -1394,7 +1575,9 @@ function openDetail(taskId, chatId, focusKey) {
   $('detail-content').hidden = true;
   $('detail-toolbar').hidden = true;
   $('chat-original').hidden = true;
-  $('detail-edit-jump').hidden = true;
+  $('same-work').hidden = true;
+  state.editJump = false;
+  updateEditJump();
   $('detail-heading').textContent = chatId ? '대화 묶음' : '자세히';
   setMessage('detail-message', '');
   setMessage('work-message', '');
@@ -1406,9 +1589,53 @@ function openDetail(taskId, chatId, focusKey) {
 function selectTask(id, focusKey) {
   if (id === state.selected && state.detail) {
     markTaskOriginalsOpened(state.detail);
-    return;
+    return true;
   }
-  if (openDetail(id, null, focusKey)) void refreshDetail(true);
+  if (!openDetail(id, null, focusKey)) return false;
+  void refreshDetail(true);
+  return true;
+}
+
+// 왼쪽 목록에서 고르면 달력을 그 업무의 달로 옮긴다. 이미 보이는 달에 걸려 있으면 그대로 둔다.
+function showTaskMonth(task, entry) {
+  const shown = key(monthOf(state.month)).slice(0, 7);
+  const inShown = item => item.date.slice(0, 7) <= shown && lastDay(item).slice(0, 7) >= shown;
+  const today = key(new Date());
+  const dates = entry ? [entry] : (task.dates || []);
+  if (!dates.length || dates.some(inShown)) return;
+  const target = entry || dates.find(item => lastDay(item) >= today) || dates[0];
+  state.month = fromKey(target.date);
+  state.dayKey = target.date;
+  renderMonth();
+}
+
+// 달력에서 고르면 왼쪽을 그 업무가 있는 탭으로 바꾸고 그 줄이 보이게 한다.
+function revealInList(id) {
+  const view = state.taskViews.get(id);
+  if (!view) return;
+  showView(view);
+  const row = $(`view-${view}`).querySelector('.row.selected');
+  row?.scrollIntoView({ block: 'nearest' });
+}
+
+function renderSameWork(task) {
+  const box = $('same-work');
+  const others = task?.id && !task.forwardedSource ? sameWorkTasks(task) : [];
+  box.hidden = !others.length;
+  if (!others.length) { box.replaceChildren(); return; }
+  const lead = element('p', 'same-work-lead', `같은 업무로 보이는 쪽지 ${others.length + 1}건을 달력과 목록에 한 줄로 묶었습니다.`);
+  const list = element('ul', 'same-work-list');
+  for (const other of others) {
+    const item = element('li');
+    const open = button('text-button', displayTitle(other.title));
+    const day = receivedDay(other.datetime || '');
+    open.title = other.title;
+    open.addEventListener('click', () => selectTask(other.id));
+    item.append(open);
+    if (day) item.append(element('span', 'small-note', ` ${monthDay(day)} 받음`));
+    list.append(item);
+  }
+  box.replaceChildren(lead, list);
 }
 
 async function selectForwardedLine(message, messageIndex, line, focusKey) {
@@ -1481,7 +1708,9 @@ function closeDetail() {
   $('detail-content').hidden = true;
   $('detail-toolbar').hidden = true;
   $('chat-original').hidden = true;
-  $('detail-edit-jump').hidden = true;
+  $('same-work').hidden = true;
+  state.editJump = false;
+  updateEditJump();
   $('detail-heading').textContent = '자세히';
   $('detail-panel').classList.remove('open');
   fitWidth();
@@ -1511,18 +1740,51 @@ function sync(snapshot) {
   void refreshDetail();
 }
 
+// 설정 "브리티에서 가져오기"의 쪽지 줄: 지금 가져오기 버튼과 마지막 확인.
+function renderNotesFetch() {
+  const { collector, collectorAvailable, collectorConnected, collectorFirstImportPending } = state.snapshot;
+  const linked = !!collectorAvailable && !!collectorConnected && !collectorFirstImportPending;
+  const button = $('notes-collect-now');
+  button.textContent = state.connectingCollector ? '가져오는 중…' : '지금 가져오기';
+  button.disabled = !linked || !!state.connectingCollector || collector?.status === 'connecting' || !!state.rangeBusy;
+  const status = state.snapshot.demo ? '' : !linked ? '위쪽 머리줄에서 브리티를 먼저 연결해 주세요.'
+    : state.connectingCollector ? '브리티에서 쪽지를 확인하는 중…'
+      : collector?.status === 'in-use' ? '브리티를 쓰는 중이라 가져오지 않았습니다. 지금 가져오기를 누르면 확인한 뒤 가져옵니다.'
+        : collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
+  if ($('notes-collection-status').textContent !== status) setMessage('notes-collection-status', status);
+}
+
+// 지금 하고 있는 일 한 줄(머리줄). 없으면 빈 글자. 순서: 지난 쪽지 불러오기 → 브리티 읽기 → AI 분류.
+function activityText() {
+  const snap = state.snapshot;
+  if (snap.rangeImport?.running) {
+    const { done, total } = snap.rangeImport;
+    return `지난 쪽지 불러오는 중 · ${total ? `${total}건 중 ` : ''}${done}건`;
+  }
+  if (state.connectingCollector || snap.activity === 'notes') return '브리티에서 쪽지 확인 중…';
+  if (snap.activity === 'chats') return '브리티에서 대화방 읽는 중…';
+  if (snap.activity === 'chat-deciding') return '대화방 새 글에서 후보 찾는 중…';
+  const waiting = snap.aiProvider === 'none' ? 0 : snap.tasks.filter(task => task.refining || task.queued).length;
+  if (snap.aiBlocked && snap.aiProvider !== 'none') return `AI 분류 멈춤 · ${snap.aiBlocked}${waiting ? ` · 기다리는 쪽지 ${waiting}건` : ''}`;
+  if (waiting) return `AI가 쪽지 분류 중 · 남은 ${waiting}건`;
+  const failed = snap.tasks.filter(classifyFailed).length;
+  return failed ? `AI 분류 실패 ${failed}건 · 분류할 것에서 정해 주세요` : '';
+}
+
 function renderCollector() {
+  renderNotesFetch();
   const { collector, collectorAvailable, collectorConnected, collectorFirstImportPending } = state.snapshot;
   $('collector-bar').hidden = !collectorAvailable;
   if (!collectorAvailable) return;
   const status = collector?.status || 'idle';
   const auto = state.snapshot.autoRefresh?.notes;
   const checked = collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
-  const schedule = collectorFirstImportPending ? '첫 가져오기 설정 중' : auto?.enabled ? `자동 갱신 ${minutesLabel(auto.minutes)}마다` : '수동 가져오기';
+  const schedule = collectorFirstImportPending ? '첫 가져오기 설정 중' : auto?.enabled ? `${minutesLabel(auto.minutes)}마다 자동으로 가져옴` : '자동 꺼짐 · 누를 때만 가져옴';
   const messages = {
     idle: '브리티에 로그인한 뒤 연결하세요. 가져온 쪽지는 브리티에서 읽음 처리됩니다.',
     connecting: '브리티의 쪽지 목록을 확인하고 있습니다.',
-    ready: collector?.managed ? [schedule, checked].filter(Boolean).join(' · ') : '이미 실행 중인 브리티 수집기의 결과를 읽습니다.',
+    ready: collector?.managed ? [schedule, checked, checked && collector.imported != null ? (collector.imported ? `새 쪽지 ${collector.imported}건 받음` : '새 쪽지 없음') : ''].filter(Boolean).join(' · ')
+      : '이미 실행 중인 브리티 수집기의 결과를 읽습니다.',
     'in-use': '브리티를 쓰는 중이라 이번에는 쪽지를 가져오지 않았습니다. 쪽지 가져오기를 누르면 확인한 뒤 가져옵니다.',
     offline: collectorConnected && auto?.enabled && !collectorFirstImportPending
       ? '브리티 메신저가 닫혀 있습니다. 다시 열고 로그인하면 자동으로 연결합니다.'
@@ -1535,7 +1797,10 @@ function renderCollector() {
   };
   const running = status === 'ready' || status === 'in-use';
   $('collector-title').textContent = running ? '브리티 연결됨' : '브리티 쪽지 연결';
-  $('collector-status').textContent = messages[status] || messages.unavailable;
+  // 연결된 동안에는 지금 하는 일(읽는 중·분류 중)을 먼저 보이고, 한가할 때 주기와 마지막 결과를 보인다.
+  const doing = running || state.connectingCollector ? activityText() : '';
+  $('collector-status').textContent = doing || messages[status] || messages.unavailable;
+  $('collector-status').classList.toggle('busy', !!doing);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
   $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
     : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : '브리티 연결';
@@ -1550,24 +1815,39 @@ function chatCollectionText(snapshot) {
   const { autoRefresh, chatRooms, chatCollection, chatRefreshFailed, collectorFirstImportPending } = snapshot;
   if (snapshot.demo) return '';
   if (chatRefreshFailed) return '저장된 대화를 읽지 못했습니다. 다음 확인 때 다시 시도합니다.';
-  if (!autoRefresh?.chats.enabled) return '대화방 자동 갱신이 꺼져 있습니다.';
-  if (!chatRooms?.length) return '가져올 방을 선택해 주세요.';
-  if (collectorFirstImportPending) return '첫 쪽지 가져오기 설정이 끝나면 자동으로 확인합니다.';
-  if (!chatCollection) return '선택한 방의 첫 자동 확인을 기다리는 중입니다.';
-  const { checkedAt, status, added, retry, needsReview } = chatCollection;
+  if (!chatRooms?.length) return '가져올 방을 아직 고르지 않았습니다. ‘가져올 대화방’을 펼쳐 방을 고르고 저장해 주세요.';
+  const automatic = !!autoRefresh?.chats.enabled;
+  if (automatic && collectorFirstImportPending) return '첫 쪽지 가져오기 설정이 끝나면 자동으로 확인합니다.';
+  if (!chatCollection) return automatic ? `아직 확인 전입니다. ${minutesLabel(autoRefresh.chats.minutes)} 안에 처음 확인합니다. 바로 받으려면 지금 가져오기를 누르세요.`
+    : '자동이 꺼져 있습니다. 지금 가져오기를 누를 때만 가져옵니다.';
+  const { checkedAt, status, added, retry, needsReview, baselines = 0, candidates = 0, holds = [] } = chatCollection;
   const time = new Date(checkedAt);
   const day = key(time);
   const clock = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   const checked = day === key(new Date()) ? clock : `${shortDate(day)} ${clock}`;
   const reasons = {
-    'in-use': '브리티 창 최소화 대기',
+    'in-use': '브리티 사용 중이라 다음 확인 때 가져옴',
     offline: '브리티 로그인 대기',
     conflict: '브리티 사용 중'
   };
   const result = status === 'ready' ? `새 글 ${added}건` : reasons[status] || '대화방을 읽지 못했습니다';
-  const skipped = retry + needsReview;
-  return [`마지막 확인 ${checked}`, result, status !== 'ready' && added ? `새 글 ${added}건` : '',
+  // 방 이름과 함께 무엇이 왜 보류됐는지 보인다. 끊김(gap)은 가져왔지만 그 앞 글이 빠졌을 수 있다는 뜻이다.
+  const names = new Map((chatRooms || []).map(room => [room.key, room.label]));
+  const holdText = {
+    missing: '브리티 목록에서 방을 못 찾음(이름이 바뀌었으면 방을 다시 골라 주세요)',
+    unstable: '글을 다 읽지 못함(다음 확인 때 다시 읽음)',
+    mismatch: '다른 방이 열림(다음 확인 때 다시 읽음)',
+    error: '읽는 중 오류(다음 확인 때 다시 읽음)',
+    gap: '지난번 글을 못 찾아 그 사이 글이 빠졌을 수 있음(브리티에서 확인해 주세요)'
+  };
+  const roomName = key => (names.get(key) || '방').replace(/\s+\d+$/, '');
+  const holdLines = holds.map(({ key, reason }) => `${roomName(key)}: ${holdText[reason] || '확인 보류'}`);
+  const skipped = Math.max(0, retry + needsReview - holds.filter(hold => hold.reason !== 'gap').length);
+  const summary = [`마지막 확인 ${checked}`, result, status !== 'ready' && added ? `새 글 ${added}건` : '',
+    status === 'ready' ? `후보 ${candidates}개` : '',
+    baselines ? `처음 확인한 방 ${baselines}개는 지금부터 새 글을 모읍니다` : '',
     skipped ? `확인 보류 ${skipped}개 방` : ''].filter(Boolean).join(' · ');
+  return [summary, ...holdLines].join('\n');
 }
 
 function renderAutoRefresh() {
@@ -1583,9 +1863,24 @@ function renderAutoRefresh() {
     select.disabled = !auto[kind].enabled || !!state.savingAuto;
     $(`auto-${kind}`).disabled = !!state.savingAuto;
   }
-  const status = chatCollectionText(state.snapshot);
-  if ($('chat-collection-status').textContent !== status) setMessage('chat-collection-status', status);
+  renderNotesFetch();
+  const collecting = !!state.chatCollecting;
+  $('chats-collect-now').textContent = collecting ? '가져오는 중…' : '지금 가져오기';
+  $('chats-collect-now').disabled = collecting || !!state.snapshot.demo || !state.snapshot.chatRooms?.length;
+  const status = collecting ? '브리티에서 대화방을 읽는 중…' : state.chatCollectError || chatCollectionText(state.snapshot);
+  if ($('chat-collection-status').textContent !== status) setMessage('chat-collection-status', status, !collecting && !!state.chatCollectError);
 }
+
+// 대화방 지금 가져오기: 자동이 꺼져 있어도 저장한 방을 한 번 읽는다.
+$('notes-collect-now').addEventListener('click', () => void collectNow());
+$('chats-collect-now').addEventListener('click', async () => {
+  state.chatCollecting = true;
+  state.chatCollectError = '';
+  renderAutoRefresh();
+  try { sync(await api.collectChatsNow()); }
+  catch (error) { state.chatCollectError = error.message; }
+  finally { state.chatCollecting = false; renderAutoRefresh(); }
+});
 
 async function saveAutoRefresh() {
   // 고른 값을 먼저 읽는다(다시 그리면 저장된 값으로 돌아간다).
@@ -1873,7 +2168,6 @@ $('update-check').addEventListener('click', async () => {
 });
 
 // 지난 쪽지 불러오기(3단계).
-const RANGE_COST = 0.00045; // 쪽지 1건에 호출 1번, 180건 약 0.08달러(분류 시험 추정)
 const firstImportDialog = $('first-import-dialog');
 const rangeSettings = $('range-settings');
 const rangeHome = document.createComment('range settings home');
@@ -1952,7 +2246,7 @@ $('first-import-finish').addEventListener('click', async () => {
     const automatic = $('first-import-auto').checked;
     sync(await api.finishCollectorFirstImport(automatic));
     firstImportDialog.close();
-    notice(automatic ? '쪽지 자동 갱신을 켰습니다.' : '수동으로 설정했습니다. 위쪽에서 ‘쪽지 가져오기’를 누르세요.');
+    notice(automatic ? '쪽지를 자동으로 가져옵니다.' : '수동으로 설정했습니다. 위쪽에서 ‘쪽지 가져오기’를 누르세요.');
   } catch (error) {
     state.firstImportError = error.message;
   } finally {
@@ -1969,7 +2263,8 @@ function renderRange() {
   const running = !!snap.rangeImport?.running;
   const busy = running || !!state.rangeBusy || !!state.firstImportSaving;
   $('range-preview').disabled = !available || busy;
-  $('range-import').disabled = !available || busy || !state.rangePreview?.fresh;
+  // 몇 건인지 보지 않아도 바로 불러올 수 있다. 세어 보았는데 새로 받을 쪽지가 없을 때만 막는다.
+  $('range-import').disabled = !available || busy || (!!state.rangePreview && !state.rangePreview.fresh);
   $('range-from').disabled = $('range-to').disabled = !available || busy;
   $('range-stop').hidden = !running;
   $('range-stop').disabled = !!snap.rangeImport?.stopping;
@@ -1979,11 +2274,16 @@ function renderRange() {
   } else if (!available && !first && !state.rangeMessage) {
     setMessage('range-status', snap.demo ? '샘플에서는 불러올 수 없습니다.' : '머리줄에서 브리티를 먼저 연결해 주세요.');
   }
+  // 불러온 뒤 AI로 분류할지: 몇 건인지 센 뒤에 건수만 보인다. 비용은 알리지 않는다(2026-11-12 사용자).
+  const fresh = state.rangePreview?.fresh || 0;
+  $('range-auto-classify-field').hidden = snap.aiProvider === 'none' || running;
+  $('range-auto-classify').disabled = busy;
+  $('range-auto-classify-note').textContent = fresh ? `${fresh}건 · 지난 마감은 끝낸 것으로 넣습니다` : '';
   const pending = snap.rangePending || 0;
   $('range-classify-row').hidden = !pending || running;
   $('range-classify').disabled = snap.aiProvider === 'none' || !!state.rangeBusy;
   $('range-classify-note').textContent = snap.aiProvider === 'none' ? `정리 전 ${pending}건 · AI를 연결하면 분류할 수 있습니다.`
-    : `정리 전 ${pending}건 · AI 호출 ${pending}번, 약 ${(pending * RANGE_COST).toFixed(3)}달러`;
+    : `정리 전 ${pending}건`;
   renderFirstImport();
 }
 
@@ -2007,27 +2307,28 @@ $('range-preview').addEventListener('click', () => void rangeAction(async () => 
   const preview = await api.previewRange(...rangeInput());
   state.rangePreview = preview;
   const already = preview.matched - preview.fresh;
-  setMessage('range-status', `목록에 보이는 쪽지 ${preview.visible}건 가운데 이 기간 ${preview.matched}건${already ? `(이미 받은 ${already}건 빼면 ${preview.fresh}건)` : ''}을 불러올 수 있습니다.` +
+  setMessage('range-status', `브리티 목록에서 살펴본 쪽지 ${preview.visible}건 가운데 이 기간 ${preview.matched}건${already ? `(이미 받은 ${already}건 빼면 ${preview.fresh}건)` : ''}을 불러올 수 있습니다.` +
     (preview.oldest ? ` 목록에서 가장 오래된 날은 ${preview.oldest}입니다.` : '') + (preview.unknown ? ` 날짜를 못 읽은 ${preview.unknown}건은 뺐습니다.` : ''));
 }));
 $('range-import').addEventListener('click', () => void rangeAction(async () => {
   const count = state.rangePreview?.fresh || 0;
-  if (!window.confirm(`쪽지 ${count}건을 브리티에서 열어 불러옵니다. 안 읽은 쪽지는 읽음 처리됩니다. 불러오는 동안 브리티 화면이 쪽지 목록으로 바뀝니다. 계속할까요?`)) return;
+  // 확인은 시작 전에 한 번만 한다. AI 분류 여부는 버튼 위 체크 칸에 미리 보이고, 끝난 뒤에는 다시 묻지 않는다.
+  const classify = state.snapshot.aiProvider !== 'none' && $('range-auto-classify').checked;
+  const ai = classify ? '\n불러온 뒤 AI로 분류합니다.' : '';
+  if (!window.confirm(`${count ? `쪽지 ${count}건을` : '이 기간 쪽지를'} 브리티에서 열어 불러옵니다. 안 읽은 쪽지는 읽음 처리됩니다. 불러오는 동안 브리티 화면이 쪽지 목록으로 바뀝니다.${ai}\n계속할까요?`)) return;
   state.rangeMessage = true;
   const result = await api.importRange(...rangeInput());
   if (firstImportDialog.open && result.imported) state.firstImportImported = true;
   state.rangePreview = null;
   setMessage('range-status', `${result.imported}건을 불러왔습니다.${result.stopped ? ' 중간에 멈췄습니다.' : ''}${result.failed ? ' 브리티 목록을 읽지 못해 끝까지 불러오지 못했습니다.' : ''}`, result.failed);
-  if (result.pending && state.snapshot.aiProvider !== 'none' &&
-      window.confirm(`불러온 쪽지 ${result.pending}건을 AI로 보내 분류할까요?\nAI 호출 ${result.pending}번, 약 ${(result.pending * RANGE_COST).toFixed(3)}달러입니다. 지난 마감은 끝낸 것으로 넣습니다.`)) {
+  if (result.pending && classify) {
     const queued = await api.classifyRange();
     setMessage('range-status', `${result.imported}건을 불러왔고 ${queued}건을 분류하고 있습니다.`);
   }
 }));
 $('range-stop').addEventListener('click', () => void api.stopRange().then(sync, () => {}));
 $('range-classify').addEventListener('click', () => void rangeAction(async () => {
-  const pending = state.snapshot.rangePending || 0;
-  if (!window.confirm(`불러온 쪽지 ${pending}건을 AI로 보내 분류할까요?\nAI 호출 ${pending}번, 약 ${(pending * RANGE_COST).toFixed(3)}달러입니다. 지난 마감은 끝낸 것으로 넣습니다.`)) return;
+  // 건수는 버튼 옆에 이미 보인다. 누르면 바로 분류한다.
   const queued = await api.classifyRange();
   state.rangeMessage = true;
   setMessage('range-status', `${queued}건을 분류하고 있습니다.`);
@@ -2167,12 +2468,27 @@ $('profile-save').addEventListener('click', async () => {
   }
 });
 
+// 종류의 화면 이름. 달력 범례(□ 마감 · ● 일정 · ━ 기간)와 같게 쓴다.
+const KIND_NAMES = { 까지: '마감', 그날: '일정', 기간: '기간' };
+
+// 업무 추가 창: 날짜 고치기와 같은 칸(날짜·종류·끝 날짜·시간·교시)을 쓴다.
 function showCreate(date) {
   $('create-form').reset();
   $('create-due').value = date;
+  $('create-kind').value = '까지';
+  updateCreateEnd();
   setMessage('create-error', '');
   $('create-dialog').showModal();
 }
+function updateCreateEnd() {
+  const span = $('create-kind').value === '기간';
+  $('create-end-field').hidden = !span;
+  $('create-end').disabled = !span;
+  $('create-end').min = $('create-due').value ? nextDay($('create-due').value) : '';
+  if (span && (!$('create-end').value || $('create-end').value <= $('create-due').value)) $('create-end').value = $('create-end').min;
+}
+$('create-kind').addEventListener('input', updateCreateEnd);
+$('create-due').addEventListener('input', updateCreateEnd);
 
 async function saveDetail(type = state.editType) {
   const id = state.selected;
@@ -2182,7 +2498,7 @@ async function saveDetail(type = state.editType) {
   if (type !== '없음' && !$('edit-form').reportValidity()) return;
   state.saving = true;
   enableForm();
-  const dates = type === '없음' ? undefined : editingDates().map(({ date, end, label, kind, done }) => ({ date, label, kind, ...(kind === '까지' && { done: done === true }), ...(kind === '기간' && { end }) }));
+  const dates = type === '없음' ? undefined : editingDates().map(({ date, end, label, kind, done, time }) => ({ date, label, kind, ...(time && { time }), ...(kind === '까지' && { done: done === true }), ...(kind === '기간' && { end }) }));
   const input = { title: $('edit-title').value, type, dates, memo: $('edit-memo').value, revision: state.revision };
   try {
     await api.update(id, input);
@@ -2198,7 +2514,7 @@ async function saveDetail(type = state.editType) {
     if (id !== state.selected) return;
     const message = type === previousType ? '변경을 저장했습니다.'
       : type === '할 일' ? '할 일로 옮겼습니다.' : `‘${typeLabels[type]}’으로 옮겼습니다.`;
-    setMessage('detail-message', message);
+    flash('detail-message', message);
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
@@ -2224,9 +2540,9 @@ async function refine() {
         state.dayKey = first;
         redraw();
       }
-      setMessage('detail-message', '쪽지 정리를 완료했습니다.');
+      flash('detail-message', '쪽지 정리를 완료했습니다.');
     } else if (result.status === 'failed') setMessage('detail-message', result.message, true);
-    else if (result.status === 'edited') setMessage('detail-message', '편집한 내용이 있어 AI 결과를 적용하지 않았습니다.');
+    else if (result.status === 'edited') flash('detail-message', '편집한 내용이 있어 AI 결과를 적용하지 않았습니다.');
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
@@ -2247,6 +2563,18 @@ $('next').addEventListener('click', () => stepMonth(1));
 $('today').addEventListener('click', () => { state.month = new Date(); state.dayKey = key(state.month); renderMonth(); });
 $('add-today').addEventListener('click', () => showCreate(key(new Date())));
 $('detail-close').addEventListener('click', closeDetail);
+// "날짜·제목 고치기 ↓"는 고치는 칸이 화면 아래에 가려 있을 때만 보인다(원문이 길 때). 칸이 보이면 숨긴다.
+function updateEditJump() {
+  const jump = $('detail-edit-jump');
+  if (!state.editJump) { jump.hidden = true; return; }
+  const panel = $('detail-panel').getBoundingClientRect();
+  const form = $('edit-form');
+  jump.hidden = form.hidden || !form.offsetParent || form.getBoundingClientRect().top < panel.bottom - 60;
+}
+$('detail-panel').addEventListener('scroll', updateEditJump, { passive: true });
+window.addEventListener('resize', updateEditJump);
+// 원문·첨부가 늦게 채워져 높이가 바뀌어도 다시 본다.
+new ResizeObserver(updateEditJump).observe($('detail-content'));
 $('detail-edit-jump').addEventListener('click', () => {
   const form = $('edit-form');
   form.focus({ preventScroll: true });
@@ -2260,7 +2588,11 @@ $('create-form').addEventListener('submit', async event => {
   event.preventDefault();
   $('create-save').disabled = true;
   try {
-    const task = await api.create({ title: $('create-title').value, due: $('create-due').value, memo: $('create-memo').value });
+    const kind = $('create-kind').value;
+    const task = await api.create({
+      title: $('create-title').value, due: $('create-due').value, memo: $('create-memo').value,
+      kind, end: kind === '기간' ? $('create-end').value : undefined, time: $('create-time').value
+    });
     $('create-dialog').close();
     state.month = fromKey(task.dates[0].date);
     state.dayKey = task.dates[0].date;
@@ -2274,7 +2606,22 @@ $('create-form').addEventListener('submit', async event => {
 });
 $('settings-open').addEventListener('click', openSettings);
 $('settings-close').addEventListener('click', () => $('settings-dialog').close());
+$('day-close').addEventListener('click', () => $('day-dialog').close());
 $('settings-dialog').addEventListener('close', () => { $('ai-key').value = ''; });
+// 설정·바뀐 점·업무 추가 창은 창 바깥(어두운 곳)을 누르면 닫힌다. 창 안에서 끌다가 밖에서 놓은 것은 닫지 않는다.
+for (const id of ['settings-dialog', 'changes-dialog', 'create-dialog', 'day-dialog']) {
+  const dialog = $(id);
+  let downOutside = false;
+  const outside = event => {
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  dialog.addEventListener('pointerdown', event => { downOutside = event.target === dialog && outside(event); });
+  dialog.addEventListener('click', event => {
+    if (downOutside && event.target === dialog && outside(event)) dialog.close();
+    downOutside = false;
+  });
+}
 $('ai-provider').addEventListener('change', () => { $('ai-key').value = ''; renderAiSettings(); });
 $('ai-connect').addEventListener('click', async () => {
   const provider = $('ai-provider').value;
@@ -2411,7 +2758,7 @@ $('candidate-accept').addEventListener('click', async () => {
   state.saving = true;
   enableForm();
   const type = state.editType;
-  const dates = editingDates().map(({ date, end, label, kind }) => ({ date, label, kind, ...(kind === '까지' && { done: false }), ...(kind === '기간' && { end }) }));
+  const dates = editingDates().map(({ date, end, label, kind, time }) => ({ date, label, kind, ...(time && { time }), ...(kind === '까지' && { done: false }), ...(kind === '기간' && { end }) }));
   const input = { type, title: $('edit-title').value, dates, memo: $('edit-memo').value, revision: state.revision };
   const current = () => source ? state.forwardedDraft === source : id === state.selected;
   try {
@@ -2422,7 +2769,7 @@ $('candidate-accept').addEventListener('click', async () => {
     const savedId = source ? saved.id : id;
     if (source) openDetail(savedId, null, lastFocus);
     await refreshDetail(true);
-    if (savedId === state.selected) setMessage('detail-message', type === '할 일' ? '할 일로 올렸습니다.' : '확인할 것으로 올렸습니다.');
+    if (savedId === state.selected) flash('detail-message', type === '할 일' ? '할 일로 올렸습니다.' : '확인할 것으로 올렸습니다.');
   } catch (error) {
     if (current()) setMessage('detail-message', error.message, true);
   } finally {
@@ -2446,7 +2793,7 @@ $('candidate-restore').addEventListener('click', async () => {
     await api.restoreCandidate(task.id);
     if (task.id === state.selected) {
       await refreshDetail(true);
-      setMessage('detail-message', '분류할 것으로 되돌렸습니다.');
+      flash('detail-message', '분류할 것으로 되돌렸습니다.');
     }
   } catch (error) {
     if (task.id === state.selected) setMessage('detail-message', error.message, true);
@@ -2458,7 +2805,7 @@ $('important').addEventListener('click', async () => {
   $('important').disabled = true;
   try {
     await api.setImportant(task.id, !task.important);
-    if (task.id === state.selected) setMessage('detail-message', task.important ? '중요 표시를 뗐습니다.' : '중요로 표시했습니다. 목록 묶음 맨 위에 둡니다.');
+    if (task.id === state.selected) flash('detail-message', task.important ? '중요 표시를 뗐습니다.' : '중요로 표시했습니다. 목록 묶음 맨 위에 둡니다.');
   } catch (error) {
     if (task.id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
@@ -2471,7 +2818,7 @@ $('pin').addEventListener('click', async () => {
   $('pin').disabled = true;
   try {
     await api.setPinned(task.id, !task.pinned);
-    if (task.id === state.selected) setMessage('detail-message', task.pinned ? '상시에서 내렸습니다. 날짜 묶음에 다시 보입니다.' : '목록 맨 위 상시 묶음에 띄웠습니다.');
+    if (task.id === state.selected) flash('detail-message', task.pinned ? '상시에서 내렸습니다. 날짜 묶음에 다시 보입니다.' : '목록 맨 위 상시 묶음에 띄웠습니다.');
   } catch (error) {
     if (task.id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
@@ -2540,7 +2887,7 @@ $('done').addEventListener('click', async () => {
   $('done').disabled = true;
   try {
     await api.setDone(task.id, !wasFinished, 'all');
-    if (task.id === state.selected) setMessage('detail-message', wasFinished ? '완료 표시를 취소했습니다.' : '남은 마감을 모두 끝냄으로 표시했습니다.');
+    if (task.id === state.selected) flash('detail-message', wasFinished ? '완료 표시를 취소했습니다.' : '남은 마감을 모두 끝냄으로 표시했습니다.');
   } catch (error) {
     if (task.id === state.selected) {
       setMessage('detail-message', error.message, true);
@@ -2553,7 +2900,7 @@ $('reference-seen').addEventListener('click', async () => {
   if (!id) return;
   try {
     await api.markReferenceSeen(id);
-    if (id === state.selected) setMessage('detail-message', '끝낸 것에서 다시 볼 수 있습니다.');
+    if (id === state.selected) flash('detail-message', '끝낸 것에서 다시 볼 수 있습니다.');
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
   }
@@ -2564,8 +2911,12 @@ $('brity-reply').addEventListener('click', async () => {
   $('brity-reply').disabled = true;
   setMessage('detail-message', '브리티에서 쪽지를 찾고 있습니다.');
   try {
-    const { foreground } = await api.replyInBrity(id);
-    if (id === state.selected) setMessage('detail-message', foreground ? '브리티 답장창을 열었습니다.' : '답장창을 열었습니다. 작업 표시줄에서 브리티 창을 선택해 주세요.');
+    const { foreground, notice } = await api.replyInBrity(id);
+    // notice: 쪽지는 띄웠지만 답장창은 못 연 경우. 금방 사라지지 않게 flash 대신 그대로 둔다.
+    if (id === state.selected) {
+      if (notice) setMessage('detail-message', notice);
+      else flash('detail-message', foreground ? '브리티 답장창을 열었습니다.' : '답장창을 열었습니다. 작업 표시줄에서 브리티 창을 선택해 주세요.');
+    }
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
@@ -2604,7 +2955,7 @@ $('work-copy').addEventListener('click', async () => {
   if (!id) return;
   try {
     await api.copyWorkPrompt(id);
-    if (id === state.selected) setMessage('work-message', '지시문을 복사했습니다. 원하는 채팅에 붙여 넣으세요.');
+    if (id === state.selected) flash('work-message', '지시문을 복사했습니다. 원하는 채팅에 붙여 넣으세요.');
   } catch (error) {
     if (id === state.selected) setMessage('work-message', error.message, true);
   }
@@ -2709,6 +3060,8 @@ window.addEventListener('resize', fitWidth);
 function applyZoom(step) {
   const index = Math.min(ZOOMS.length - 1, Math.max(0, step));
   document.documentElement.style.zoom = String(ZOOMS[index]);
+  // 글자를 키우면 vh도 함께 커져 창이 화면 밖으로 넘친다. 창 높이 계산에서 배율을 되돌린다.
+  document.documentElement.style.setProperty('--zoom', String(ZOOMS[index]));
   fitWidth();
   $('zoom-value').textContent = `${Math.round(ZOOMS[index] * 100)}%`;
   $('zoom-out').disabled = index === 0;

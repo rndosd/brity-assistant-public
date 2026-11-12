@@ -9,7 +9,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
-const { CalendarError } = require('./store');
+const { CalendarError, aiStopError } = require('./store');
 const { buildClassifierInput } = require('./refine');
 
 const MODEL = 'claude-haiku-5-5';
@@ -67,7 +67,7 @@ function bundledCandidates(env) {
 function resolveClaude(explicit, env = process.env) {
   if (explicit) {
     if (typeof explicit !== 'string' || !path.isAbsolute(explicit) || path.extname(explicit).toLowerCase() !== '.exe' || !isFile(explicit)) {
-      throw new CalendarError('settings.json에서 Claude Code 실행 파일 경로(claudeExecutable)를 확인해 주세요.');
+      throw aiStopError('settings.json에서 Claude Code 실행 파일 경로(claudeExecutable)를 확인해 주세요.');
     }
     return explicit;
   }
@@ -82,7 +82,7 @@ function resolveClaude(explicit, env = process.env) {
   // 시험용: SCHOOL_CALENDAR_CLAUDE_NO_BUNDLED=1이면 데스크톱 앱 안의 claude.exe를 못 본 척한다("없는 PC" 흉내).
   const [bundled] = env.SCHOOL_CALENDAR_CLAUDE_NO_BUNDLED === '1' ? [] : bundledCandidates(env);
   if (bundled) return bundled;
-  throw new CalendarError(MISSING_MESSAGE);
+  throw aiStopError(MISSING_MESSAGE);
 }
 
 function claudeArgs(schemaText) {
@@ -125,12 +125,12 @@ function readClaudeResult({ code, output, errors }) {
   let reply;
   try { reply = JSON.parse(String(output).trim()); } catch { reply = null; }
   const text = `${reply?.result ?? ''} ${errors ?? ''}`;
-  if (/not logged in|\/login|invalid api key|oauth token|authentication/i.test(text)) throw new CalendarError(LOGIN_MESSAGE);
+  if (/not logged in|\/login|invalid api key|oauth token|authentication/i.test(text)) throw aiStopError(LOGIN_MESSAGE);
   if (/usage limit|rate limit|limit reached|5-hour limit|weekly limit/i.test(text)) {
-    throw new CalendarError('Claude 구독 사용 한도에 닿았습니다. 한도가 풀린 뒤 다시 정리하거나, 다른 연결 방식을 골라 주세요.');
+    throw aiStopError('Claude 구독 사용 한도에 닿았습니다. 한도가 풀린 뒤 다시 정리하거나, 다른 연결 방식을 골라 주세요.');
   }
   if (/model.*(not found|not available|access)|does not have access/i.test(text)) {
-    throw new CalendarError('이 Claude 계정에서 Haiku 모델을 쓸 수 없습니다. Claude Code를 최신으로 업데이트했는지, 구독이 Pro 이상인지 확인해 주세요.');
+    throw aiStopError('이 Claude 계정에서 Haiku 모델을 쓸 수 없습니다. Claude Code를 최신으로 업데이트했는지, 구독이 Pro 이상인지 확인해 주세요.');
   }
   if (!reply || reply.is_error || code !== 0 || !reply.structured_output || typeof reply.structured_output !== 'object') {
     throw new CalendarError('Claude Code에서 정리를 받지 못했습니다. 로그인 상태와 버전을 확인한 뒤 다시 시도해 주세요.');
