@@ -1,12 +1,13 @@
 ﻿# 배포용 ZIP 만들기: powershell -ExecutionPolicy Bypass -File tools\build-zip.ps1 [-Patch | -Seoryong]
 # 결과: 저장소 루트의 BrityMessengerCalendar-Windows-x64-<General 또는 Seoryong>-<날짜>.zip.
 # 받은 쪽지(collector/inbox)와 앱 자료는 넣지 않는다.
-# 패치: -Patch 를 붙이면 앱 코드와 수집기 스크립트만 담은 패치도 만든다(Electron 실행 파일·자료·받은 쪽지 없음).
+# -Patch는 공통 패치를 만든다. Electron을 바꿀 때는 -ElectronRuntimeZip에 해당 공식 Windows x64 ZIP을 지정한다.
 #       결과는 저장소 루트 release\<판>\ 에 GitHub 릴리스에 그대로 올릴 영문 이름으로 둔다:
 #       brity-messenger-calendar-windows-x64-<판>.zip(전체), brity-messenger-calendar-patch-<판>.zip(패치), update.json(판·지문·바뀐 점), notes.md.
 #       앱의 업데이트 버튼은 배포받는 PC에서 접근할 수 있는 update.json을 읽는다.
-param([switch]$Patch, [switch]$Seoryong, [string]$OutputDirectory, [string]$FactchatGuideUrl = $env:SCHOOL_CALENDAR_FACTCHAT_GUIDE)
+param([switch]$Patch, [switch]$Seoryong, [string]$OutputDirectory, [string]$FactchatGuideUrl = $env:SCHOOL_CALENDAR_FACTCHAT_GUIDE, [string]$ElectronRuntimeZip)
 $ErrorActionPreference = 'Stop'
+if ($ElectronRuntimeZip -and -not $Patch) { throw '-ElectronRuntimeZip은 -Patch와 함께 사용하세요.' }
 if ($Patch -and $Seoryong) {
   throw '공개 릴리스용 전체 ZIP과 공통 패치는 일반판에서 만듭니다. 서룡판 ZIP은 -Seoryong으로 따로 만드세요.'
 }
@@ -24,11 +25,29 @@ $collectorSrc = Join-Path $repo 'collector'
 $tempRoot = (Get-Item -LiteralPath ([IO.Path]::GetTempPath())).FullName
 $buildStage = Join-Path $tempRoot ('school-calendar-build-' + [guid]::NewGuid().ToString('N'))
 $stageRoot = Join-Path $buildStage 'full'
-$version = (Get-Content (Join-Path $app 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
-$electronVersion = (Get-Content (Join-Path $app 'node_modules\electron\package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+$package = Get-Content (Join-Path $app 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$version = $package.version
+$electronVersion = $package.devDependencies.electron
+$installedRuntime = Join-Path $app 'node_modules\electron\dist'
 $edition = if ($Seoryong) { 'Seoryong' } else { 'General' }
 $out = Join-Path $outputRoot ("BrityMessengerCalendar-Windows-x64-$edition-" + (Get-Date -Format yyyyMMdd) + '.zip')
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+
+if ($ElectronRuntimeZip) {
+  $ElectronRuntimeZip = (Get-Item -LiteralPath $ElectronRuntimeZip).FullName
+  $runtimeZip = [IO.Compression.ZipFile]::OpenRead($ElectronRuntimeZip)
+  try {
+    $versionEntry = $runtimeZip.GetEntry('version')
+    $exeEntry = $runtimeZip.GetEntry('electron.exe')
+    if (-not $versionEntry -or -not $exeEntry) { throw 'Electron ZIP에 version 또는 electron.exe가 없습니다.' }
+    $reader = New-Object IO.StreamReader($versionEntry.Open())
+    try { $runtimeZipVersion = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
+    if ($runtimeZipVersion -ne $electronVersion) { throw 'Electron ZIP과 package.json의 Electron 버전이 다릅니다.' }
+  } finally { $runtimeZip.Dispose() }
+} elseif (-not (Test-Path -LiteralPath (Join-Path $installedRuntime 'version')) -or
+          (Get-Content -LiteralPath (Join-Path $installedRuntime 'version') -Raw).Trim() -ne $electronVersion) {
+  throw "Electron $electronVersion 설치가 필요합니다. school-calendar에서 npm ci를 실행하세요."
+}
 
 function New-Zip([string]$source, [string]$target) {
   if (Test-Path $target) { Remove-Item $target -Force }
@@ -94,7 +113,8 @@ $root = Join-Path $stageRoot 'Brity-Messenger-Calendar'
 $runtime = Join-Path $root 'runtime'
 New-Item -ItemType Directory -Force $root | Out-Null
 # Electron runtime (without the default app)
-Copy-Item (Join-Path $app 'node_modules\electron\dist') $runtime -Recurse
+if ($ElectronRuntimeZip) { [IO.Compression.ZipFile]::ExtractToDirectory($ElectronRuntimeZip, $runtime) }
+else { Copy-Item -LiteralPath $installedRuntime -Destination $runtime -Recurse }
 Remove-Item (Join-Path $runtime 'resources\default_app.asar') -ErrorAction SilentlyContinue
 Copy-AppCode (Join-Path $runtime 'resources\app')
 Copy-CollectorScripts (Join-Path $root 'collector')
@@ -137,9 +157,8 @@ Set-Content (Join-Path $root 'AI-SETUP.txt') $setup -Encoding utf8 -NoNewline
 
 실행에 필요한 파일이 모두 들어 있어 Node.js 설치 없이 열립니다.
 
-켜자마자 꺼지면: Windows 11 26H2(빌드 26300 등)에서 Electron 앱이 곧바로 꺼지는 알려진 문제가 있습니다.
-실행기가 이를 알아채 샌드박스 없이 다시 켜고, 이 폴더에 no-sandbox.txt를 남겨 다음부터 그렇게 켭니다.
-그래도 켜지지 않으면 Windows 판(설정 → 시스템 → 정보)을 알려 주세요.
+Windows 11 26H2에서 켜자마자 꺼지면 이 ZIP을 새 폴더에 풀고 샘플부터 열어 보세요.
+그래도 켜지지 않으면 Windows 빌드와 오류 코드를 알려 주세요.
 "@ | Set-Content (Join-Path $root 'Read-me.txt') -Encoding utf8
 New-Zip $stageRoot $out
 Get-Item $out | Select-Object FullName, Length
@@ -154,6 +173,9 @@ Copy-Item $out (Join-Path $releaseDir "brity-messenger-calendar-windows-x64-$ver
 $patchStage = Join-Path $buildStage 'patch'
 $patchRoot = Join-Path $patchStage 'School-Calendar-Patch'
 Copy-AppCode (Join-Path $patchRoot 'files\runtime\resources\app')
+if ($ElectronRuntimeZip) {
+  Copy-Item -LiteralPath $ElectronRuntimeZip -Destination (Join-Path $patchRoot 'files\runtime\resources\app\electron-runtime.zip')
+}
 Copy-CollectorScripts (Join-Path $patchRoot 'files\collector')
 Copy-Item (Join-Path $app 'update-apply.ps1') $patchRoot
 "@echo off`r`nsetlocal`r`npowershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0update-apply.ps1`" -Staging `"%~dp0.`"`r`n" | Set-Content (Join-Path $patchRoot 'update.cmd') -Encoding ascii -NoNewline
@@ -170,13 +192,21 @@ Copy-Item (Join-Path $app 'update-apply.ps1') $patchRoot
 $patchName = "brity-messenger-calendar-patch-$version.zip"
 $patchFile = Join-Path $releaseDir $patchName
 New-Zip $patchStage $patchFile
+if ((Get-Item -LiteralPath $patchFile).Length -gt 200MB) { throw '기존 캘린더에서 받을 수 있는 패치 크기(200MiB)를 넘었습니다.' }
 $sha = (Get-FileHash $patchFile -Algorithm SHA256).Hash.ToLower()
 
 $changes = Get-Content (Join-Path $app 'CHANGES.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$manifest = [ordered]@{ version = $version; electron = $electronVersion; file = $patchName; sha256 = $sha; changes = @($changes) }
+$manifest = [ordered]@{ version = $version; file = $patchName; sha256 = $sha; changes = @($changes) }
+# 기존 앱은 electron이 다르면 패치를 받지 않는다. Electron이 포함된 패치만 이 제한을 건너뛴다.
+if (-not $ElectronRuntimeZip) { $manifest.electron = $electronVersion }
 [IO.File]::WriteAllText((Join-Path $releaseDir 'update.json'), ($manifest | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
 $current = @($changes | Where-Object { $_.version -eq $version })
-$notes = "## $version`n`n" + (($current | ForEach-Object { $_.items | ForEach-Object { "- $_" } }) -join "`n") + "`n`n처음 설치하려면 brity-messenger-calendar-windows-x64-$version.zip 을 받으세요. 사용 중인 앱에 새 판 알림이 뜨면 '업데이트'를 누르세요.`n"
+$installNotes = if ($ElectronRuntimeZip) {
+  "앱이 열리면 머리줄의 **업데이트**를 누르세요. 앱이 열리지 않고 기존 자료가 있으면 ``$patchName``을 기존 캘린더 폴더 안에 풀고 ``School-Calendar-Patch/update.cmd``를 실행하세요. 처음 설치하거나 샘플로 확인하려면 ``brity-messenger-calendar-windows-x64-$version.zip``을 새 폴더에 풀어 주세요."
+} else {
+  "처음 설치하려면 brity-messenger-calendar-windows-x64-$version.zip 을 받으세요. 사용 중인 앱에 새 판 알림이 뜨면 '업데이트'를 누르세요."
+}
+$notes = "## $version`n`n" + (($current | ForEach-Object { $_.items | ForEach-Object { "- $_" } }) -join "`n") + "`n`n$installNotes`n"
 [IO.File]::WriteAllText((Join-Path $releaseDir 'notes.md'), $notes, (New-Object Text.UTF8Encoding($false)))
 Get-ChildItem $releaseDir | Select-Object Name, Length
 } finally {

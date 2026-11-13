@@ -29,6 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-zip.ps1 -Seoryon
 ```
 
 - **일반판 및 공통 패치** — 기본 명령은 일반판 전체 ZIP을 만든다. `-Patch`는 일반판 전체 ZIP과 `release/<버전>/`의 공통 패치 ZIP, `update.json`, `notes.md`를 만든다. 새 설치의 설정에서 OpenAI가 선택되고 학교 옵션은 숨겨진다. 기존 팩트챗 연결은 이어 쓸 수 있다.
+- **Electron 교체** — 기존 앱의 업데이트 버튼으로 Electron도 바꾸려면 `-Patch -ElectronRuntimeZip <공식 Windows x64 ZIP>`을 사용한다. 공식 SHA-256을 확인하고, 대상 버전에서 업데이트 버튼으로 설치한 뒤 Electron 버전과 자료 보존을 확인한다.
 - **서룡판** — `-Seoryong`은 ZIP 루트에 `seoryong.edition`을 넣는다. 실행 진입점이 이 파일에서 판과 학교용 안내 주소를 읽는다. 새 설치에서 팩트챗을 먼저 고르며 OpenAI도 선택할 수 있다. 예전 서룡 설치에서 팩트챗을 아직 연결하지 않았다면 서룡판 전체 ZIP을 사용한다. 공통 패치는 루트의 판 표시와 사용 데이터를 건드리지 않는다. 학교 안내 주소는 로컬 환경 변수나 빌드 인자로 제공한다.
 - **배포 전 검사** — 일반판과 공통 패치에 학교 판 표시 파일, 학교 전용 안내 URL, 실제 쪽지·업무·시험 데이터가 빠졌는지 확인한다. `update.json`의 버전·파일명·SHA-256이 실제 자산과 일치해야 한다. 업데이트는 배포받는 PC에서 접근 가능한 릴리스 자산이 있어야 작동한다. GitHub의 공개 범위와 릴리스 유무를 확인하고, 이미 작업 중인 변경을 살펴 게시 범위를 정한다.
 

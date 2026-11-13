@@ -1,7 +1,7 @@
 {
   "name": "school-calendar",
   "productName": "브리티 메신저 캘린더",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -9,6 +9,6 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "electron": "45.2.3"
+    "electron": "45.2.2"
   }
 }
