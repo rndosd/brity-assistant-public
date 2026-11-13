@@ -84,7 +84,10 @@ try {
   if (-not $NoRestart) {
     $launcher = Join-Path $Root 'Brity Messenger Calendar.exe'
     if (Test-Path -LiteralPath $launcher) { Start-Process -FilePath $launcher -WorkingDirectory $Root }
-    else { Start-Process -FilePath (Join-Path $runtimeDir 'electron.exe') -ArgumentList '--brity' -WorkingDirectory $Root }
+    else {
+      $startArgs = if (Test-Path -LiteralPath (Join-Path $Root 'no-sandbox.txt')) { @('--brity', '--no-sandbox') } else { @('--brity') }
+      Start-Process -FilePath (Join-Path $runtimeDir 'electron.exe') -ArgumentList $startArgs -WorkingDirectory $Root
+    }
   }
   if ($WaitPid -le 0) { Say '업데이트했습니다. 캘린더를 열면 무엇이 바뀌었는지 안내합니다.' }
   exit 0
@@ -94,7 +97,13 @@ try {
   if ($Root) { Remove-Item -LiteralPath (Join-Path $Root 'update-staging\pending.txt') -Force -ErrorAction SilentlyContinue }
   Say "업데이트하지 못했습니다.`n$($_.Exception.Message)" 'Warning'
   if ($WaitPid -gt 0 -and -not $NoRestart -and (Test-CalendarRoot $Root)) {
-    Start-Process -FilePath (Join-Path $Root 'runtime\electron.exe') -ArgumentList '--brity' -WorkingDirectory $Root
+    # 실행기가 있으면 실행기로 켠다(Windows 26H2 꺼짐 문제 때 샌드박스 없이 다시 켜는 일을 실행기가 맡는다).
+    $launcher = Join-Path $Root 'Brity Messenger Calendar.exe'
+    if (Test-Path -LiteralPath $launcher) { Start-Process -FilePath $launcher -WorkingDirectory $Root }
+    else {
+      $startArgs = if (Test-Path -LiteralPath (Join-Path $Root 'no-sandbox.txt')) { @('--brity', '--no-sandbox') } else { @('--brity') }
+      Start-Process -FilePath (Join-Path $Root 'runtime\electron.exe') -ArgumentList $startArgs -WorkingDirectory $Root
+    }
   }
   exit 1
 }

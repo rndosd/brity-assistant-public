@@ -4,11 +4,19 @@
 
 ## 설치와 첫 실행
 
-1. 배포한 곳에서 **일반판 Windows x64 ZIP**을 받아 문서처럼 쓰기 가능한 폴더에 전체 압축을 풉니다.
+### ⬇️ [최신 판 내려받기 (Releases)](https://github.com/rndosd/brity-assistant-public/releases/latest)
+
+위 링크에서 **`brity-messenger-calendar-windows-x64-<판>.zip`** 을 받으세요. 이 페이지 위쪽의 초록색 **Code → Download ZIP** 이나 **Source code** 는 프로그램 소스라서 실행 파일이 들어 있지 않습니다.
+
+1. 받은 ZIP을 문서처럼 쓰기 가능한 폴더에 **전체 압축 풀기**합니다. ZIP을 연 채로 안의 파일을 바로 실행하면 켜지지 않습니다.
 2. 실제 쪽지에 연결하기 전에 **Brity Messenger Calendar Sample.exe**로 가상 자료를 둘러볼 수 있습니다.
 3. 브리티 메신저에 로그인한 뒤 **Brity Messenger Calendar.exe**를 열고 **브리티 연결**을 누릅니다. 가져온 쪽지는 브리티에서 읽음으로 표시됩니다.
 
-설치 ZIP에는 실행에 필요한 파일이 들어 있습니다. 현재 이 GitHub 저장소에는 배포용 릴리스가 등록되어 있지 않습니다.
+설치 ZIP에는 실행에 필요한 파일이 모두 들어 있어 따로 설치할 것이 없습니다.
+
+**켜지지 않을 때**
+- 처음 열 때 Windows가 "PC 보호" 창을 띄우면 **추가 정보 → 실행**을 누릅니다(서명하지 않은 개인 제작 프로그램이라 뜹니다).
+- Windows 11 26H2(빌드 26300 등)에서는 Electron 앱이 켜지자마자 꺼지는 알려진 문제가 있습니다([electron/electron#54614](https://github.com/electron/electron/issues/54614)). 0.4.0부터는 실행기가 이를 알아채 자동으로 다시 켭니다. 그래도 안 되면 Windows 판(설정 → 시스템 → 정보)을 알려 주세요.
 
 ## AI 분류
 

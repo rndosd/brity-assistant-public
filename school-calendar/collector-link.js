@@ -19,7 +19,9 @@ function roomHolds(value) {
     .map(({ key, reason }) => ({ key, reason }));
 }
 
-function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, from = '', to = '' } = {}) {
+const REASONS = new Set(['not-running', 'tray', 'menu-open', 'not-minimized', 'in-use', 'screen']);
+
+function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '' } = {}) {
   if (process.platform !== 'win32' || typeof scriptsDir !== 'string' || !path.isAbsolute(scriptsDir) || signal?.aborted) {
     return Promise.resolve(unavailable);
   }
@@ -29,6 +31,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
   if (chatMode) {
     if (typeof chatDirectory !== 'string' || !path.isAbsolute(chatDirectory)) return Promise.resolve(unavailable);
     args.push('-ChatDirectory', chatDirectory);
+    if (manual === true) args.push('-Manual');
   }
   if (mode === 'Tick' && force === true) args.push('-Force');
   if (mode === 'Range' || mode === 'RangePreview') {
@@ -65,6 +68,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           Object.assign(value, {
             read: count(result.read), added: count(result.added), retry: count(result.retry), needsReview: count(result.needsReview),
             baselines: count(result.baselines), gaps: count(result.gaps), holds: roomHolds(result.holds),
+            reason: REASONS.has(result.reason) ? result.reason : '',
             roomChoices: Array.isArray(result.roomChoices) ? result.roomChoices : []
           });
         }

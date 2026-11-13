@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$ScriptsDir,
     [string]$ChatDirectory,
     [switch]$Force,  # Tick: collect even while the teacher is using Brity (they confirmed in the calendar)
+    [switch]$Manual, # ChatRooms/Chats: 선생님이 직접 누름. 브리티 창이 열려 있으면 잠깐 최소화해 읽고 되돌린다.
     [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$From = '',  # RangePreview/Range: past notes by list date
     [ValidatePattern('^(\d{4}-\d{2}-\d{2})?$')][string]$To = ''
 )
@@ -103,6 +104,7 @@ try {
     }
     if ($Mode -in 'ChatRooms', 'Chats') {
         $chatArgs = @{ Directory = $ChatDirectory }
+        if ($Manual) { $chatArgs.MinimizeFirst = $true }
         if ($Mode -eq 'ChatRooms') { $chatArgs.ListRooms = $true }
         else { $chatArgs.Rooms = @((ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()))) }
         $result = & (Join-Path $PSScriptRoot 'collect-chats.ps1') @chatArgs

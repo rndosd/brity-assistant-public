@@ -577,7 +577,10 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .connection .small-note.busy { color: var(--ink); font-weight: 700; }
 .connection .small-note.busy::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--ink); animation: busy-dot 1.1s ease-in-out infinite; }
 @keyframes busy-dot { 50% { opacity: .25; } }
-@media (prefers-reduced-motion: reduce) { .connection .small-note.busy::before { animation: none; } }
+/* 지난 쪽지 세기·불러오기: 버튼 아래 한 줄을 깜박이는 점과 진한 글씨로(2026-11-12) */
+#range-status.busy { color: var(--ink); font-weight: 700; font-size: 13px; }
+#range-status.busy::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--ink); animation: busy-dot 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .connection .small-note.busy::before, #range-status.busy::before { animation: none; } }
 .check-field .small-note { font-weight: 400; }
 .span-piece .item-time { margin-right: 4px; color: var(--ink); }
 /* 날짜 추가는 날짜 칸 아래 왼쪽. "고치기/취소"는 제목 줄 오른쪽 끝에 그대로 있다. */
@@ -589,3 +592,17 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 /* 업무 추가 창의 날짜 줄: 날짜 | 종류, 끝 날짜 | 시간·교시. 날짜 고치기와 같은 칸. */
 .create-date-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
 .create-date-row .field input, .create-date-row .field select { width: 100%; min-width: 0; }
+
+/* 화면 꾸미기(2026-11-13): 스킨 세 가지를 견본 그림과 함께 고른다. 견본은 스킨과 상관없이 늘 같은 모습. */
+.skin-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.skin-choice { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--rule); background: var(--sheet); cursor: pointer; min-width: 0; }
+.skin-choice:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.skin-choice:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 1px; }
+.skin-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.skin-swatch { display: block; height: 58px; border: 1px solid #0000001a; background-repeat: no-repeat; }
+.skin-swatch-diary { background: url("skins/washi.svg") 8px 6px / 54px 13px no-repeat, linear-gradient(to right, #efe8d9 1px, transparent 1px) 0 0 / 10px 10px, linear-gradient(to bottom, #efe8d9 1px, transparent 1px) 0 0 / 10px 10px, #fffcf4; }
+.skin-swatch-cute { background: url("skins/cat-face.png") center 14px / 40px auto no-repeat, url("skins/gingham.svg") 0 0 / 14px 14px; }
+.skin-swatch-evening { background: url("skins/moon.svg") center / 64px auto no-repeat, url("skins/stars.svg") 0 0 / 130px 130px, #131729; }
+.skin-name { display: grid; gap: 1px; font-size: 13px; }
+.skin-name small { color: var(--ink-2); font-size: 11.5px; }
+@media (max-width: 560px) { .skin-choices { grid-template-columns: minmax(0, 1fr); } }

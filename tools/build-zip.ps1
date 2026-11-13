@@ -136,6 +136,10 @@ Set-Content (Join-Path $root 'AI-SETUP.txt') $setup -Encoding utf8 -NoNewline
 5. 배포한 곳에서 새 ZIP을 받을 수 있습니다. 설정의 '백업 만들기'로 기존 업무와 쪽지를 옮길 수 있습니다.
 
 실행에 필요한 파일이 모두 들어 있어 Node.js 설치 없이 열립니다.
+
+켜자마자 꺼지면: Windows 11 26H2(빌드 26300 등)에서 Electron 앱이 곧바로 꺼지는 알려진 문제가 있습니다.
+실행기가 이를 알아채 샌드박스 없이 다시 켜고, 이 폴더에 no-sandbox.txt를 남겨 다음부터 그렇게 켭니다.
+그래도 켜지지 않으면 Windows 판(설정 → 시스템 → 정보)을 알려 주세요.
 "@ | Set-Content (Join-Path $root 'Read-me.txt') -Encoding utf8
 New-Zip $stageRoot $out
 Get-Item $out | Select-Object FullName, Length

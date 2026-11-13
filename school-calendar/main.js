@@ -402,14 +402,29 @@ function runChatOperation(action) {
   return chatRun;
 }
 
+// 대화방을 못 읽은 까닭마다 선생님이 할 일(2026-11-12 실제 브리티 상황 시험, .qa/brity-cases-20261112.md).
+// 모르는 까닭이면 해 볼 순서를 준다.
+const CHAT_GUIDE = {
+  'not-running': '브리티 메신저가 꺼져 있습니다. 브리티를 켜고 로그인한 뒤 다시 눌러 주세요.',
+  tray: '브리티 창이 닫혀 트레이에만 있습니다. 화면 오른쪽 아래 트레이의 브리티 아이콘을 눌러 창을 연 뒤 다시 눌러 주세요.',
+  'menu-open': '브리티 화면에 메뉴가 열려 있습니다. 브리티 창을 눌러 Esc를 누른 뒤 다시 눌러 주세요.',
+  'not-minimized': '브리티 창이 열려 있어 자동으로는 가져오지 않았습니다. 지금 가져오기를 누르면 바로 가져옵니다.',
+  'in-use': '가져오는 중에 브리티를 쓰셔서 멈췄습니다. 다 쓰신 뒤 다시 눌러 주세요.',
+  conflict: '브리티에서 다른 일을 처리하는 중입니다. 잠시 뒤 다시 눌러 주세요.'
+};
+const CHAT_UNKNOWN = '브리티 대화방 화면을 읽지 못했습니다. 이렇게 해 보세요: ① 브리티 창을 눌러 Esc ② 브리티에 로그인돼 있는지 확인 ③ 캘린더를 껐다 켜기 ④ 브리티를 껐다 켜기. 그래도 안 되면 알려 주세요.';
+
+function chatGuide(result) {
+  if (result.status === 'ready') return '';
+  const status = result.status === 'waiting' ? 'in-use' : result.status === 'busy' ? 'conflict' : result.status;
+  if (result.reason && CHAT_GUIDE[result.reason]) return CHAT_GUIDE[result.reason];
+  if (status === 'offline') return CHAT_GUIDE['not-running'];
+  return CHAT_GUIDE[status] || CHAT_UNKNOWN;
+}
+
 function checkChatResult(result) {
   if (result.status === 'ready') return result;
-  const messages = {
-    offline: '브리티 메신저에 로그인한 뒤 다시 눌러 주세요.',
-    'in-use': '브리티를 쓰는 중이라 읽지 않았습니다. 다른 창을 누른 뒤 다시 눌러 주세요.',
-    conflict: '브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.'
-  };
-  throw new CalendarError(messages[result.status] || '브리티 대화방을 읽지 못했습니다. 브리티 창을 한 번 열었다가 다른 창으로 옮긴 뒤 다시 눌러 주세요.');
+  throw new CalendarError(chatGuide(result));
 }
 
 function chatCollectionSummary(result, roomKeys, checkedAt) {
@@ -420,7 +435,8 @@ function chatCollectionSummary(result, roomKeys, checkedAt) {
   return {
     roomKeys, checkedAt, status, added: count(result.added), read: count(result.read),
     retry: count(result.retry), needsReview: count(result.needsReview), baselines: count(result.baselines),
-    gaps: count(result.gaps), holds, candidates: count(result.candidates)
+    gaps: count(result.gaps), holds, candidates: count(result.candidates),
+    reason: typeof result.reason === 'string' ? result.reason : '', guide: chatGuide(result)
   };
 }
 
@@ -449,7 +465,7 @@ async function loadChatRooms() {
   if (demo) return { roomChoices: demo.listChatRooms(), needsReview: 0 };
   if (store.inboxOverride) throw new CalendarError('이 실행 환경에서는 브리티 대화방을 읽을 수 없습니다.');
   if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
-  return runChatOperation(async () => checkChatResult(await listChatRooms(chatOptions())));
+  return runChatOperation(async () => checkChatResult(await listChatRooms({ ...chatOptions(), manual: true })));
 }
 
 // 대화방 자동 갱신은 저장한 방만 읽는다.
@@ -463,10 +479,10 @@ async function pollChats() {
 }
 
 // 고른 방을 읽고, 새 글을 바로 묶어 후보를 찾는다(기다리지 않음). 머리줄은 읽는 중 → 후보 찾는 중으로 바뀐다.
-async function collectChatRooms(roomKeys) {
+async function collectChatRooms(roomKeys, { manual = false } = {}) {
   const live = () => new Set(store.tasks.filter(task => task.candidate && !task.candidate.discarded).map(task => task.id));
   const before = live();
-  const result = await readChats(roomKeys);
+  const result = await readChats(roomKeys, manual);
   if (!closing) {
     activity = 'chat-deciding';
     publish();
@@ -479,21 +495,22 @@ async function collectChatRooms(roomKeys) {
 }
 
 // 대화방을 읽는 동안 머리줄에 "브리티에서 대화방 읽는 중"을 보인다.
-async function readChats(roomKeys) {
+async function readChats(roomKeys, manual = false) {
   activity = 'chats';
   publish();
-  try { return await collectChats({ ...chatOptions(), roomKeys }); }
+  try { return await collectChats({ ...chatOptions(), roomKeys, manual }); }
   finally { activity = null; }
 }
 
 // 설정의 대화방 "지금 가져오기". 자동이 꺼져 있어도 저장한 방을 한 번 읽는다.
-// 브리티를 쓰는 중(창이 맨 앞) 같은 사정은 오류로 던지지 않고 마지막 확인 기록에 남겨 화면이 보여 준다.
+// 브리티가 최소화돼 있지 않은 것 같은 사정은 오류로 던지지 않고 마지막 확인 기록에 남겨 화면이 보여 준다.
 async function collectChatsNow() {
   if (demo || store.inboxOverride) throw new CalendarError('샘플에서는 대화방을 가져올 수 없습니다.');
   const roomKeys = store.chatRooms().map(room => room.key);
   if (!roomKeys.length) throw new CalendarError('가져올 대화방을 먼저 골라 저장해 주세요.');
   if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
-  return runChatOperation(() => collectChatRooms(roomKeys));
+  // 선생님이 직접 누름: 브리티 창이 열려 있어도 잠깐 최소화해 읽고 되돌린다.
+  return runChatOperation(() => collectChatRooms(roomKeys, { manual: true }));
 }
 
 // 설정의 자동 갱신 주기로 타이머를 다시 건다.

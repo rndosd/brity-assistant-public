@@ -1,0 +1,280 @@
+/* 스킨 세 가지(2026-11-12~13 사용자 "버튼 위치는 똑같이, 느낌이 싹 바뀌게", "색만 바꾼 게 아니라 질감·캐릭터·폰트까지").
+   style.css 뒤에 읽고 <html data-skin="diary|cute|evening">로 고른다. 배치·크기는 그대로 두고
+   색·질감(그림 파일 renderer/skins/)·글꼴(renderer/skins/fonts/, 구글 폰트 OFL. 나눔손글씨 펜 말고는 KS X 1001 한글 2,350자·영숫자·기호만 남긴 woff2)·모양·장식만 바꾼다.
+   장식은 pointer-events 없이 빈 자리에만 둔다. 빨강 = 일요일·마감 지남·중요, 파랑 = 토요일, 노랑 = 오늘의 뜻은 세 스킨이 같다.
+   본문 글씨는 또렷한 고딕 그대로. 앱에 붙일 때 index.html CSP에 font-src 'self'가 있어야 글꼴이 읽힌다. */
+
+@font-face { font-family: "Skin Gowun Batang"; src: url("skins/fonts/GowunBatang-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Skin Gowun Batang"; src: url("skins/fonts/GowunBatang-Bold.woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Skin Nanum Pen"; src: url("skins/fonts/NanumPenScript-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "Skin Jua"; src: url("skins/fonts/Jua-Regular.woff2"); font-display: swap; }
+@font-face { font-family: "Skin Gaegu"; src: url("skins/fonts/Gaegu-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Skin Gaegu"; src: url("skins/fonts/Gaegu-Bold.woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Skin Song Myung"; src: url("skins/fonts/SongMyung-Regular.woff2"); font-display: swap; }
+
+/* ═══════════ 1. 깔끔한 다이어리(기본) ═══════════
+   종이 결, 옅은 모눈, 마스킹테이프, 빨간 도장 오늘, 클립 꽂은 쪽지. 제목은 손글씨(나눔손글씨 펜), 숫자·쪽지 제목은 고운바탕. */
+:root:is([data-skin="diary"], :not([data-skin])) {
+  --hand: "Skin Nanum Pen", "Noto Sans KR", sans-serif;
+  --serif: "Skin Gowun Batang", "Noto Serif KR", "Batang", serif;
+  --paper: #efe9db;
+  --sheet: #fffcf4;
+  --rule: #e0d8c6;
+  --grid: #efe8d9;
+  --margin-line: #e9c2b9;
+  --today: #f5e27e;
+  --stamp: #c8382d;
+}
+:root:is([data-skin="diary"], :not([data-skin])) body { background: url("skins/paper-grain.svg"), var(--paper); }
+:root:is([data-skin="diary"], :not([data-skin])) .app-header { background: transparent; }
+:root:is([data-skin="diary"], :not([data-skin])) .app-header h1 { font-family: var(--hand); font-size: 24px; font-weight: 400; line-height: 1; }
+:root:is([data-skin="diary"], :not([data-skin])) .button { border-radius: 3px; border-bottom-width: 2px; }
+:root:is([data-skin="diary"], :not([data-skin])) .button:not(.primary, .text-button) { background: var(--sheet); }
+:root:is([data-skin="diary"], :not([data-skin])) .button.text-button { border-bottom-width: 1px; background: transparent; }
+:root:is([data-skin="diary"], :not([data-skin])) :is(.zoom, .seg) { border-radius: 3px; overflow: hidden; }
+:root:is([data-skin="diary"], :not([data-skin])) .todo { box-shadow: inset 7px 0 0 -6px var(--margin-line); padding-left: 16px; }
+:root:is([data-skin="diary"], :not([data-skin])) .today-line { font-family: var(--hand); font-size: 20px; line-height: 1.1; color: var(--ink); }
+:root:is([data-skin="diary"], :not([data-skin])) .list-tabs { border-radius: 3px; overflow: hidden; }
+:root:is([data-skin="diary"], :not([data-skin])) .list-tabs button[aria-selected="true"] { background: #3b342b; }
+:root:is([data-skin="diary"], :not([data-skin])) :is(.group h3, .detail-section h3, .detail-heading h2, .settings-section > legend, .settings-section > h3, dialog h2) { font-family: var(--hand); font-weight: 400; font-size: 20px; line-height: 1.1; letter-spacing: 0; color: var(--ink); }
+:root:is([data-skin="diary"], :not([data-skin])) .calendar-header { position: relative; border-bottom: 3px double var(--rule-strong); }
+:root:is([data-skin="diary"], :not([data-skin])) .calendar-header::before {
+  content: ""; position: absolute; left: -14px; top: -12px; width: 92px; height: 22px; pointer-events: none;
+  background: url("skins/washi.svg") center / 100% 100%; transform: rotate(-6deg); z-index: 1;
+}
+:root:is([data-skin="diary"], :not([data-skin])) .month-number { font-family: var(--serif); position: relative; z-index: 2; }
+:root:is([data-skin="diary"], :not([data-skin])) .year { font-family: var(--serif); }
+:root:is([data-skin="diary"], :not([data-skin])) .legend { font-family: var(--hand); font-size: 17px; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays { gap: 2px; padding-top: 4px; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span { border-bottom: 0; background: #8d8576; color: #fff; text-align: center; font-size: 11px; padding: 2px 0; margin-bottom: 3px; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:first-child { background: var(--stamp); color: #fff; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:last-child { background: #5f7fa8; color: #fff; }
+:root:is([data-skin="diary"], :not([data-skin])) .day:not(.adjacent) {
+  background:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
+    var(--sheet);
+}
+:root:is([data-skin="diary"], :not([data-skin])) .day.adjacent { background: #ece5d5; }
+:root:is([data-skin="diary"], :not([data-skin])) .day-number { font-family: var(--serif); }
+:root:is([data-skin="diary"], :not([data-skin])) .day.is-today .day-number {
+  background: transparent; color: var(--stamp); border: 2px solid var(--stamp); border-radius: 50%;
+  width: 26px; height: 26px; display: inline-grid; place-items: center; padding: 0; margin: -4px 0 0 -3px; transform: rotate(-10deg);
+}
+:root:is([data-skin="diary"], :not([data-skin])) .detail-panel { background: url("skins/paper-grain.svg"), var(--sheet); }
+:root:is([data-skin="diary"], :not([data-skin])) .detail-heading { background: transparent; }
+:root:is([data-skin="diary"], :not([data-skin])) .paper { position: relative; border: 0; border-radius: 2px; background: #fffef9; box-shadow: 0 1px 2px #3a321f1f, 0 6px 14px #3a321f14; transform: rotate(-.4deg); }
+:root:is([data-skin="diary"], :not([data-skin])) .paper::before {
+  content: ""; position: absolute; right: 22px; top: -18px; width: 20px; height: 38px; pointer-events: none;
+  background: url("skins/clip.svg") center / contain no-repeat;
+}
+:root:is([data-skin="diary"], :not([data-skin])) .original-title { font-family: var(--serif); font-weight: 700; }
+:root:is([data-skin="diary"], :not([data-skin])) dialog { border-radius: 3px; background: url("skins/paper-grain.svg"), var(--sheet); box-shadow: 0 1px 0 var(--rule), 0 12px 30px #3a321f2e; }
+:root:is([data-skin="diary"], :not([data-skin])) .imp-flag { border-radius: 2px; }
+
+/* ═══════════ 2. 귀엽고 깜찍 ═══════════
+   고양이 캐릭터(달 머리에서 빼꼼, 목록 아래서 낮잠, 자세히에서 손 흔들기), 체크무늬 천 머리줄, 별 스티커 오늘,
+   말랑한 사탕 버튼, 파스텔 일정 칩. 글꼴: 제목·버튼 주아, 손글씨 개구. */
+:root[data-skin="cute"] {
+  --jua: "Skin Jua", "Noto Sans KR", sans-serif;
+  --cute-hand: "Skin Gaegu", "Noto Sans KR", sans-serif;
+  --flower: "Skin Gaegu", sans-serif;
+  --paper: #fff5f7;
+  --sheet: #ffffff;
+  --rule: #f4dde5;
+  --rule-strong: #ecc6d3;
+  --ink: #4a3a48;
+  --ink-2: #7d6a7b;
+  --ink-3: #b3a2b1;
+  --muted-text: #8f7f8d;
+  --red: #e2506a;
+  --important-bg: #ffe6eb;
+  --blue: #4f87d8;
+  --today: #ffe08a;
+  --selected: #ffe9f0;
+  --hover: #fff1f5;
+  --pink: #f683a8;
+  --pink-deep: #df6890;
+  --mint: #d5f2e7;
+  --span-0: #ffeec4; --span-1: #d3f1e4; --span-2: #dae7fc; --span-3: #ffdbe3; --span-4: #ebe1fb; --span-5: #d2eff2;
+}
+:root[data-skin="cute"] body { background: url("skins/dots.svg"), var(--paper); }
+:root[data-skin="cute"] :is(button, input, select, textarea, summary, a, .pane-divider):focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+:root[data-skin="cute"] .app-header { background: url("skins/gingham.svg") 0 0 / 18px 18px; border-bottom: 3px solid #f7c3d3; }
+:root[data-skin="cute"] .app-header h1 {
+  font-family: var(--jua); font-size: 18px; font-weight: 400; color: var(--pink-deep);
+  background: #fffffff0; border-radius: 999px; padding: 3px 14px 3px 40px; box-shadow: 0 2px 0 #f2c2d1; position: relative;
+}
+:root[data-skin="cute"] .app-header h1::before { content: ""; position: absolute; left: 8px; top: 50%; width: 29px; height: 25px; transform: translateY(-52%); background: url("skins/cat-face.png") center / contain no-repeat; }
+:root[data-skin="cute"] .button {
+  border-radius: 999px; border: 1.5px solid var(--rule-strong); font-family: var(--jua); font-weight: 400; font-size: 13px;
+  background: linear-gradient(#ffffff, #fff4f7); box-shadow: inset 0 1px 0 #ffffff, 0 2px 0 #f2cbd8; transition: transform .08s, box-shadow .08s;
+}
+:root[data-skin="cute"] .button:hover:not(:disabled) { border-color: var(--pink); }
+:root[data-skin="cute"] .button:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 1px 0 #fff, 0 0 0 #f2cbd8; }
+:root[data-skin="cute"] .button.primary { color: #fff; border-color: var(--pink-deep); background: linear-gradient(#ff9fbf, var(--pink)); box-shadow: inset 0 2px 0 #ffffff66, 0 3px 0 var(--pink-deep); }
+:root[data-skin="cute"] .button.primary:hover:not(:disabled) { outline: 0; background: linear-gradient(#ff93b7, var(--pink-deep)); }
+:root[data-skin="cute"] .button.text-button { border-color: transparent; box-shadow: none; background: transparent; }
+:root[data-skin="cute"] .button.text-button:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
+:root[data-skin="cute"] .zoom { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; box-shadow: 0 2px 0 #f2cbd8; background: #fff; }
+:root[data-skin="cute"] :is(.badge, .flag, .chip, .same-count, .received, .imp-flag) { border-radius: 999px; }
+:root[data-skin="cute"] .imp-flag { padding: 0 6px; }
+:root[data-skin="cute"] .box { border-radius: 4px; }
+:root[data-skin="cute"] .todo { background: url("skins/cat-sleep.png") no-repeat center bottom 12px / 118px auto; }
+:root[data-skin="cute"] .today-line { font-family: var(--flower); font-weight: 700; font-size: 16px; color: var(--pink-deep); }
+:root[data-skin="cute"] .list-tabs { gap: 5px; background: transparent; border: 0; }
+:root[data-skin="cute"] .list-tabs button { border: 1.5px solid var(--rule); border-radius: 12px; background: #fff; box-shadow: 0 2px 0 var(--rule); font-family: var(--jua); }
+:root[data-skin="cute"] .list-tabs button:hover { border-color: var(--pink); }
+:root[data-skin="cute"] .list-tabs button[aria-selected="true"] { background: linear-gradient(#ff9fbf, var(--pink)); border-color: var(--pink-deep); color: #fff; box-shadow: 0 2px 0 var(--pink-deep); font-weight: 400; }
+:root[data-skin="cute"] .list-tabs button[aria-selected="true"] .tab-unread { color: #fff; }
+:root[data-skin="cute"] :is(.group h3, .detail-section h3, .detail-heading h2, .fetch-title, .settings-section > legend, .settings-section > h3, dialog h2) { font-family: var(--jua); font-weight: 400; letter-spacing: 0; }
+:root[data-skin="cute"] .group h3 { font-size: 14px; color: var(--pink-deep); }
+:root[data-skin="cute"] .row { border-radius: 10px; }
+:root[data-skin="cute"] .row.selected { box-shadow: none; background: var(--selected); }
+:root[data-skin="cute"] .row.important, :root[data-skin="cute"] .row.important.selected { box-shadow: inset 3px 0 0 var(--red); background: var(--important-bg); }
+:root[data-skin="cute"] .calendar-header { position: relative; border-bottom: 0; padding-bottom: 10px; }
+:root[data-skin="cute"] .calendar-header::after {
+  content: ""; position: absolute; left: 52%; bottom: 26px; width: 66px; height: 54px; pointer-events: none;
+  background: url("skins/cat-peek.png") center bottom / contain no-repeat;
+}
+:root[data-skin="cute"] .month-number { font-family: var(--jua); font-weight: 400; color: var(--pink-deep); text-shadow: 3px 3px 0 #ffd6e2; }
+:root[data-skin="cute"] .month-unit { font-family: var(--jua); }
+:root[data-skin="cute"] .year { font-family: var(--cute-hand); font-size: 15px; }
+:root[data-skin="cute"] .year b { font-size: 17px; }
+:root[data-skin="cute"] .legend { font-family: var(--cute-hand); font-size: 15px; font-weight: 700; }
+:root[data-skin="cute"] .weekdays { gap: 4px; }
+:root[data-skin="cute"] .weekdays span { border-bottom: 0; text-align: center; font-family: var(--jua); font-size: 13px; padding-bottom: 6px; }
+:root[data-skin="cute"] .month { gap: 4px; border-left: 0; }
+:root[data-skin="cute"] .day { border: 1.5px solid var(--rule); border-radius: 14px; background: #fff; box-shadow: 0 2px 0 var(--rule); }
+:root[data-skin="cute"] .day.adjacent { background: #ffffff99; box-shadow: none; border-style: dashed; }
+:root[data-skin="cute"] .day-hit { border-radius: 12px; }
+:root[data-skin="cute"] .day-hit:hover { background: #fff1f580; }
+:root[data-skin="cute"] .day-number { font-family: var(--jua); font-weight: 400; font-size: 14px; }
+:root[data-skin="cute"] .day.is-today { border-color: #f8cf63; background: #fffcef; box-shadow: 0 2px 0 #f8cf63; }
+:root[data-skin="cute"] .day.is-today .day-number { background: var(--today); border-radius: 999px; padding: 0 7px; }
+:root[data-skin="cute"] .day.is-today::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 26px; height: 26px; pointer-events: none; background: url("skins/star-sticker.svg") center / contain no-repeat; transform: rotate(12deg); }
+:root[data-skin="cute"] .item { border-radius: 7px; padding: 1px 4px; background: #eef8f2; }
+:root[data-skin="cute"] .item.type-task { background: #fff0e0; }
+:root[data-skin="cute"] .item.type-ref { background: #eef3fd; }
+:root[data-skin="cute"] .item:is(.done, .past) { background: #f6f1f4; }
+:root[data-skin="cute"] .item.important { background: var(--important-bg); box-shadow: none; }
+:root[data-skin="cute"] .item.candidate { background: transparent; }
+:root[data-skin="cute"] .item.selected { outline: 1.5px solid var(--pink); }
+:root[data-skin="cute"] .day-items { gap: 2px; }
+:root[data-skin="cute"] .span-piece { border-radius: 999px; }
+:root[data-skin="cute"] .span-piece:not(.start) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+:root[data-skin="cute"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+:root[data-skin="cute"] .detail-panel { background: url("skins/cat-wave.png") no-repeat right 16px bottom 12px / 100px auto, #fff; box-shadow: -1px 0 0 var(--rule); }
+:root[data-skin="cute"] .detail-heading { background: transparent; }
+:root[data-skin="cute"] .seg { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; }
+:root[data-skin="cute"] .seg button { font-family: var(--jua); }
+:root[data-skin="cute"] .seg button + button { border-left-color: var(--rule); }
+:root[data-skin="cute"] .seg button[aria-pressed="true"] { background: linear-gradient(#ff9fbf, var(--pink)); color: #fff; font-weight: 400; }
+:root[data-skin="cute"] :is(.task-mark[aria-pressed="true"], .task-mark.marked) { background: var(--mint); border-color: #79cfae; }
+:root[data-skin="cute"] .paper { position: relative; border: 1.5px solid var(--rule); border-radius: 14px; background: #fff; box-shadow: 0 3px 0 var(--rule); margin-top: 8px; }
+:root[data-skin="cute"] .paper::before { content: ""; position: absolute; left: 50%; top: -11px; width: 74px; height: 20px; transform: translateX(-50%) rotate(-3deg); pointer-events: none; background: url("skins/washi-mint.svg") center / 100% 100%; }
+:root[data-skin="cute"] .original-title { font-family: var(--jua); font-weight: 400; font-size: 18px; }
+:root[data-skin="cute"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border: 1.5px solid var(--rule-strong); border-radius: 12px; }
+:root[data-skin="cute"] .field :is(input, select, textarea):focus { border-color: var(--pink); }
+:root[data-skin="cute"] :is(.date-row, .detail-message, .same-work, .candidate-box, .forwarded-review, .rules-update, .update-bar, .send-preview, .chat-room-options) { border-radius: 14px; }
+:root[data-skin="cute"] dialog { border: 0; border-radius: 22px; box-shadow: 0 0 0 6px #ffe3ec, 0 24px 60px #8c4a6233; }
+:root[data-skin="cute"] dialog::backdrop { background: #ffd6e266; }
+:root[data-skin="cute"] :is(dialog h2, .settings-head) { border-bottom: 2px dotted var(--rule-strong); }
+:root[data-skin="cute"] dialog h2 { color: var(--pink-deep); }
+:root[data-skin="cute"] :is(.check-field input, .chat-room-option input) { accent-color: var(--pink); }
+:root[data-skin="cute"] .notice { border-radius: 999px; padding: 8px 16px; font-family: var(--jua); }
+:root[data-skin="cute"] .connection .small-note.busy::before { background: var(--pink); }
+
+/* ═══════════ 3. 차분한 저녁(어두운 화면) ═══════════
+   별 뜬 밤하늘 바탕, 달 그림, 반투명 유리 판, 은은한 빛. 글꼴: 달 숫자는 송명, 제목은 고운바탕. */
+:root[data-skin="evening"] {
+  color-scheme: dark;
+  --brush: "Skin Song Myung", "Skin Gowun Batang", "Noto Serif KR", serif;
+  --night-serif: "Skin Gowun Batang", "Noto Serif KR", serif;
+  --paper: #131729;
+  --sheet: #1c2136;
+  --rule: #2f3753;
+  --rule-strong: #8d97b0;
+  --ink: #e6e9f2;
+  --ink-2: #b0b7c9;
+  --ink-3: #7c849b;
+  --muted-text: #969eb2;
+  --red: #ff8a80;
+  --important-bg: #3b2534;
+  --blue: #86b4ff;
+  --today: #5b4c1c;
+  --selected: #2c3456;
+  --hover: #242b45;
+  --glow: #9db8ff;
+  --glass: #ffffff0a;
+  --span-0: #4a4231; --span-1: #2f4537; --span-2: #2d3d55; --span-3: #4d3132; --span-4: #3d3554; --span-5: #284846;
+}
+:root[data-skin="evening"] body { background: url("skins/stars.svg"), radial-gradient(ellipse at 70% -10%, #2a3160 0%, transparent 55%), var(--paper); }
+:root[data-skin="evening"] :focus-visible { outline-color: var(--glow); }
+:root[data-skin="evening"] .app-header { background: #0e1222b3; border-bottom-color: #ffffff12; }
+:root[data-skin="evening"] .app-header h1 { font-family: var(--night-serif); font-weight: 700; letter-spacing: .03em; }
+:root[data-skin="evening"] .app-header h1::before { content: "☾ "; color: #f7e6ad; text-shadow: 0 0 10px #f7e6ad99; }
+:root[data-skin="evening"] .button { border-radius: 9px; border-color: #ffffff1f; background: var(--glass); }
+:root[data-skin="evening"] .button:hover:not(:disabled) { border-color: var(--glow); box-shadow: 0 0 0 3px #9db8ff22; }
+:root[data-skin="evening"] .button.primary { background: linear-gradient(135deg, #a9c1ff, #c2a8ff); border-color: transparent; color: #141831; box-shadow: 0 0 18px #a9b6ff55; }
+:root[data-skin="evening"] .button.primary:hover:not(:disabled) { outline: 0; filter: brightness(1.06); }
+:root[data-skin="evening"] .button.text-button { background: transparent; border-color: transparent; box-shadow: none; }
+:root[data-skin="evening"] :is(.badge, .flag, .chip, .imp-flag) { border-radius: 5px; }
+:root[data-skin="evening"] .imp-flag { color: #2a1416; }
+:root[data-skin="evening"] .box { border-radius: 3px; }
+:root[data-skin="evening"] .zoom { border-radius: 9px; overflow: hidden; background: var(--glass); border-color: #ffffff1f; }
+:root[data-skin="evening"] .todo { background: #0e12221a; }
+:root[data-skin="evening"] .today-line { font-family: var(--night-serif); color: var(--ink); }
+:root[data-skin="evening"] .list-tabs { background: #ffffff14; border-color: #ffffff14; border-radius: 9px; overflow: hidden; }
+:root[data-skin="evening"] .list-tabs button { background: #1c2136cc; }
+:root[data-skin="evening"] .list-tabs button[aria-selected="true"] { background: var(--selected); color: var(--ink); box-shadow: inset 0 -2px 0 var(--glow); }
+:root[data-skin="evening"] .list-tabs button[aria-selected="true"] .tab-counts > b { color: var(--ink); }
+:root[data-skin="evening"] .list-tabs button[aria-selected="true"] .tab-unread { color: var(--red); }
+:root[data-skin="evening"] :is(.group h3, .detail-section h3, .detail-heading h2, .settings-section > legend, .settings-section > h3, dialog h2) { font-family: var(--night-serif); letter-spacing: .02em; }
+:root[data-skin="evening"] .row { border-radius: 6px; }
+:root[data-skin="evening"] .row.selected { box-shadow: inset 3px 0 0 var(--glow); }
+:root[data-skin="evening"] .pinned-group { border-left-color: var(--glow); }
+:root[data-skin="evening"] .calendar { background: transparent; }
+:root[data-skin="evening"] .calendar-header { position: relative; border-bottom: 1px solid #ffffff26; }
+:root[data-skin="evening"] .calendar-header::after {
+  content: ""; position: absolute; left: 52%; bottom: 24px; width: 80px; height: 54px; pointer-events: none;
+  background: url("skins/moon.svg") center / contain no-repeat;
+}
+:root[data-skin="evening"] .month-number { font-family: var(--brush); font-weight: 400; font-size: 46px; color: #f4f1e8; text-shadow: 0 0 22px #9db8ff40; }
+:root[data-skin="evening"] .month-unit { font-family: var(--brush); }
+:root[data-skin="evening"] .year { font-family: var(--night-serif); }
+:root[data-skin="evening"] .weekdays span { border-bottom-color: #ffffff1a; font-family: var(--night-serif); }
+:root[data-skin="evening"] .month { border-left-color: #ffffff12; }
+:root[data-skin="evening"] .day { background: var(--glass); border-color: #ffffff12; }
+:root[data-skin="evening"] .day.adjacent { background: transparent; }
+:root[data-skin="evening"] .day-hit:hover { background: #ffffff0a; }
+:root[data-skin="evening"] .day-number { font-family: var(--night-serif); }
+:root[data-skin="evening"] .day.is-today { background: #f7e6ad0f; box-shadow: inset 0 0 0 1px #f7e6ad55, inset 0 0 24px #f7e6ad14; }
+:root[data-skin="evening"] .day.is-today .day-number { background: #f7e6ad; color: #1a1b2c; border-radius: 999px; padding: 0 7px; box-shadow: 0 0 12px #f7e6ad88; }
+:root[data-skin="evening"] .item { border-radius: 4px; }
+:root[data-skin="evening"] .item.selected { outline-color: var(--glow); }
+:root[data-skin="evening"] .span-piece { border-radius: 3px; }
+:root[data-skin="evening"] .span-piece.selected { box-shadow: inset 0 0 0 1.5px var(--glow); }
+:root[data-skin="evening"] .detail-panel { background: #181d33e6; box-shadow: -1px 0 0 #ffffff14; }
+:root[data-skin="evening"] .detail-heading { background: transparent; }
+:root[data-skin="evening"] .seg { border-color: #ffffff26; border-radius: 9px; overflow: hidden; }
+:root[data-skin="evening"] .seg button { background: transparent; }
+:root[data-skin="evening"] .seg button + button { border-left-color: #ffffff1a; }
+:root[data-skin="evening"] .seg button[aria-pressed="true"] { background: var(--selected); color: var(--ink); box-shadow: inset 0 -2px 0 var(--glow); }
+:root[data-skin="evening"] :is(.task-mark[aria-pressed="true"], .task-mark.marked) { border-color: var(--glow); }
+:root[data-skin="evening"] .paper { background: linear-gradient(160deg, #ffffff10, #ffffff05); border: 1px solid #ffffff1c; border-top-color: #ffffff30; border-radius: 12px; box-shadow: 0 10px 30px #00000040; }
+:root[data-skin="evening"] .original-title { font-family: var(--night-serif); font-weight: 700; }
+:root[data-skin="evening"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border-radius: 8px; background: #0f1326; border-color: var(--rule); }
+:root[data-skin="evening"] .field :is(input, select, textarea):focus { border-color: var(--glow); }
+:root[data-skin="evening"] :is(.date-row, .detail-message, .same-work, .candidate-box, .forwarded-review, .rules-update, .update-bar, .send-preview) { border-radius: 10px; background: var(--glass); }
+:root[data-skin="evening"] dialog { background: #1a1f36f2; border-color: #ffffff1f; border-radius: 14px; box-shadow: 0 24px 70px #000000a0, 0 0 0 1px #9db8ff1a; }
+:root[data-skin="evening"] dialog::backdrop { background: #05070cb3; }
+:root[data-skin="evening"] :is(.check-field input, .chat-room-option input) { accent-color: var(--glow); }
+:root[data-skin="evening"] .notice { background: #e6e9f2; color: #131729; border-radius: 10px; }
+:root[data-skin="evening"] :is(.original::selection, .original *::selection) { background: #5b4c1c; }
+
+/* 달력이 넓어 범례가 달 숫자 줄로 올라오면(style.css 540px 기준) 장식은 연도 오른쪽 빈자리, 괘선 위에 앉힌다. */
+@container (min-width: 541px) {
+  :root[data-skin="cute"] .calendar-header::after { left: 168px; bottom: 6px; width: 60px; height: 49px; }
+  :root[data-skin="evening"] .calendar-header::after { left: 158px; bottom: 2px; width: 76px; height: 51px; }
+}

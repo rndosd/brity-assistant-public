@@ -1758,8 +1758,7 @@ function renderNotesFetch() {
 function activityText() {
   const snap = state.snapshot;
   if (snap.rangeImport?.running) {
-    const { done, total } = snap.rangeImport;
-    return `지난 쪽지 불러오는 중 · ${total ? `${total}건 중 ` : ''}${done}건`;
+    return '지난 쪽지 불러오는 중…';
   }
   if (state.connectingCollector || snap.activity === 'notes') return '브리티에서 쪽지 확인 중…';
   if (snap.activity === 'chats') return '브리티에서 대화방 읽는 중…';
@@ -1789,9 +1788,10 @@ function renderCollector() {
     offline: collectorConnected && auto?.enabled && !collectorFirstImportPending
       ? '브리티 메신저가 닫혀 있습니다. 다시 열고 로그인하면 자동으로 연결합니다.'
       : '브리티 메신저를 열고 로그인한 뒤 연결해 주세요.',
+    // 실제 시험: 브리티 메뉴(오른쪽 클릭 메뉴 등)가 열려 있을 때도 이렇게 된다.
     unverified: collectorConnected && auto?.enabled && !collectorFirstImportPending
-      ? '브리티 창을 한 번 열어 주세요. 창이 화면에 보이면 자동으로 다시 연결합니다.'
-      : '브리티에 로그인하고 창을 화면에 띄운 뒤 다시 연결해 주세요.',
+      ? '브리티 쪽지 화면을 읽지 못했습니다. 브리티 창에 열린 메뉴가 있으면 Esc로 닫아 주세요. 창이 보이면 자동으로 다시 연결합니다.'
+      : '브리티 쪽지 화면을 읽지 못했습니다. 로그인돼 있는지 보고, 열린 메뉴가 있으면 Esc로 닫은 뒤 다시 연결해 주세요.',
     conflict: '수집기를 자동으로 연결할 수 없습니다. 현재 설정된 저장 폴더에서만 쪽지를 읽습니다.',
     unavailable: '쪽지 수집기를 연결하지 못했습니다. ZIP 전체를 푼 폴더에서 앱을 다시 열어 주세요.',
   };
@@ -1826,11 +1826,11 @@ function chatCollectionText(snapshot) {
   const clock = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   const checked = day === key(new Date()) ? clock : `${shortDate(day)} ${clock}`;
   const reasons = {
-    'in-use': '브리티 사용 중이라 다음 확인 때 가져옴',
+    'in-use': '브리티 창 최소화 대기',
     offline: '브리티 로그인 대기',
     conflict: '브리티 사용 중'
   };
-  const result = status === 'ready' ? `새 글 ${added}건` : reasons[status] || '대화방을 읽지 못했습니다';
+  const result = status === 'ready' ? `새 글 ${added}건` : chatCollection.guide || reasons[status] || '대화방을 읽지 못했습니다';
   // 방 이름과 함께 무엇이 왜 보류됐는지 보인다. 끊김(gap)은 가져왔지만 그 앞 글이 빠졌을 수 있다는 뜻이다.
   const names = new Map((chatRooms || []).map(room => [room.key, room.label]));
   const holdText = {
@@ -2268,9 +2268,11 @@ function renderRange() {
   $('range-from').disabled = $('range-to').disabled = !available || busy;
   $('range-stop').hidden = !running;
   $('range-stop').disabled = !!snap.rangeImport?.stopping;
+  // 건수는 묶음(20건)이 끝나야 바뀌어 멈춘 것처럼 보였다. 하는 일만 알린다(2026-11-12 사용자).
+  $('range-status').classList.toggle('busy', running || !!state.rangeCounting);
   if (running) {
-    const { done, total, stopping } = snap.rangeImport;
-    setMessage('range-status', stopping ? '이번 묶음을 마치고 멈춥니다…' : `불러오는 중 · ${total ? `${total}건 중 ` : ''}${done}건`);
+    setMessage('range-status', snap.rangeImport.stopping ? '지금 여는 쪽지들을 마치고 멈춥니다…'
+      : '브리티에서 쪽지를 하나씩 열어 불러오는 중입니다. 쪽지가 많으면 몇 분 걸립니다. 끝날 때까지 브리티 창은 건드리지 마세요.');
   } else if (!available && !first && !state.rangeMessage) {
     setMessage('range-status', snap.demo ? '샘플에서는 불러올 수 없습니다.' : '머리줄에서 브리티를 먼저 연결해 주세요.');
   }
@@ -2303,8 +2305,12 @@ $('range-from').addEventListener('change', () => { state.rangePreview = null; re
 $('range-to').addEventListener('change', () => { state.rangePreview = null; renderRange(); });
 $('range-preview').addEventListener('click', () => void rangeAction(async () => {
   state.rangeMessage = true;
-  setMessage('range-status', '브리티 쪽지 목록을 세고 있습니다(쪽지는 열지 않습니다).');
-  const preview = await api.previewRange(...rangeInput());
+  state.rangeCounting = true;
+  setMessage('range-status', '브리티 쪽지 목록을 내려 가며 세고 있습니다(쪽지는 열지 않습니다).');
+  renderRange();
+  let preview;
+  try { preview = await api.previewRange(...rangeInput()); }
+  finally { state.rangeCounting = false; }
   state.rangePreview = preview;
   const already = preview.matched - preview.fresh;
   setMessage('range-status', `브리티 목록에서 살펴본 쪽지 ${preview.visible}건 가운데 이 기간 ${preview.matched}건${already ? `(이미 받은 ${already}건 빼면 ${preview.fresh}건)` : ''}을 불러올 수 있습니다.` +
@@ -3074,6 +3080,19 @@ try { const saved = localStorage.getItem('calendar-zoom'); if (saved !== null &&
 zoomStep = applyZoom(zoomStep);
 $('zoom-in').addEventListener('click', () => { zoomStep = applyZoom(zoomStep + 1); });
 $('zoom-out').addEventListener('click', () => { zoomStep = applyZoom(zoomStep - 1); });
+
+// 화면 꾸미기(스킨): 자리는 그대로 두고 색·질감·글꼴·그림만 바꾼다(skins.css). 이 PC에만 기억하고,
+// 첫 화면 전에 skin-boot.js가 먼저 입힌다.
+const SKINS = ['diary', 'cute', 'evening'];
+const skinInputs = [...document.querySelectorAll('input[name="skin"]')];
+function applySkin(skin) {
+  const value = SKINS.includes(skin) ? skin : 'diary';
+  document.documentElement.dataset.skin = value;
+  for (const input of skinInputs) input.checked = input.value === value;
+  try { localStorage.setItem('calendar-skin', value); } catch {}
+}
+applySkin(document.documentElement.dataset.skin);
+for (const input of skinInputs) input.addEventListener('change', () => { if (input.checked) applySkin(input.value); });
 
 redraw();
 api.onChange(sync);

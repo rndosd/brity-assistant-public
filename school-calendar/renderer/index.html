@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
   <title>브리티 메신저 캘린더</title>
+  <script src="skin-boot.js"></script>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="skins.css">
   <script defer src="periods.js"></script>
   <script defer src="task-model.js"></script>
   <script defer src="note-view.js"></script>
@@ -372,7 +374,7 @@
             <label class="field inline-field">주기<select id="auto-chats-minutes"></select></label>
             <button type="button" class="button small" id="chats-collect-now">지금 가져오기</button>
           </div>
-          <p class="small-note">고른 방만 가져옵니다. 브리티 창이 맨 앞에 있을 때(쓰는 중)는 가져오지 않습니다.</p>
+          <p class="small-note">고른 방만 가져옵니다. 브리티 창은 최소화해 두세요.</p>
         <details class="chat-room-settings" id="chat-room-settings">
           <summary>가져올 대화방 <span class="small-note" id="chat-room-count"></span></summary>
           <div class="chat-room-controls">
@@ -417,6 +419,16 @@
         <div class="ai-actions" id="range-classify-row" hidden>
           <button type="button" class="button" id="range-classify">불러온 쪽지 분류하기</button>
           <span class="small-note" id="range-classify-note"></span>
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-section" id="skin-settings">
+        <legend>화면 꾸미기</legend>
+        <p class="small-note section-note">버튼과 칸의 자리는 그대로 두고 색·질감·글꼴·그림만 바꿉니다. 이 PC에만 기억합니다.</p>
+        <div class="skin-choices">
+          <label class="skin-choice"><input type="radio" name="skin" value="diary"><span class="skin-swatch skin-swatch-diary" aria-hidden="true"></span><span class="skin-name"><b>깔끔한 다이어리</b><small>종이·모눈·도장</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="cute"><span class="skin-swatch skin-swatch-cute" aria-hidden="true"></span><span class="skin-name"><b>귀엽고 깜찍</b><small>고양이·파스텔</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="evening"><span class="skin-swatch skin-swatch-evening" aria-hidden="true"></span><span class="skin-name"><b>차분한 저녁</b><small>어두운 밤하늘</small></span></label>
         </div>
       </fieldset>
 
