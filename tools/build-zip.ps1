@@ -157,8 +157,9 @@ Set-Content (Join-Path $root 'AI-SETUP.txt') $setup -Encoding utf8 -NoNewline
 
 실행에 필요한 파일이 모두 들어 있어 Node.js 설치 없이 열립니다.
 
-Windows 11 26H2에서 켜자마자 꺼지면 이 ZIP을 새 폴더에 풀고 샘플부터 열어 보세요.
-그래도 켜지지 않으면 Windows 빌드와 오류 코드를 알려 주세요.
+켜자마자 꺼지면(오류 0x80000003): 폴더 권한에 다른 앱의 항목만 있고 '모든 응용 프로그램 패키지' 읽기 권한이 없을 때 생깁니다.
+실행기('Brity Messenger Calendar')로 켜면 runtime 폴더에만 그 권한을 더해 고칩니다. runtime\electron.exe를 직접 켜지 마세요.
+그래도 켜지지 않으면 GitHub 첫 화면 '켜지지 않을 때'의 진단 도구 결과를 보내 주세요.
 "@ | Set-Content (Join-Path $root 'Read-me.txt') -Encoding utf8
 New-Zip $stageRoot $out
 Get-Item $out | Select-Object FullName, Length

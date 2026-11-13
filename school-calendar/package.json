@@ -1,7 +1,7 @@
 {
   "name": "school-calendar",
   "productName": "브리티 메신저 캘린더",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "main": "main.js",
   "scripts": {
