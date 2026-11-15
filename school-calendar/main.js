@@ -642,7 +642,10 @@ function bindHandlers() {
     };
   });
   bind('ai-connect', connectAi);
-  bind('claude-status', () => ({ executable: claudeCli.findClaude(store.settings.claudeExecutable) }));
+  bind('claude-status', async () => {
+    const executable = claudeCli.findClaude(store.settings.claudeExecutable);
+    return { executable, loggedIn: executable ? await claudeCli.loginStatus(executable) : false };
+  });
   // 설치는 반드시 묻고 한다. 무엇을 어디서 받아 어디에 까는지 보여 준다.
   bind('claude-install', async () => {
     if (demo) throw new CalendarError('샘플에서는 쓸 수 없습니다.');
@@ -659,7 +662,8 @@ function bindHandlers() {
   });
   bind('claude-login', async () => {
     if (demo) throw new CalendarError('샘플에서는 쓸 수 없습니다.');
-    return claudeCli.openClaudeLogin(store.settings.claudeExecutable);
+    const result = await claudeCli.openClaudeLogin(store.settings.claudeExecutable);
+    return { ...result, loggedIn: await claudeCli.loginStatus(result.executable) };
   });
   bind('claude-install-copy', () => {
     clipboard.writeText(claudeCli.INSTALL_COMMAND);

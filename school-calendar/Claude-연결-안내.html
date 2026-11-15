@@ -74,8 +74,8 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
     <li>캘린더 <span class="ui">설정</span> → AI 연결 방식에서 <b>Claude Code CLI · Haiku (Claude 구독)</b>를 고릅니다.</li>
     <li><span class="ui">연결 시험 및 저장</span>을 누릅니다.</li>
     <li>Claude Code가 없으면 “지금 설치할까요?”가 뜹니다. <span class="ui">설치</span>를 누르고 1~2분 기다립니다.</li>
-    <li>로그인 창(검은 창)이 뜨면 안내대로 로그인합니다(아래 3번). 다 되면 그 창을 닫습니다.</li>
-    <li>캘린더가 자동으로 다시 시험하고 “연결 시험을 통과했습니다”가 나오면 끝입니다.</li>
+    <li>로그인이 안 돼 있으면 작은 검은 창과 브라우저가 열립니다. 브라우저에서 평소 쓰는 Claude 계정으로 로그인하고 <b>승인</b>을 누르면 검은 창이 저절로 닫힙니다.</li>
+    <li>캘린더가 바로 다시 시험하고 “연결 시험을 통과했습니다”가 나오면 끝입니다.</li>
   </ol>
   <p class="small">이 중 어디에서 막혔는지에 따라 아래 2번(설치) 또는 3번(로그인)을 따라 하세요.</p>
 
@@ -99,11 +99,9 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
 
   <h2><span class="n">3</span>로그인이 안 될 때: 직접 로그인하기</h2>
   <ol>
-    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">로그인 창 열기</span>를 누릅니다. 창이 안 뜨면 PowerShell을 열고 <span class="en">claude</span>를 입력합니다.</li>
-    <li>처음이면 글자 색(테마)을 고르라고 합니다. 아무거나 고르고 Enter.</li>
-    <li>로그인 방법을 물으면 <b>Claude account with subscription</b>(Claude 구독 계정)을 고릅니다. 질문 없이 입력 칸만 보이면 <span class="en">/login</span>을 입력합니다.</li>
-    <li>브라우저가 열리면 평소 쓰는 Claude 계정으로 로그인하고 <b>승인</b>을 누릅니다.</li>
-    <li>창으로 돌아와 로그인됐다고 나오면 <span class="en">/exit</span>를 입력하거나 창을 닫습니다.</li>
+    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">로그인 창 열기</span>를 누릅니다. 창이 안 뜨면 PowerShell을 열고 <span class="en">claude auth login --claudeai</span>를 입력합니다.</li>
+    <li>브라우저가 열리면 평소 쓰는 Claude 계정으로 로그인하고 <b>승인</b>을 누릅니다. 브라우저가 저절로 열리지 않으면 창에 나온 주소를 복사해 브라우저에 붙여 넣습니다.</li>
+    <li>로그인되면 명령이 끝납니다. 확인하려면 PowerShell에서 <span class="en">claude auth status</span>를 입력해 <span class="en">"loggedIn": true</span>가 보이는지 봅니다.</li>
     <li>캘린더에서 <span class="ui">연결 시험 및 저장</span>을 다시 누릅니다.</li>
   </ol>
   <p class="small">Claude 데스크톱 앱에 로그인돼 있어도 Claude Code 로그인은 따로 한 번 해야 합니다.</p>

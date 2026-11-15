@@ -2839,9 +2839,9 @@ $('ai-connect').addEventListener('click', async () => {
     } catch (error) {
       // Claude: 로그인이 안 되어 있으면 로그인 창을 띄우고, 창을 닫으면 한 번 더 시험한다.
       if (provider !== 'claude' || !String(error.message).startsWith('Claude Code에 로그인')) throw error;
-      setMessage('ai-status', '로그인 창을 열었습니다. 창의 안내대로 Claude 구독 계정으로 로그인하고, 끝나면 그 창을 닫으세요. 창을 닫으면 자동으로 다시 시험합니다.');
+      setMessage('ai-status', '로그인 창을 열었습니다. 브라우저가 열리면 Claude 구독 계정으로 로그인하고 승인을 누르세요. 끝나면 창이 저절로 닫히고 바로 다시 시험합니다.');
       const login = await api.claudeLogin();
-      if (!login?.closed) throw new Error('로그인 창이 닫히지 않았습니다. 로그인을 마치고 창을 닫은 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.');
+      if (!login?.loggedIn) throw new Error('Claude 로그인이 확인되지 않았습니다. 로그인을 마친 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.');
       setMessage('ai-status', '로그인을 확인하고 있습니다.');
       sync(await api.connectAi(provider, ''));
     }
@@ -2861,20 +2861,32 @@ async function openAiGuide(page) {
   try { await api.openAiGuide(page); }
   catch (error) { setMessage('ai-status', error.message, true); }
 }
-// Claude Code가 없으면 묻고 설치한다. 설치를 취소하면 false.
+// Claude Code(Claude 구독): Codex와 같은 순서. 없으면 묻고 설치하고, 로그인이 안 됐으면 로그인만 하는 창을 연다.
+// 설치를 취소하면 false, 로그인을 마치지 못하면 오류.
 async function prepareClaude() {
-  const { executable } = await api.claudeStatus();
-  if (executable) return true;
-  setMessage('ai-status', 'Claude Code가 없습니다. 설치할지 묻는 창을 확인해 주세요.');
-  const timer = setTimeout(() => setMessage('ai-status', 'Claude Code를 설치하고 있습니다. 1~2분 걸립니다. 창을 닫지 마세요.'), 1500);
-  try {
-    const result = await api.claudeInstall();
-    if (result?.cancelled) { setMessage('ai-status', '설치를 취소했습니다. ‘설치 명령 복사’로 직접 설치할 수도 있습니다.'); return false; }
-    setMessage('ai-status', result?.installed ? 'Claude Code를 설치했습니다. 연결을 시험합니다.' : '가짜 쪽지로 연결을 시험하고 있습니다.');
-    return true;
-  } finally {
-    clearTimeout(timer);
+  setMessage('ai-status', 'Claude Code가 설치·로그인돼 있는지 확인하고 있습니다.');
+  let { executable, loggedIn } = await api.claudeStatus();
+  if (!executable) {
+    setMessage('ai-status', 'Claude Code가 없습니다. 설치할지 묻는 창을 확인해 주세요.');
+    const timer = setTimeout(() => setMessage('ai-status', 'Claude Code를 설치하고 있습니다. 1~2분 걸립니다. 창을 닫지 마세요.'), 1500);
+    try {
+      const result = await api.claudeInstall();
+      if (result?.cancelled) { setMessage('ai-status', '설치를 취소했습니다. ‘설치 명령 복사’로 직접 설치할 수도 있습니다.'); return false; }
+      loggedIn = false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  if (!loggedIn) {
+    setMessage('ai-status', '로그인 창을 열었습니다. 브라우저가 열리면 Claude 구독 계정으로 로그인하고 승인을 누르세요. 끝나면 창이 저절로 닫히고 바로 다시 시험합니다.');
+    const login = await api.claudeLogin();
+    if (!login?.loggedIn) {
+      throw new Error(login?.closed ? 'Claude 로그인이 확인되지 않았습니다. 로그인을 마친 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.'
+        : '로그인 창이 닫히지 않았습니다. 로그인을 마친 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.');
+    }
+  }
+  setMessage('ai-status', '가짜 쪽지로 연결을 시험하고 있습니다.');
+  return true;
 }
 // Codex(ChatGPT 구독): 없으면 묻고 설치하고, 로그인이 안 됐으면 로그인 창을 연다. 구독은 있다고 보고 진행한다.
 // 설치를 취소하거나 로그인을 마치지 못하면 false/오류.
@@ -2908,7 +2920,7 @@ async function prepareCodex() {
 $('claude-login').addEventListener('click', async () => {
   const codex = $('ai-provider').value === 'codex';
   setMessage('ai-status', codex ? '로그인 창을 열었습니다. 브라우저에서 ChatGPT 계정으로 로그인하고 허용을 누르세요. 끝나면 ‘연결 시험 및 저장’을 누르세요.'
-    : '로그인 창을 열었습니다. 로그인을 마치고 그 창을 닫은 뒤 ‘연결 시험 및 저장’을 누르세요.');
+    : '로그인 창을 열었습니다. 브라우저에서 Claude 구독 계정으로 로그인하고 승인을 누르세요. 끝나면 ‘연결 시험 및 저장’을 누르세요.');
   try { await (codex ? api.codexLogin() : api.claudeLogin()); }
   catch (error) { setMessage('ai-status', error.message, true); }
 });

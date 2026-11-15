@@ -160,12 +160,25 @@ function findClaude(claudeExecutable, env = process.env) {
   try { return resolveClaude(claudeExecutable, env); } catch { return null; }
 }
 
-// 로그인: 새 명령 창에서 claude를 대화형으로 켠다. 처음 켜면 브라우저 로그인 안내가 나온다.
-// 창을 닫으면(프로세스가 끝나면) 돌아온다. 그 뒤 앱이 연결 시험을 다시 돌린다.
+// 로그인 상태: claude auth status는 로그인돼 있으면 종료 코드 0, 아니면 1({"loggedIn": false}).
+function loginStatus(executable, env = process.env, { timeoutMs = 20_000, run = spawn } = {}) {
+  return new Promise(resolve => {
+    let child;
+    try { child = run(executable, ['auth', 'status'], { windowsHide: true, cwd: os.homedir(), stdio: 'ignore', env: claudeEnv(env) }); }
+    catch { resolve(false); return; }
+    const timer = setTimeout(() => { child.kill(); resolve(false); }, timeoutMs);
+    child.on('error', () => { clearTimeout(timer); resolve(false); });
+    child.on('close', code => { clearTimeout(timer); resolve(code === 0); });
+  });
+}
+
+// 로그인: 새 창에서 로그인만 하는 명령(claude auth login --claudeai, Claude 구독 계정)을 켠다.
+// 2026-11-15 “편하고 자연스런 방법으로”: 예전에는 claude 대화 화면을 통째로 열어 테마·로그인 방법을 고르고 창을 직접 닫아야 했다.
+// 이제는 브라우저 로그인만 하면 명령이 끝나며 창이 닫히고, 앱이 바로 다시 시험한다.
 function openClaudeLogin(claudeExecutable, env = process.env, { timeoutMs = 15 * 60_000, run = spawn } = {}) {
   const executable = resolveClaude(claudeExecutable, env);
   return new Promise(resolve => {
-    const child = run(executable, [], {
+    const child = run(executable, ['auth', 'login', '--claudeai'], {
       cwd: os.homedir(), windowsHide: false, detached: true, stdio: 'ignore',
       env: { ...env, CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1' }
     });
@@ -204,4 +217,4 @@ function installClaude({ env = process.env, signal, timeoutMs = 5 * 60_000, run 
   });
 }
 
-module.exports = { MODEL, INSTALL_COMMAND, LOGIN_MESSAGE, resolveClaude, findClaude, bundledCandidates, claudeArgs, claudeEnv, readClaudeResult, refineClaude, openClaudeLogin, installClaude };
+module.exports = { MODEL, INSTALL_COMMAND, LOGIN_MESSAGE, resolveClaude, findClaude, loginStatus, bundledCandidates, claudeArgs, claudeEnv, readClaudeResult, refineClaude, openClaudeLogin, installClaude };

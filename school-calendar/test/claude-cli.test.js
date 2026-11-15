@@ -107,10 +107,23 @@ test('Claude 로그인 창: 창이 닫히면 돌아온다', async t => {
   const root = tempDir(t);
   const exe = touch(path.join(root, 'claude.exe'));
   let options;
-  const result = await openClaudeLogin(exe, { PATH: '' }, { run: (file, args, opts) => { options = opts; return fakeChild(0); } });
+  let args;
+  const result = await openClaudeLogin(exe, { PATH: '' }, { run: (file, a, opts) => { args = a; options = opts; return fakeChild(0); } });
   assert.deepEqual(result, { executable: exe, closed: true });
+  // 대화 화면 대신 로그인만 하는 명령(구독 계정)
+  assert.deepEqual(args, ['auth', 'login', '--claudeai']);
   assert.equal(options.windowsHide, false);
   assert.equal(options.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS, '1');
+});
+
+test('Claude 로그인 상태는 claude auth status의 종료 코드로 본다', async () => {
+  const { loginStatus } = require('../claude-cli');
+  let seen;
+  const run = code => (file, a) => { seen = a; return fakeChild(code); };
+  assert.equal(await loginStatus('C:\\가상\\claude.exe', {}, { run: run(0) }), true);
+  assert.equal(await loginStatus('C:\\가상\\claude.exe', {}, { run: run(1) }), false);
+  assert.deepEqual(seen, ['auth', 'status']);
+  assert.equal(await loginStatus('C:\\가상\\claude.exe', {}, { run: () => { throw new Error('EPERM'); } }), false);
 });
 
 test('시험 스위치: 데스크톱 앱 안의 claude.exe를 못 본 척한다', t => {
