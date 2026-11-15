@@ -1792,6 +1792,7 @@ function sync(snapshot) {
   $('demo-badge').hidden = !state.demo;
   $('automatic').disabled = !!state.demo || snapshot.aiProvider === 'none' || !!state.savingAutomatic || !!state.testingAi;
   $('automatic').checked = snapshot.automatic;
+  renderAiConnected();
   renderCollector();
   renderAutoRefresh();
   renderRange();
@@ -1868,7 +1869,9 @@ function renderCollector() {
   // 연결된 동안에는 지금 하는 일(읽는 중·분류 중)을 먼저 보이고, 한가할 때 주기와 마지막 결과를 보인다.
   const doing = running || state.connectingCollector ? activityText() : '';
   const aiFirstText = '쪽지에서 날짜와 할 일을 뽑으려면 AI가 필요합니다. AI를 연결한 뒤 브리티를 연결하세요.';
-  $('collector-status').textContent = doing || (aiFirst && (status === 'idle' || status === 'offline') ? aiFirstText : '') || messages[status] || messages.unavailable;
+  // 2단계: 1단계(AI)가 끝났다는 것을 먼저 보인다.
+  const aiDone = setup && !aiNotConnected() && !state.demo ? `✓ AI 연결됨(${aiNames[state.snapshot.aiProvider] || 'AI'}) · ` : '';
+  $('collector-status').textContent = doing || (aiFirst && (status === 'idle' || status === 'offline') ? aiFirstText : '') || aiDone + (messages[status] || messages.unavailable);
   $('collector-status').classList.toggle('busy', !!doing);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
   $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
@@ -2079,6 +2082,7 @@ function renderAiSettings() {
   const isApi = factchat || anthropic || provider === 'openai';
   const hasStoredKey = isApi && state.snapshot.aiProvider === provider;
   $('ai-settings').hidden = !!state.demo;
+  renderAiConnected();
   $('ai-key-options').hidden = !isApi;
   $('ai-key-label').textContent = factchat ? '팩트챗 API 키' : anthropic ? 'Claude API 키' : 'OpenAI API 키';
   $('ai-key').placeholder = hasStoredKey ? '비워 두면 저장된 키 사용' : factchat ? 'baze_…' : anthropic ? 'sk-ant-…' : 'sk-…';
@@ -2102,11 +2106,30 @@ function renderAiSettings() {
   $('claude-steps').hidden = provider !== 'claude' && provider !== 'codex';
   $('ai-provider').disabled = !!state.testingAi;
   $('ai-connect').disabled = !!state.testingAi || (provider === 'none' && state.snapshot.aiProvider === 'none');
-  $('ai-connect').textContent = state.testingAi ? '연결 시험 중…' : provider === 'none' ? 'AI 연결 끄기' : '연결 시험 및 저장';
+  $('ai-connect').textContent = state.testingAi ? '연결 시험 중…' : provider === 'none' ? 'AI 연결 끄기'
+    : provider === state.snapshot.aiProvider ? '연결 다시 시험' : '연결 시험 및 저장';
   $('ai-hint').textContent = anthropic ? 'Anthropic 콘솔에서 만든 키(sk-ant-로 시작)를 붙여 넣으세요. Haiku 모델을 쓰고, 쓴 만큼 그 계정에 청구됩니다. 연결 시험에는 가짜 쪽지를 사용합니다.'
     : isApi ? 'API 키를 붙여 넣으세요. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
     : provider === 'claude' ? 'Claude 구독(Pro 이상)으로 Haiku 모델을 씁니다. ‘연결 시험 및 저장’을 누르면 Claude Code가 없을 때 설치할지 묻고, 로그인이 필요하면 로그인 창을 엽니다.'
     : 'ChatGPT 구독(Plus 이상)으로 Codex를 씁니다. ‘연결 시험 및 저장’을 누르면 Codex가 없을 때 설치할지 묻고, 로그인이 필요하면 ChatGPT 로그인 창을 엽니다.';
+}
+
+// AI 연결 상태 줄(설정 AI 탭 맨 위). 연결 시험을 통과해 저장된 방식만 “연결됨”이다.
+function renderAiConnected() {
+  const box = $('ai-connected');
+  box.hidden = !!state.demo;
+  const provider = state.snapshot.aiProvider ?? 'none';
+  const connected = provider !== 'none' && !!aiNames[provider];
+  // 연결된 방식을 다시 시험했는데 실패하면 “연결됨” 대신 실패로 보인다(다음 성공·방식 바꿈까지).
+  const failed = connected && state.aiCheckFailed === provider;
+  box.classList.toggle('off', !connected || failed);
+  const mark = element('span', 'mark', connected && !failed ? '✓' : '!');
+  mark.setAttribute('aria-hidden', 'true');
+  const detail = failed ? '방금 연결 시험이 실패했습니다. 아래 안내를 확인해 주세요.'
+    : connected ? (state.snapshot.automatic ? '새 쪽지는 자동으로 정리합니다.' : '자동 분류는 꺼져 있습니다. 아래에서 켤 수 있습니다.')
+      : '아래에서 방식을 고르고 ‘연결 시험 및 저장’을 누르세요.';
+  const label = failed ? `연결 확인 실패 · ${aiNames[provider]}` : connected ? `AI 연결됨 · ${aiNames[provider]}` : '아직 AI 연결 전입니다';
+  box.replaceChildren(mark, document.createTextNode(label), element('span', 'detail', detail));
 }
 
 const AI_GUIDES = {
@@ -2156,7 +2179,7 @@ function openSettings(tab) {
   const notConnected = !state.demo && (state.snapshot.aiProvider ?? 'none') === 'none';
   $('settings-ai-dot').hidden = !notConnected;
   showSettingsTab(typeof tab === 'string' ? tab : notConnected ? 'ai' : settingsTab);
-  setMessage('ai-status', aiNames[state.snapshot.aiProvider] ? `현재 연결 방식 · ${aiNames[state.snapshot.aiProvider]}` : '');
+  setMessage('ai-status', '');
   // 아직 연결 전이면 권장 방식(서룡 판은 팩트챗, 다른 판은 개인 OpenAI API)을 먼저 고른다.
   const offered = fillAiChoices();
   const provider = state.snapshot.aiProvider;
@@ -2846,10 +2869,15 @@ $('ai-connect').addEventListener('click', async () => {
       sync(await api.connectAi(provider, ''));
     }
     $('ai-key').value = '';
+    state.aiCheckFailed = null;
+    renderAiConnected();
     const backlog = state.snapshot.backlogPending || 0;
     setMessage('ai-status', provider === 'none' ? 'AI 연결을 껐습니다.'
       : `${aiNames[provider]} 연결 시험을 통과했습니다. 앞으로 오는 쪽지는 자동으로 정리합니다.${backlog ? ` 이미 가져온 쪽지 ${backlog}건은 목록 위 ‘AI로 정리’를 누르면 정리합니다.` : state.snapshot.collectorConnected ? '' : ' 이제 설정을 닫고 위쪽 ‘브리티 연결’을 누르세요.'}`);
   } catch (error) {
+    // 이미 연결된 방식을 다시 시험하다 실패하면 맨 위 상태 줄도 실패로 바꾼다.
+    if (provider !== 'none' && provider === state.snapshot.aiProvider) state.aiCheckFailed = provider;
+    renderAiConnected();
     setMessage('ai-status', error.message, true);
   } finally {
     state.testingAi = false;
