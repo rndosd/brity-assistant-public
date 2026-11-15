@@ -19,7 +19,10 @@
     <section class="connection" id="collector-bar" aria-label="브리티 연결" hidden>
       <strong id="collector-title">브리티 쪽지 연결</strong>
       <span class="small-note" id="collector-status" role="status">브리티에 로그인한 뒤 연결하면 안 읽은 쪽지를 가져옵니다. 가져온 쪽지는 브리티에서 읽음 처리됩니다.</span>
+      <!-- 처음 시작(2026-11-15): AI가 없으면 1단계 AI 연결을 먼저 보이고, 브리티 연결은 작은 글 단추로 둔다. -->
+      <button type="button" class="button primary" id="collector-ai" hidden>AI 연결</button>
       <button type="button" class="button" id="collector-connect">브리티 연결</button>
+      <button type="button" class="button text-button small" id="start-guide" hidden>처음 시작 안내 ↗</button>
     </section>
     <section class="update-bar" id="update-bar" aria-label="새 판 알림" hidden>
       <strong id="update-title">새 판이 나왔습니다</strong>
@@ -73,7 +76,8 @@
         </button>
       </div>
       <p class="inbox-note" id="inbox-note" role="status"></p>
-      <p class="setup-note" id="ai-setup-note" hidden>AI를 연결하면 쪽지의 제목과 날짜를 다듬을 수 있습니다. <button type="button" class="button text-button small" id="ai-setup-open">설정에서 연결</button></p>
+      <p class="setup-note" id="ai-setup-note" hidden><b>AI 연결 전입니다.</b> AI를 연결해야 쪽지에서 날짜와 할 일을 뽑아 달력에 올립니다. 지금은 쪽지 제목 그대로 할 일에 들어갑니다. <button type="button" class="button text-button small" id="ai-setup-open">AI 연결하기</button></p>
+      <p class="setup-note" id="backlog-note" hidden><span id="backlog-text"></span> <button type="button" class="button text-button small" id="backlog-classify">AI로 정리</button></p>
       <div class="list-view" id="view-todo" data-view="todo" role="tabpanel" aria-labelledby="tab-todo"><div id="todo-list"></div></div>
       <div class="list-view" id="view-candidate" data-view="candidate" role="tabpanel" aria-labelledby="tab-candidate" hidden><div id="candidate-list"></div></div>
       <div class="list-view" id="view-reference" data-view="reference" role="tabpanel" aria-labelledby="tab-reference" hidden><ul class="rows refs" id="reference-list"></ul></div>
@@ -289,6 +293,7 @@
           <div class="ai-key-options" id="ai-key-options" hidden>
             <label class="field"><span id="ai-key-label">API 키</span><input type="password" id="ai-key" maxlength="512" autocomplete="off" spellcheck="false"></label>
             <div class="ai-actions">
+              <button type="button" class="button text-button small" id="ai-start-guide" data-ai-guide="openai-guide">처음 설정 안내 ↗</button>
               <button type="button" class="button text-button small" id="ai-key-guide" data-ai-guide="key">API 키 발급 ↗</button>
               <button type="button" class="button text-button small" id="ai-billing-guide" data-ai-guide="billing">API 결제 설정 ↗</button>
             </div>
@@ -507,6 +512,7 @@
         <div class="version-row">
           <span class="small-note" id="app-version"></span>
           <button type="button" class="button text-button small" id="changes-open">바뀐 점</button>
+          <button type="button" class="button text-button small" data-ai-guide="start">처음 시작 안내 ↗</button>
           <button type="button" class="button text-button small" id="update-check" hidden>새 판 확인</button>
         </div>
         <p class="small-note" id="update-check-status" role="status" hidden></p>
@@ -528,6 +534,10 @@
     <div class="dialog-body">
       <h2 id="first-import-heading">첫 쪽지 가져오기</h2>
       <p id="first-import-connection" class="small-note" role="status"></p>
+      <div class="first-import-ai" id="first-import-ai" hidden>
+        <p><b>AI가 아직 연결되지 않았습니다.</b> 지금 가져오는 쪽지는 날짜 없이 쪽지 제목 그대로 할 일에 들어갑니다. 나중에 AI를 연결하면 한꺼번에 정리할 수 있지만, AI를 먼저 연결하는 것이 편합니다.</p>
+        <button type="button" class="button primary small" id="first-import-ai-open">AI 먼저 연결</button>
+      </div>
       <button type="button" class="button first-import-retry" id="first-import-retry" hidden>브리티 연결 다시 확인</button>
       <div id="first-import-range"></div>
       <fieldset class="settings-section first-import-mode">

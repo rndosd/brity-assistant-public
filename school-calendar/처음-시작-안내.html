@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>처음 시작 안내</title>
+<style>
+:root{
+  --paper:#f7f4ec; --sheet:#fffdf8; --rule:#ddd7c8; --ink:#1f1d1a; --ink-2:#5c574d; --ink-3:#8f887a;
+  --red:#b8322a; --blue:#2b5b9c; --mark:#f1e3a6;
+}
+*{box-sizing:border-box}
+html{background:var(--paper)}
+body{margin:0;color:var(--ink);background:var(--paper);
+  font-family:"Noto Sans KR","Malgun Gothic","맑은 고딕",sans-serif;font-size:16px;line-height:1.75;word-break:keep-all;overflow-wrap:anywhere}
+main{max-width:760px;margin:0 auto;padding:40px 24px 64px;background:var(--sheet);border-inline:1px solid var(--rule);min-height:100vh}
+h1{font-size:28px;line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.lead{color:var(--ink-2);margin:0 0 20px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 28px;padding:0 0 18px;border-bottom:2px solid var(--ink);list-style:none}
+.steps li{border:1px solid var(--ink);padding:8px 10px;font-size:14.5px;line-height:1.5;background:var(--sheet)}
+.steps b{display:block;font-size:12px;color:var(--ink-2);font-weight:700}
+h2{font-size:19px;margin:36px 0 10px;display:flex;gap:10px;align-items:baseline}
+h2 .n{flex:none;font-family:"Noto Serif KR","Batang",serif;font-size:26px;line-height:1;width:30px}
+h3{font-size:16px;margin:22px 0 6px}
+p{margin:0 0 10px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+b{font-weight:700}
+.ui{display:inline-block;border:1px solid var(--ink);padding:0 6px;font-size:14px;line-height:1.6;background:var(--sheet);white-space:nowrap}
+.msg{background:#efeadc;padding:0 4px}
+.box{border:1px solid var(--rule);background:var(--paper);padding:14px 16px;margin:12px 0 16px}
+.box.warn{border-color:var(--red)}
+.box.warn strong{color:var(--red)}
+.facts{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;margin:0}
+.facts dt{font-weight:700}
+.facts dd{margin:0}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:8px 0 14px}
+th,td{border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:8px 8px;text-align:left;vertical-align:top}
+thead th{font-size:13px;color:var(--ink-2);font-weight:700}
+tbody th{width:34%;font-weight:700}
+.pick{background:var(--mark)}
+a{color:var(--blue)}
+.small{font-size:14px;color:var(--ink-2)}
+@media print{
+  html,body{background:#fff}
+  main{border:0;padding:0;max-width:none;min-height:0}
+  h2{break-after:avoid}
+  .box,table,.steps{break-inside:avoid}
+  a{color:var(--ink);text-decoration:none}
+}
+@media (max-width:560px){ main{padding:28px 16px 48px} .facts{grid-template-columns:1fr} .steps{grid-template-columns:1fr} h1{font-size:24px} }
+</style>
+</head>
+<body>
+<main>
+  <h1>브리티 메신저 캘린더 · 처음 시작 안내</h1>
+  <p class="lead">브리티 쪽지를 가져와 AI가 날짜와 할 일을 뽑아 달력에 올려 주는 앱입니다. 처음 한 번, 아래 순서대로 설정하면 됩니다. 15분 정도 걸립니다.</p>
+  <ol class="steps">
+    <li><b>1단계</b>AI 연결</li>
+    <li><b>2단계</b>브리티 연결</li>
+    <li><b>3단계</b>첫 쪽지 가져오기</li>
+  </ol>
+
+  <h2><span class="n">0</span>먼저 알아 두기</h2>
+  <div class="box">
+    <dl class="facts">
+      <dt>순서</dt><dd><b>AI를 먼저 연결하세요.</b> AI 없이 브리티부터 연결하면 쪽지가 날짜 없이 제목 그대로 할 일에 쌓입니다. 나중에 AI를 연결해 한꺼번에 정리할 수는 있습니다.</dd>
+      <dt>준비물</dt><dd>브리티 메신저가 설치돼 로그인할 수 있는 PC, 그리고 아래 AI 연결 방식 가운데 하나</dd>
+      <dt>자료 위치</dt><dd>가져온 쪽지와 업무는 이 PC의 캘린더 폴더 안에만 저장됩니다.</dd>
+    </dl>
+  </div>
+
+  <h2><span class="n">1</span>AI 연결</h2>
+  <p>처음 켜면 위쪽에 <b>1단계 · AI 연결</b>이 보입니다. <span class="ui">AI 연결</span>을 누르면 <span class="ui">설정</span> → <b>AI</b> 탭이 열립니다.</p>
+  <h3>어떤 방식을 고를까요</h3>
+  <table>
+    <thead><tr><th>연결 방식</th><th>이런 분께</th><th>안내서</th></tr></thead>
+    <tbody>
+      <tr class="pick"><th>개인 OpenAI API 키 · Luna (권장)</th><td>처음이라 무엇을 고를지 모르겠다면 이것. 쓴 만큼 OpenAI 계정에 청구됩니다.</td><td><a href="API-연결-안내.html">OpenAI 연결 안내</a></td></tr>
+      <tr><th>개인 Claude API 키 · Haiku</th><td>Anthropic(Claude) 개발자 계정을 쓰고 싶을 때. 쓴 만큼 그 계정에 청구됩니다.</td><td><a href="Claude-API-연결-안내.html">Claude API 연결 안내</a></td></tr>
+      <tr><th>Claude Code CLI · Haiku</th><td>이미 Claude 구독(Pro 이상)을 쓰고 있을 때. 따로 청구되지 않습니다.</td><td><a href="Claude-연결-안내.html">Claude 구독 연결 안내</a></td></tr>
+      <tr><th>Codex CLI</th><td>이미 ChatGPT 구독을 쓰고 있을 때. 따로 청구되지 않습니다.</td><td><a href="Codex-연결-안내.html">Codex 연결 안내</a></td></tr>
+    </tbody>
+  </table>
+  <p class="small">학교나 기관에서 따로 안내받은 연결 방식이 있으면 그것을 고르세요.</p>
+  <h3>연결하기</h3>
+  <ol>
+    <li><b>AI 연결 방식</b>에서 하나를 고릅니다.</li>
+    <li>API 키 방식이면 <span class="ui">처음 설정 안내 ↗</span>를 눌러 가입·결제·키 만들기 순서를 따라 합니다. <span class="ui">API 키 발급 ↗</span>은 키를 만드는 화면을 바로 엽니다.</li>
+    <li>만든 키를 키 칸에 붙여 넣고(Ctrl+V) <span class="ui">연결 시험 및 저장</span>을 누릅니다. 가짜 쪽지 한 건으로 시험합니다.</li>
+    <li><span class="msg">연결 시험을 통과했습니다</span>가 나오면 끝입니다. 새 쪽지 자동 분류도 함께 켜집니다. 설정을 닫으세요.</li>
+  </ol>
+  <div class="box warn">
+    <p><strong>연결 전에 확인하세요.</strong> 쪽지를 정리할 때 쪽지 본문이 고른 AI 회사로 전달되며, 본문에 들어 있는 개인정보도 함께 전달될 수 있습니다. 첨부 파일은 보내지 않습니다. 소속 기관의 기준을 확인한 뒤 연결하세요.</p>
+  </div>
+
+  <h2><span class="n">2</span>브리티 연결</h2>
+  <p>AI를 연결하면 위쪽이 <b>2단계 · 브리티 연결</b>로 바뀝니다.</p>
+  <ol>
+    <li>브리티 메신저를 열고 로그인한 뒤, 브리티 창을 띄워 둡니다.</li>
+    <li>캘린더 위쪽 <span class="ui">브리티 연결</span>을 누릅니다.</li>
+    <li><b>첫 쪽지 가져오기</b> 창이 열리고 브리티 쪽지 목록에 연결합니다.</li>
+  </ol>
+  <p class="small">가져온 쪽지는 브리티에서 읽음 처리됩니다.</p>
+
+  <h2><span class="n">3</span>첫 쪽지 가져오기</h2>
+  <h3>지난 쪽지 불러오기 (선택)</h3>
+  <ol>
+    <li>시작일과 끝일을 고릅니다. 처음에는 최근 1주일로 채워져 있습니다.</li>
+    <li><span class="ui">몇 건인지 보기</span>로 건수를 먼저 볼 수 있고, <span class="ui">불러오기</span>를 누르면 가져옵니다.</li>
+    <li>불러오는 동안 브리티의 쪽지 목록이 저절로 움직입니다. 끝날 때까지 브리티 창은 건드리지 마세요. 쪽지가 많으면 몇 분 걸립니다.</li>
+  </ol>
+  <h3>앞으로 쪽지 가져오기</h3>
+  <ul>
+    <li><b>자동으로 가져오기</b>: 캘린더가 켜져 있는 동안 정해진 간격(처음에는 1시간)마다 새 쪽지를 가져옵니다.</li>
+    <li><b>누를 때만 가져오기</b>: 위쪽 <span class="ui">쪽지 가져오기</span>를 누를 때만 가져옵니다.</li>
+  </ul>
+  <p>고른 뒤 <span class="ui">기간 가져오기 건너뛰기</span>(지난 쪽지를 불러왔다면 <span class="ui">설정 마치기</span>)를 누르면 설정이 끝납니다.</p>
+
+  <h2><span class="n">4</span>매일 쓰기</h2>
+  <table>
+    <tbody>
+      <tr><th>할 일</th><td>해야 할 업무. 마감이 가까운 순서로 묶여 있고, 날짜가 있으면 달력에도 올라갑니다. 다 했으면 앞의 네모를 누릅니다.</td></tr>
+      <tr><th>분류할 것</th><td>AI가 애매하다고 본 쪽지와 대화방에서 찾은 후보. 하나씩 보고 올리거나 버립니다.</td></tr>
+      <tr><th>확인할 것</th><td>할 일은 아니지만 알아 둘 쪽지.</td></tr>
+      <tr><th>끝낸 것 · 숨기기</th><td>끝낸 업무와 숨긴 쪽지. 잘못 숨겼으면 여기서 되돌립니다.</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>업무를 누르면 달력 위에 <b>자세히</b>가 열립니다. 날짜·분류를 고치거나 쪽지 원문과 첨부를 볼 수 있습니다.</li>
+    <li>AI가 잘못 뽑았으면 <span class="ui">고치기</span>로 직접 고치거나 <span class="ui">다듬기</span>로 다시 정리합니다.</li>
+    <li>쪽지가 아닌 일은 위쪽 <span class="ui">업무 추가</span>나 날짜 칸의 <b>+</b>로 직접 넣습니다.</li>
+  </ul>
+
+  <h2><span class="n">5</span>편하게 쓰기</h2>
+  <ul>
+    <li><span class="ui">설정</span> → <b>백업·정보</b>에서 <b>컴퓨터를 켜면 자동으로 실행</b>을 켜면 켤 때마다 캘린더가 저절로 열립니다.</li>
+    <li>같은 탭에서 바탕 화면에 바로 가기를 만들 수 있습니다.</li>
+    <li><span class="ui">설정</span> → <b>화면</b>에서 스킨과 글꼴을, 위쪽 <b>가</b> 단추로 글자 크기를 바꿀 수 있습니다.</li>
+    <li>불편한 점이나 바라는 기능은 위쪽 <span class="ui">의견</span>으로 보내 주세요. 쪽지와 업무 내용은 보내지 않습니다.</li>
+  </ul>
+
+  <h2><span class="n">?</span>안 될 때</h2>
+  <table>
+    <tbody>
+      <tr><th><span class="msg">브리티 메신저를 열고 로그인한 뒤 연결해 주세요</span></th><td>브리티가 꺼져 있거나 로그인 전입니다. 브리티를 열고 로그인한 뒤 <span class="ui">브리티 연결 다시 확인</span>을 누르세요.</td></tr>
+      <tr><th><span class="msg">브리티 쪽지 화면을 읽지 못했습니다</span></th><td>브리티 창에 메뉴(오른쪽 클릭 메뉴 등)가 열려 있으면 Esc로 닫고 다시 누르세요.</td></tr>
+      <tr><th>목록 위 <span class="msg">AI 연결 전입니다</span></th><td>1단계를 아직 하지 않았습니다. <span class="ui">AI 연결하기</span>를 누르세요.</td></tr>
+      <tr><th>목록 위 <span class="msg">아직 정리되지 않았습니다</span></th><td>AI를 연결하기 전에 가져온 쪽지입니다. <span class="ui">AI로 정리</span>를 누르면 한꺼번에 정리합니다. 손으로 고치거나 끝낸 쪽지는 건드리지 않습니다.</td></tr>
+      <tr><th>AI 연결 시험이 실패할 때</th><td>고른 방식의 안내서 맨 아래 “안 될 때”를 보세요. 키를 일부만 복사했거나 결제·잔액이 없는 경우가 가장 많습니다.</td></tr>
+    </tbody>
+  </table>
+  <p class="small">그래도 안 되면 위쪽 <span class="ui">의견</span>으로 어떤 화면에서 막혔는지 알려 주세요.</p>
+</main>
+</body>
+</html>

@@ -680,7 +680,7 @@ function bindHandlers() {
       return;
     }
     // CLI 방식은 앱 폴더의 한국어 안내서를 연다(설치·로그인이 막혔을 때 따라 하는 순서).
-    const localGuides = { claude: 'Claude-연결-안내.html', codex: 'Codex-연결-안내.html' };
+    const localGuides = { claude: 'Claude-연결-안내.html', codex: 'Codex-연결-안내.html', 'openai-guide': 'API-연결-안내.html', start: '처음-시작-안내.html' };
     if (Object.hasOwn(localGuides, page)) {
       const failure = await shell.openPath(path.join(__dirname, localGuides[page]));
       if (failure) throw new CalendarError(`안내서를 열지 못했습니다. 앱 폴더의 ${localGuides[page]}을 직접 열어 주세요.`);
@@ -703,6 +703,12 @@ function bindHandlers() {
   bind('range-stop', () => { if (rangeImport) rangeImport.stopping = true; publish(); return snapshot(); });
   bind('range-classify', async () => {
     const count = await store.queueRangeClassify();
+    publish();
+    void autoRefine();
+    return count;
+  });
+  bind('backlog-classify', async () => {
+    const count = await store.queueBacklogClassify();
     publish();
     void autoRefine();
     return count;

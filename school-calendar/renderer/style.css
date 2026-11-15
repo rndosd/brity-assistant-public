@@ -368,6 +368,12 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 #settings-dialog[open] { display: flex; flex-direction: column; }
 #first-import-dialog { width: min(500px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; }
 .first-import-retry { justify-self: start; }
+/* 처음 시작(2026-11-15): AI 연결 전이면 첫 쪽지 가져오기 창에서 먼저 알린다. */
+.first-import-ai { display: grid; gap: 8px; justify-items: start; padding: 10px 12px; border: 1px solid var(--red); background: var(--sheet); }
+.first-import-ai p { font-size: 12.5px; line-height: 1.55; }
+.first-import-ai b { color: var(--red); }
+.setup-note b { color: var(--ink); }
+.connection .step { flex: none; }
 #first-import-dialog .settings-section { padding-top: 8px; padding-bottom: 12px; }
 #first-import-dialog .first-import-mode { border-bottom: 0; padding-bottom: 0; gap: 6px; }
 .first-import-mode .check-field { flex-wrap: wrap; }

@@ -1080,11 +1080,21 @@ function renderLists() {
   const { status, pending } = state.snapshot.inbox;
   // 처음 쓰는 사람: 브리티를 아직 연결하지 않았으면 오류 대신 할 일을 알려 준다.
   const notConnectedYet = !!state.snapshot.collectorAvailable && !state.snapshot.collectorConnected;
-  $('inbox-note').textContent = status === 'unavailable' && notConnectedYet ? '브리티에 로그인한 뒤 위의 ‘브리티 연결’을 누르면 쪽지를 가져옵니다.'
+  const aiMissing = aiNotConnected();
+  $('inbox-note').textContent = status === 'unavailable' && notConnectedYet ? (aiMissing ? '' : '브리티에 로그인한 뒤 위의 ‘브리티 연결’을 누르면 쪽지를 가져옵니다.')
     : status === 'unavailable' ? '쪽지 수집 폴더를 읽지 못했습니다. 연결 상태를 확인해 주세요.'
     : status === 'loading' ? '쪽지를 확인하고 있습니다.' : pending ? `아직 읽지 못한 쪽지 ${pending}건은 다음에 다시 확인합니다.` : '';
   // AI를 아직 연결하지 않았으면 정리하려면 무엇을 해야 하는지 알려 준다(샘플 제외).
-  $('ai-setup-note').hidden = !!state.demo || (state.snapshot.aiProvider && state.snapshot.aiProvider !== 'none');
+  $('ai-setup-note').hidden = !aiMissing;
+  // AI 연결 전에 가져와 정리되지 않은 쪽지: 연결한 뒤에는 누르면 한꺼번에 정리한다.
+  const backlog = state.snapshot.backlogPending || 0;
+  $('backlog-note').hidden = aiMissing || !backlog || !!state.demo;
+  $('backlog-text').textContent = `AI 연결 전에 가져온 쪽지 ${backlog}건이 아직 정리되지 않았습니다.`;
+  $('backlog-classify').disabled = !!state.backlogBusy;
+}
+
+function aiNotConnected() {
+  return !state.demo && (state.snapshot.aiProvider ?? 'none') === 'none';
 }
 
 function redraw() {
@@ -1847,14 +1857,22 @@ function renderCollector() {
     unavailable: '쪽지 수집기를 연결하지 못했습니다. ZIP 전체를 푼 폴더에서 앱을 다시 열어 주세요.',
   };
   const running = status === 'ready' || status === 'in-use';
-  $('collector-title').textContent = running ? '브리티 연결됨' : '브리티 쪽지 연결';
+  // 처음 시작: 브리티를 아직 연결하지 않았으면 1단계 AI 연결 → 2단계 브리티 연결 순서로 보인다.
+  const setup = !collectorConnected && !running;
+  const aiFirst = setup && aiNotConnected();
+  $('collector-title').textContent = running ? '브리티 연결됨' : aiFirst ? '1단계 · AI 연결' : setup && !state.demo ? '2단계 · 브리티 연결' : '브리티 쪽지 연결';
+  $('collector-ai').hidden = !aiFirst;
+  $('start-guide').hidden = !setup;
+  $('collector-connect').classList.toggle('text-button', aiFirst);
+  $('collector-connect').classList.toggle('small', aiFirst);
   // 연결된 동안에는 지금 하는 일(읽는 중·분류 중)을 먼저 보이고, 한가할 때 주기와 마지막 결과를 보인다.
   const doing = running || state.connectingCollector ? activityText() : '';
-  $('collector-status').textContent = doing || messages[status] || messages.unavailable;
+  const aiFirstText = '쪽지에서 날짜와 할 일을 뽑으려면 AI가 필요합니다. AI를 연결한 뒤 브리티를 연결하세요.';
+  $('collector-status').textContent = doing || (aiFirst && (status === 'idle' || status === 'offline') ? aiFirstText : '') || messages[status] || messages.unavailable;
   $('collector-status').classList.toggle('busy', !!doing);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
   $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
-    : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : '브리티 연결';
+    : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : aiFirst ? 'AI 없이 브리티 연결' : '브리티 연결';
   $('collector-connect').disabled = !!state.connectingCollector || status === 'connecting' || !!state.rangeBusy;
 }
 
@@ -2067,10 +2085,13 @@ function renderAiSettings() {
   $('ai-key-guide').dataset.aiGuide = factchat ? 'factchat' : anthropic ? 'anthropic-key' : 'key';
   $('ai-key-guide').textContent = factchat ? '서룡 팩트챗 개발자 화면 ↗' : 'API 키 발급 ↗';
   $('ai-key-guide').hidden = factchat && !state.snapshot.factchatGuideAvailable;
-  // Claude 키는 가입·충전·발급 순서를 앱 폴더의 안내서로 연다.
-  $('ai-billing-guide').dataset.aiGuide = anthropic ? 'anthropic-guide' : 'billing';
-  $('ai-billing-guide').textContent = anthropic ? '처음 설정 안내 ↗' : 'API 결제 설정 ↗';
-  $('ai-billing-guide').hidden = factchat;
+  // 처음 하는 사람은 가입·결제·키 만들기 순서를 앱 폴더의 안내서로 먼저 본다(OpenAI·Claude 같은 자리).
+  $('ai-start-guide').dataset.aiGuide = anthropic ? 'anthropic-guide' : 'openai-guide';
+  $('ai-start-guide').hidden = factchat;
+  // Claude 결제 화면 주소는 확인하지 못해 안내서에서 따라가게 하고, OpenAI만 결제 화면을 바로 연다.
+  $('ai-billing-guide').dataset.aiGuide = 'billing';
+  $('ai-billing-guide').textContent = '결제 설정 ↗';
+  $('ai-billing-guide').hidden = factchat || anthropic;
   $('cli-guide').hidden = provider !== 'codex' && provider !== 'claude';
   $('claude-steps').hidden = provider !== 'claude';
   $('cli-guide').textContent = provider === 'claude' ? '설치·로그인이 안 될 때 안내 ↗' : 'CLI 설치와 로그인 안내 ↗';
@@ -2339,6 +2360,7 @@ function renderFirstImport() {
       : ready ? '원하는 기간을 고르고 몇 건을 가져올 수 있는지 확인하세요.'
         : '브리티에 로그인하고 창을 띄운 뒤 연결을 다시 확인해 주세요.');
   setMessage('first-import-connection', message, !!state.firstImportError);
+  $('first-import-ai').hidden = !aiNotConnected();
   $('first-import-retry').hidden = ready || connecting;
   $('first-import-retry').disabled = busy;
   $('first-import-auto-label').textContent = autoRefresh?.notes?.minutes
@@ -2380,6 +2402,11 @@ function openFirstImport() {
 }
 
 $('first-import-retry').addEventListener('click', () => void prepareFirstImport());
+$('first-import-ai-open').addEventListener('click', () => {
+  if ($('first-import-close').disabled) return;
+  firstImportDialog.close();
+  openSettings('ai');
+});
 $('first-import-close').addEventListener('click', () => firstImportDialog.close());
 firstImportDialog.addEventListener('cancel', event => {
   if ($('first-import-close').disabled) event.preventDefault();
@@ -2805,7 +2832,9 @@ $('ai-connect').addEventListener('click', async () => {
       sync(await api.connectAi(provider, ''));
     }
     $('ai-key').value = '';
-    setMessage('ai-status', provider === 'none' ? 'AI 연결을 껐습니다.' : `${aiNames[provider]} 연결 시험을 통과했습니다.`);
+    const backlog = state.snapshot.backlogPending || 0;
+    setMessage('ai-status', provider === 'none' ? 'AI 연결을 껐습니다.'
+      : `${aiNames[provider]} 연결 시험을 통과했습니다. 앞으로 오는 쪽지는 자동으로 정리합니다.${backlog ? ` 이미 가져온 쪽지 ${backlog}건은 목록 위 ‘AI로 정리’를 누르면 정리합니다.` : state.snapshot.collectorConnected ? '' : ' 이제 설정을 닫고 위쪽 ‘브리티 연결’을 누르세요.'}`);
   } catch (error) {
     setMessage('ai-status', error.message, true);
   } finally {
@@ -2858,6 +2887,24 @@ async function changeCollector(action) {
 }
 $('collector-connect').addEventListener('click', () => void collectNow());
 $('ai-setup-open').addEventListener('click', () => openSettings('ai'));
+$('collector-ai').addEventListener('click', () => openSettings('ai'));
+$('start-guide').addEventListener('click', async () => {
+  try { await api.openAiGuide('start'); }
+  catch (error) { $('collector-status').textContent = error.message; }
+});
+$('backlog-classify').addEventListener('click', async () => {
+  state.backlogBusy = true;
+  $('backlog-classify').disabled = true;
+  try {
+    const queued = await api.classifyBacklog();
+    notice(queued ? `쪽지 ${queued}건을 AI로 정리하고 있습니다. 하나씩 끝나는 대로 목록과 달력에 들어갑니다.` : '정리할 쪽지가 없습니다.');
+  } catch (error) {
+    notice(error.message);
+  } finally {
+    state.backlogBusy = false;
+    $('backlog-classify').disabled = false;
+  }
+});
 $('automatic').addEventListener('change', async event => {
   const checkbox = event.currentTarget;
   state.savingAutomatic = true;

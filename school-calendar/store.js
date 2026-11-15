@@ -640,6 +640,7 @@ class CalendarStore {
       profile: this.settings.profile ?? null,
       rulesUpdate: this.rulesUpdate ? { ...this.rulesUpdate } : null,
       rangePending: this.inbox.status === 'ready' ? this.rangePending().length : 0,
+      backlogPending: this.inbox.status === 'ready' ? this.backlogPending().length : 0,
       autoRefresh: { notes: this.autoRefreshValue('notes'), chats: this.autoRefreshValue('chats'), choices: AUTO_MINUTES },
       chatRooms: this.chatRooms(),
       downloads: {
@@ -1334,6 +1335,22 @@ class CalendarStore {
     return this.serialize(async () => {
       if (this.aiProvider === 'none') throw new CalendarError('설정에서 AI를 먼저 연결해 주세요.');
       const ids = new Set(this.rangePending().map(task => task.id));
+      if (ids.size) await this.commit(this.tasks.map(task => ids.has(task.id) ? { ...task, autoPending: true } : task));
+      return ids.size;
+    });
+  }
+
+  // AI를 연결하기 전에 가져와 아직 손대지 않은 쪽지. AI를 연결하면 건수를 보여 주고 누를 때 한꺼번에 정리한다.
+  // 끝냈거나 고친 것(revision > 0)은 사람이 정한 내용이라 덮어쓰지 않는다.
+  backlogPending() {
+    return this.tasks.filter(task => task.noteId && task.refined === 'none' && !task.autoPending && !task.done && task.revision === 0 &&
+      !task.candidate && this.notes.get(task.noteId)?.verified === true);
+  }
+
+  queueBacklogClassify() {
+    return this.serialize(async () => {
+      if (this.aiProvider === 'none') throw new CalendarError('설정에서 AI를 먼저 연결해 주세요.');
+      const ids = new Set(this.backlogPending().map(task => task.id));
       if (ids.size) await this.commit(this.tasks.map(task => ids.has(task.id) ? { ...task, autoPending: true } : task));
       return ids.size;
     });
