@@ -68,12 +68,18 @@ button:disabled { cursor: default; opacity: .5; }
 .workspace {
   --pane-divider-width: 8px;
   --list-pane-width: 240px;
-  flex: 1; min-height: 0; display: grid;
+  flex: 1; min-height: 0; display: grid; position: relative;
   grid-template-columns: var(--list-pane-width) var(--pane-divider-width) minmax(0, 1fr);
 }
-.workspace:where(:has(.detail-panel.open)) {
-  grid-template-columns: var(--list-pane-width) var(--pane-divider-width) minmax(0, 1fr)
-    var(--pane-divider-width) var(--detail-pane-width, max(360px, 30%));
+/* 자세히는 달력 위에 덮는다(2026-11-15 사용자): 달력 칸의 위치·폭은 그대로 두고, 기본 폭은 주말(토·일) 두 칸이라
+   열어도 월~금은 가리지 않는다. 달 머리(범례·‹ 오늘 ›)는 가리지 않게 그 아래부터 덮는다(--detail-top).
+   왼쪽 경계를 끌어 넓히면 가리는 날만 늘어난다(app.js fitPanes). */
+#detail-divider {
+  position: absolute; z-index: 6; top: var(--detail-top, 0); bottom: 0; right: var(--detail-pane-width, 360px); width: var(--pane-divider-width);
+}
+.detail-panel {
+  position: absolute; z-index: 5; top: var(--detail-top, 0); right: 0; bottom: 0; width: var(--detail-pane-width, 360px); max-width: 100%;
+  box-shadow: -1px 0 0 var(--rule), -16px 0 36px #0000001a;
 }
 .workspace:not(:has(.detail-panel.open)) #detail-divider, .detail-panel:not(.open) { display: none; }
 .pane-divider { position: relative; min-width: 0; cursor: col-resize; touch-action: none; }
@@ -158,8 +164,8 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .weekdays, .month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .weekdays span { padding: 5px 6px 3px; font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--rule); }
-.weekdays span:first-child { color: var(--red); }
-.weekdays span:last-child { color: var(--blue); }
+.weekdays .weekday-sun { color: var(--red); }
+.weekdays .weekday-sat { color: var(--blue); }
 .month { flex: 1; grid-auto-rows: minmax(98px, 1fr); border-left: 1px solid var(--rule); }
 .day { position: relative; min-width: 0; padding: 24px 4px 3px; background: var(--sheet); border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); overflow: hidden; }
 .day.adjacent { background: transparent; }
@@ -173,8 +179,13 @@ button:disabled { cursor: default; opacity: .5; }
 .day.is-today .day-number { background: var(--today); padding: 0 4px; }
 .received { flex: none; white-space: nowrap; font-size: 10.5px; color: var(--ink); border: 1px solid var(--ink); padding: 0 2px; line-height: 14px; margin-top: 1px; }
 /* 날짜 칸의 +: 늘 흐리게 보여 직접 넣는 길을 알리고, 마우스를 올리면 진해진다(2026-11-12 사용자). */
-.day-plus { margin-left: auto; color: var(--ink-3); opacity: .45; line-height: 18px; transition: opacity .12s; }
-.day-hit:hover .day-plus, .day-hit:focus-visible .day-plus { opacity: 1; color: var(--ink); font-weight: 700; }
+/* +는 칸 안의 별도 단추다(2026-11-15): 칸의 빈 곳은 자세히를 닫기만 하고, 업무 추가는 + 로 한다. */
+.day-plus {
+  position: absolute; z-index: 1; top: 2px; right: 3px; min-width: 24px; height: 22px; padding: 0 4px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--ink-3); opacity: .45; font-size: 15px; line-height: 22px; transition: opacity .12s;
+}
+.day:hover .day-plus, .day-hit:focus-visible ~ .day-plus, .day-plus:hover, .day-plus:focus-visible { opacity: 1; color: var(--ink); font-weight: 700; }
+.day-plus:hover { background: var(--hover); }
 .day-items { position: relative; display: grid; gap: 1px; pointer-events: none; }
 .item {
   pointer-events: auto; display: flex; align-items: baseline; gap: 4px; width: 100%; min-width: 0; text-align: left;
@@ -212,6 +223,13 @@ button:disabled { cursor: default; opacity: .5; }
 .detail-heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; }
 .detail-heading h2 { font-size: 12.5px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em; }
 .detail-heading h2:focus { outline: none; }
+/* 자세히 맨 위 한 줄: 날짜까지 · 할 일. 지난 마감은 빨강, 끝낸 것은 흐리게. */
+.detail-lead { margin: 4px 0 8px; font-size: 18px; font-weight: 700; line-height: 1.45; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; }
+.detail-lead .lead-sep { color: var(--ink-3); font-weight: 400; }
+.detail-lead .lead-state { margin-left: 8px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.detail-lead.late .lead-when, .detail-lead.late .lead-state { color: var(--red); }
+.detail-lead.done { color: var(--ink-3); }
+.detail-lead.done .lead-when, .detail-lead.done .lead-name { text-decoration: line-through; }
 .detail-message { margin: 10px 0 0; padding: 8px 11px; font-size: 13px; border: 1px solid var(--rule); background: var(--paper); }
 .detail-message.error, .form-error { color: var(--red); border: 1px solid currentColor; background: var(--sheet); }
 .detail-content { margin-top: 10px; }

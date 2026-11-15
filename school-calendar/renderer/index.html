@@ -89,7 +89,7 @@
           <button type="button" class="button" id="next" aria-label="다음 달">›</button>
         </div>
       </div>
-      <div class="weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+      <div class="weekdays" aria-hidden="true"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="weekday-sat">토</span><span class="weekday-sun">일</span></div>
       <div class="month" id="month" aria-label="날짜별 업무"></div>
     </section>
 
@@ -104,6 +104,7 @@
           <button type="button" class="button text-button close" id="detail-close" aria-label="자세히 닫기">닫기</button>
         </div>
       </div>
+      <p class="detail-lead" id="detail-lead" hidden></p>
       <div class="type-row detail-toolbar" id="detail-toolbar" role="group" aria-label="분류와 표시" hidden>
         <div class="seg" role="group" aria-label="분류" id="type-seg">
           <button type="button" data-type="할 일">할 일</button>

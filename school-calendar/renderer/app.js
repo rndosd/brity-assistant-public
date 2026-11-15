@@ -6,6 +6,8 @@ const dateLabel = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'full' });
 const messageDate = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 const { daysBetween, receivedDay } = calendarPeriods;
 const WEEKDAYS = '일월화수목금토';
+// 한 주는 월요일에 시작해 일요일에 끝난다(2026-11-15 사용자). 달력 칸·기간 띠·목록의 이번 주가 같은 기준을 쓴다.
+const weekday = date => (date.getDay() + 6) % 7;
 const TYPE_ORDER = { span: 0, event: 0, task: 1, ref: 2 };
 const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '없음': '숨기기' };
 const aiNames = { claude: 'Claude Code CLI · Haiku', codex: 'Codex CLI', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
@@ -381,10 +383,10 @@ function renderMonth() {
   const month = current.getMonth();
   $('year-label').textContent = `${year}년`;
   $('month-value').textContent = String(month + 1);
-  const first = shift(current, -current.getDay());
+  const first = shift(current, -weekday(current));
   const next = new Date(current);
   next.setMonth(month + 1);
-  const weeks = Math.max(5, Math.ceil((current.getDay() + shift(next, -1).getDate()) / 7));
+  const weeks = Math.max(5, Math.ceil((weekday(current) + shift(next, -1).getDate()) / 7));
   const received = selectedReceived();
   const items = new Map();
   const spans = [];
@@ -427,14 +429,23 @@ function renderMonth() {
     day.classList.toggle('adjacent', date.getMonth() !== month);
     day.classList.toggle('is-today', dateKey === today);
     const hit = button('day-hit');
-    hit.setAttribute('aria-label', `${dateLabel.format(date)} 업무 추가`);
+    hit.setAttribute('aria-label', `${dateLabel.format(date)} · Enter로 업무 추가`);
     if (dateKey === today) hit.setAttribute('aria-current', 'date');
     hit.dataset.focusKey = `date-${dateKey}`;
     hit.tabIndex = dateKey === state.dayKey ? 0 : -1;
     hit.append(element('span', 'day-number', date.getDate()));
     if (received && dateKey === received) hit.append(element('span', 'received', '받음'));
-    hit.append(element('span', 'day-plus', '+'));
-    hit.addEventListener('click', () => showCreate(dateKey));
+    // 날짜 칸의 빈 곳을 마우스로 누르면 열린 자세히만 닫는다(업무 추가 창은 열지 않음, 2026-11-15 사용자).
+    // 업무 추가는 칸의 + 단추와 위쪽 '업무 추가'로 한다. 키보드로 칸을 고르고 Enter를 누르면 그 날짜에 추가한다.
+    hit.addEventListener('click', event => {
+      if (event.detail === 0) { showCreate(dateKey); return; }
+      if ($('detail-panel').classList.contains('open')) closeDetail();
+    });
+    const plus = button('day-plus', '+');
+    plus.tabIndex = -1;
+    plus.setAttribute('aria-label', `${dateLabel.format(date)} 업무 추가`);
+    plus.title = '이 날짜에 업무 추가';
+    plus.addEventListener('click', event => { event.stopPropagation(); showCreate(dateKey); });
     hit.addEventListener('keydown', event => {
       const move = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
       if (move === undefined) return;
@@ -447,14 +458,14 @@ function renderMonth() {
       target?.focus();
     });
     // 이 주에 걸친 기간의 줄 수만큼 자리를 두고, 이날에 걸린 기간은 선 조각을 그린다.
-    const weekStart = key(shift(first, index - date.getDay()));
-    const weekEnd = key(shift(first, index - date.getDay() + 6));
+    const weekStart = key(shift(first, index - weekday(date)));
+    const weekEnd = key(shift(first, index - weekday(date) + 6));
     const weekLanes = visible.filter(({ entry }) => entry.date <= weekEnd && entry.end >= weekStart)
       .reduce((most, span) => Math.max(most, span.lane + 1), 0);
     const lanes = element('div', 'day-spans');
     for (let lane = 0; lane < weekLanes; lane++) {
       const span = visible.find(item => item.lane === lane && item.entry.date <= dateKey && item.entry.end >= dateKey);
-      lanes.append(span ? spanPiece(span, dateKey, date.getDay() === 0, today) : element('span', 'span-gap'));
+      lanes.append(span ? spanPiece(span, dateKey, weekday(date) === 0, today) : element('span', 'span-gap'));
     }
     const list = element('div', 'day-items');
     const dayTasks = mergeSame(items.get(dateKey) || []).sort((a, b) => Number(isCandidate(a.task)) - Number(isCandidate(b.task)) ||
@@ -474,7 +485,7 @@ function renderMonth() {
       more.addEventListener('click', () => showDayItems(date, dayTasks, today));
       list.append(more);
     }
-    day.append(hit, lanes, list);
+    day.append(hit, plus, lanes, list);
     days.push(day);
   }
   $('month').replaceChildren(...days);
@@ -514,6 +525,42 @@ function entryWhen(task, entry, today) {
   if (entry.kind === '기간' && entry.end) return spanText(entry, today);
   if (entryLate(task, entry, today)) return `${daysBetween(entry.date, today)}일 지남`;
   return entry.date === today ? '오늘' : monthDay(entry.date);
+}
+
+// 자세히 맨 위 한 줄(2026-11-15 사용자): "11월 20일(금)까지 · 교실 환경 정리".
+// 자세히가 달력 위에 덮여 그 날짜 칸이 가려져도 날짜와 할 일이 바로 읽히게 한다.
+function longDate(value, withMonth = true) {
+  const date = fromKey(value);
+  return `${withMonth ? `${date.getMonth() + 1}월 ` : ''}${date.getDate()}일(${WEEKDAYS[date.getDay()]})`;
+}
+
+function leadEntry(task, today) {
+  const dates = task.dates || [];
+  return dates.find(entry => entryLate(task, entry, today)) ||
+    dates.find(entry => lastDay(entry) >= today && !(entry.kind === '까지' && entry.done)) || dates[0] || null;
+}
+
+function renderLead(task) {
+  const lead = $('detail-lead');
+  if (!task) { lead.hidden = true; lead.replaceChildren(); return; }
+  const today = key(new Date());
+  const entry = leadEntry(task, today);
+  const parts = [];
+  if (entry) {
+    const when = entry.kind === '기간' && entry.end
+      ? `${longDate(entry.date)}~${longDate(entry.end, entry.end.slice(0, 7) !== entry.date.slice(0, 7))}`
+      : `${longDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}${entry.kind === '까지' ? '까지' : ''}`;
+    parts.push(element('span', 'lead-when', when), element('span', 'lead-sep', ' · '));
+  }
+  parts.push(element('span', 'lead-name', entry?.label || displayTitle(task.title)));
+  const late = entryLate(task, entry, today);
+  const done = entry?.kind === '까지' ? entry.done === true : task.done === true;
+  if (late) parts.push(element('span', 'lead-state', `${daysBetween(entry.date, today)}일 지남`));
+  else if (done) parts.push(element('span', 'lead-state', '끝냄'));
+  lead.classList.toggle('late', late);
+  lead.classList.toggle('done', !late && done);
+  lead.replaceChildren(...parts);
+  lead.hidden = false;
 }
 
 function whenText(task, today) {
@@ -923,8 +970,9 @@ function renderReviewQueue(unread, notes) {
 function renderLists() {
   const today = key(new Date());
   const todayDate = fromKey(today);
-  const weekEnd = key(shift(todayDate, 6 - todayDate.getDay()));
-  const nextWeekEnd = key(shift(todayDate, 13 - todayDate.getDay()));
+  // 토·일에도 다가오는 월~일은 다음 주다(2026-11-15 사용자).
+  const weekEnd = key(shift(todayDate, 6 - weekday(todayDate)));
+  const nextWeekEnd = key(shift(todayDate, 13 - weekday(todayDate)));
   $('today-label').textContent = `${todayDate.getMonth() + 1}월 ${todayDate.getDate()}일 ${WEEKDAYS[todayDate.getDay()]}요일`;
   // 대화방 후보(버린 것 포함)는 해야 할 것·알아 둘 것·끝낸 것에 넣지 않는다.
   const tasks = state.snapshot.tasks.filter(task => !task.candidate);
@@ -1455,6 +1503,7 @@ function renderDetail(detail, reset = false) {
   $('forwarded-draft-source').hidden = !state.forwardedDraft;
   $('forwarded-draft-text').textContent = detail.forwardedText || '';
   renderWhen(task, note);
+  renderLead(task);
   renderTitleEditor(task, note);
   $('verify-badge').hidden = task.noteState !== 'unverified';
   $('refine-section').hidden = !task.noteId;
@@ -1574,6 +1623,7 @@ function openDetail(taskId, chatId, focusKey) {
   panel.scrollTop = 0;
   $('detail-content').hidden = true;
   $('detail-toolbar').hidden = true;
+  renderLead(null);
   $('chat-original').hidden = true;
   $('same-work').hidden = true;
   state.editJump = false;
@@ -1707,6 +1757,7 @@ function closeDetail() {
   state.dirty = false;
   $('detail-content').hidden = true;
   $('detail-toolbar').hidden = true;
+  renderLead(null);
   $('chat-original').hidden = true;
   $('same-work').hidden = true;
   state.editJump = false;
@@ -2972,10 +3023,11 @@ $('work-copy').addEventListener('click', async () => {
   }
 });
 
-const paneSettingsKey = 'calendar-pane-widths';
+// 자세히가 달력 위에 덮이면서(2026-11-15) 자세히 폭의 뜻이 바뀌었다: 예전 키의 자세히 폭은 버리고 목록 폭만 이어 쓴다.
+const paneSettingsKey = 'calendar-pane-widths-v2';
 const paneWidths = {};
 try {
-  const saved = JSON.parse(localStorage.getItem(paneSettingsKey));
+  const saved = JSON.parse(localStorage.getItem(paneSettingsKey)) ?? { list: JSON.parse(localStorage.getItem('calendar-pane-widths'))?.list };
   for (const side of ['list', 'detail']) {
     if (Number.isFinite(saved?.[side])) paneWidths[side] = saved[side];
   }
@@ -2987,14 +3039,18 @@ function fitPanes(viewWidth, narrow) {
   const listMin = 220;
   const detailMin = 320;
   const divider = 8;
-  const sideBySide = !narrow && $('detail-panel').classList.contains('open');
-  const available = viewWidth - 540 - 2 * divider;
-  const listMax = other => Math.min(480, sideBySide ? available - other : viewWidth - 410 - divider);
-  const detailMax = other => Math.min(700, narrow ? viewWidth - 72 : available - other);
-  const list = clamp(paneWidths.list ?? 240, listMin, listMax(detailMin));
-  const detail = clamp(paneWidths.detail ?? (narrow ? 440 : Math.max(360, viewWidth * .30)), detailMin, detailMax(list));
+  const listMax = () => Math.min(480, viewWidth - 410 - divider);
+  const list = clamp(paneWidths.list ?? 240, listMin, listMax());
+  // 자세히는 달력 위에 덮는다. 기본 폭은 달력의 주말 두 칸(+오른쪽 여백), 넓혀도 달력의 절반까지만.
+  const calendarWidth = viewWidth - list - divider;
+  const weekend = (calendarWidth - 36) * 2 / 7 + 18;
+  const detailMax = () => narrow ? Math.min(700, viewWidth - 72) : Math.max(detailMin, Math.min(700, calendarWidth * .5));
+  const detail = clamp(paneWidths.detail ?? (narrow ? 440 : Math.max(360, weekend)), detailMin, detailMax());
+  // 달력 머리(달·범례·‹ 오늘 ›)는 가리지 않는다: 자세히는 그 아래, 요일 줄부터 덮는다.
+  const header = document.querySelector('.calendar-header');
+  workspace.style.setProperty('--detail-top', narrow || !header ? '0px' : `${header.offsetTop + header.offsetHeight}px`);
   for (const [side, value, min, max] of [
-    ['list', list, listMin, listMax(detail)], ['detail', detail, detailMin, detailMax(list)]
+    ['list', list, listMin, listMax()], ['detail', detail, detailMin, detailMax()]
   ]) {
     workspace.style.setProperty(`--${side}-pane-width`, `${value}px`);
     const handle = $(`${side}-divider`);
@@ -3091,7 +3147,7 @@ $('zoom-out').addEventListener('click', () => { zoomStep = applyZoom(zoomStep - 
 const SKINS = ['diary', 'cute', 'evening', 'minimal'];
 const skinInputs = [...document.querySelectorAll('input[name="skin"]')];
 function applySkin(skin) {
-  const value = SKINS.includes(skin) ? skin : 'diary';
+  const value = SKINS.includes(skin) ? skin : 'minimal';
   document.documentElement.dataset.skin = value;
   for (const input of skinInputs) input.checked = input.value === value;
   try { localStorage.setItem('calendar-skin', value); } catch {}

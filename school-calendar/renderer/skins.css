@@ -48,8 +48,8 @@
 :root:is([data-skin="diary"], :not([data-skin])) .weekdays { gap: 2px; padding-top: 4px; }
 /* 요일 머리: 채운 띠 대신 글자만(2026-11-15 다듬기: 틀이 업무보다 진하지 않게). 일·토의 빨강·파랑 뜻은 글자색으로 남긴다. */
 :root:is([data-skin="diary"], :not([data-skin])) .weekdays span { border-bottom: 1px solid var(--rule); background: transparent; color: var(--ink-2); text-align: center; font-family: var(--hand); font-size: 22px; line-height: 1; padding: 0 0 4px; }
-:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:first-child { color: var(--stamp); }
-:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:last-child { color: #4f73a3; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays .weekday-sun { color: var(--stamp); }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays .weekday-sat { color: #4f73a3; }
 :root:is([data-skin="diary"], :not([data-skin])) .day:not(.adjacent) {
   background:
     linear-gradient(to right, var(--grid) 1px, transparent 1px) 0 0 / 16px 16px,
@@ -166,7 +166,7 @@
 :root[data-skin="cute"] .span-piece { border-radius: 999px; }
 :root[data-skin="cute"] .span-piece:not(.start) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 :root[data-skin="cute"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-:root[data-skin="cute"] .detail-panel { background: url("skins/cat-wave.png") no-repeat right 16px bottom 12px / 100px auto, #fff; box-shadow: -1px 0 0 var(--rule); }
+:root[data-skin="cute"] .detail-panel { background: url("skins/cat-wave.png") no-repeat right 16px bottom 12px / 100px auto, #fff; box-shadow: -1px 0 0 var(--rule), -16px 0 36px #8c4a621f; }
 :root[data-skin="cute"] .detail-heading { background: transparent; }
 :root[data-skin="cute"] .seg { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; }
 :root[data-skin="cute"] .seg button { font-family: var(--jua); }
@@ -258,7 +258,7 @@
 :root[data-skin="evening"] .item.selected { outline-color: var(--glow); }
 :root[data-skin="evening"] .span-piece { border-radius: 3px; }
 :root[data-skin="evening"] .span-piece.selected { box-shadow: inset 0 0 0 1.5px var(--glow); }
-:root[data-skin="evening"] .detail-panel { background: #181d33e6; box-shadow: -1px 0 0 #ffffff14; }
+:root[data-skin="evening"] .detail-panel { background: #181d33; box-shadow: -1px 0 0 #ffffff14, -16px 0 40px #00000066; }
 :root[data-skin="evening"] .detail-heading { background: transparent; }
 :root[data-skin="evening"] .seg { border-color: #ffffff26; border-radius: 9px; overflow: hidden; }
 :root[data-skin="evening"] .seg button { background: transparent; }
@@ -332,8 +332,8 @@
 :root[data-skin="minimal"] .year { color: var(--ink-3); }
 :root[data-skin="minimal"] .legend { color: var(--ink-3); }
 :root[data-skin="minimal"] .weekdays span { border-bottom: 1px solid var(--rule); font-size: 11.5px; font-weight: 500; color: var(--ink-3); padding: 6px 8px; }
-:root[data-skin="minimal"] .weekdays span:first-child { color: #d6857e; }
-:root[data-skin="minimal"] .weekdays span:last-child { color: #7f9cc9; }
+:root[data-skin="minimal"] .weekdays .weekday-sun { color: #d6857e; }
+:root[data-skin="minimal"] .weekdays .weekday-sat { color: #7f9cc9; }
 :root[data-skin="minimal"] .month { border-left: 0; }
 :root[data-skin="minimal"] .day { background: var(--sheet); border-color: var(--rule); padding-inline: 5px; }
 :root[data-skin="minimal"] .day:nth-child(7n) { border-right: 0; }
@@ -356,7 +356,7 @@
 :root[data-skin="minimal"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 :root[data-skin="minimal"] .more { text-decoration: none; color: var(--ink-3); font-weight: 600; }
 /* 자세히: 흰 판, 원문은 옅은 회색 카드 */
-:root[data-skin="minimal"] .detail-panel { background: var(--sheet); box-shadow: -1px 0 0 var(--rule); }
+:root[data-skin="minimal"] .detail-panel { background: var(--sheet); box-shadow: -1px 0 0 var(--rule), -16px 0 36px #0000001a; }
 :root[data-skin="minimal"] .detail-heading { background: var(--sheet); }
 :root[data-skin="minimal"] .detail-heading h2 { color: var(--ink-3); font-weight: 600; }
 :root[data-skin="minimal"] .seg { border-color: var(--rule-strong); }
