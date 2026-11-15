@@ -81,7 +81,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), loginStart: loginStartState(), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -782,6 +782,12 @@ function bindHandlers() {
       pausingCollector = false;
     }
   });
+  bind('login-start', enabled => {
+    if (!loginStartAvailable()) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 켤 수 있습니다.');
+    app.setLoginItemSettings({ openAtLogin: !!enabled, path: launcherPath, args: [] });
+    if (loginStartState().enabled !== !!enabled) throw new CalendarError('Windows 시작 프로그램에 등록하지 못했습니다. 학교 PC 정책을 확인해 주세요.');
+    return snapshot();
+  });
   // 바탕 화면 바로 가기: 배포 폴더의 실행기(아이콘 있음)를 가리킨다.
   bind('shortcut-create', async () => {
     const launcher = portableRoot && path.join(portableRoot, 'Brity Messenger Calendar.exe');
@@ -832,6 +838,19 @@ function createWindow() {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, reply) => reply(false));
   void window.loadFile(view);
+}
+
+// 컴퓨터를 켜면 자동 실행(2026-11-15 사용자): Windows 시작 프로그램(이 사용자의 Run 목록)에 실행기를 등록한다.
+// electron.exe가 아니라 실행기를 등록해야 폴더 권한 고침·남은 업데이트 마저 설치·샌드박스 대비가 그대로 적용된다.
+// 샘플과 소스 실행에서는 쓰지 않는다. 폴더를 옮기면 예전 자리를 가리키므로 설정에서 다시 켜야 한다.
+const launcherPath = portableRoot ? path.join(portableRoot, 'Brity Messenger Calendar.exe') : null;
+function loginStartAvailable() {
+  return !demo && process.platform === 'win32' && !!launcherPath && fs.existsSync(launcherPath);
+}
+function loginStartState() {
+  if (!loginStartAvailable()) return { available: false, enabled: false };
+  try { return { available: true, enabled: app.getLoginItemSettings({ path: launcherPath, args: [] }).openAtLogin === true }; }
+  catch { return { available: true, enabled: false }; }
 }
 
 // 작업 표시줄에서 캘린더 아이콘으로 묶이게 한다.

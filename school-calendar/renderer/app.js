@@ -2239,6 +2239,22 @@ $('shortcut-create').addEventListener('click', async () => {
     $('shortcut-status').textContent = error.message;
   }
 });
+// 컴퓨터를 켜면 자동 실행: Windows 시작 프로그램에 실행기를 등록하거나 뺀다(main.js login-start).
+$('login-start').addEventListener('change', async () => {
+  const wanted = $('login-start').checked;
+  state.loginStartBusy = true;
+  $('login-start').disabled = true;
+  try {
+    sync(await api.setLoginStart(wanted));
+    $('login-start-status').textContent = wanted ? '켰습니다. 다음에 Windows에 로그인하면 캘린더가 저절로 켜집니다.' : '껐습니다. 컴퓨터를 켜도 캘린더가 저절로 켜지지 않습니다.';
+  } catch (error) {
+    $('login-start').checked = !wanted;
+    $('login-start-status').textContent = error.message;
+  } finally {
+    state.loginStartBusy = false;
+    $('login-start').disabled = false;
+  }
+});
 $('update-notes').addEventListener('click', () => {
   const update = state.snapshot.update || {};
   showChanges(`새 판 ${update.version}에서 바뀌는 점`, `지금 쓰는 판은 ${state.snapshot.appVersion}입니다.`, update.changes, update.status === 'available');
@@ -2440,6 +2456,8 @@ function renderBackup() {
   $('backup-restore').disabled = busy;
   $('rules-update').hidden = !state.snapshot.rulesUpdate?.pending;
   $('shortcut-row').hidden = !state.snapshot.shortcutAvailable;
+  $('login-start-row').hidden = !state.snapshot.loginStart?.available;
+  if (!state.loginStartBusy) $('login-start').checked = state.snapshot.loginStart?.enabled === true;
   $('app-version').textContent = state.snapshot.appVersion ? `브리티 메신저 캘린더 ${state.snapshot.appVersion}판` : '';
 }
 
