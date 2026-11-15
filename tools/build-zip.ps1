@@ -65,7 +65,7 @@ function New-Zip([string]$source, [string]$target) {
 # 앱 코드(자료·inbox·.qa·.demo·시험·캐시 없음). 전체 ZIP과 패치가 같은 내용을 쓴다.
 function Copy-AppCode([string]$appOut) {
   New-Item -ItemType Directory -Force $appOut | Out-Null
-  $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','collector-link.js','demo.js','main.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
+  $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','collector-link.js','demo.js','feedback.js','main.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
            'chat-journal.ps1','collect-chats.ps1','collector-link.ps1','resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','Claude-연결-안내.html','Claude-API-연결-안내.html','Codex-연결-안내.html'
   foreach ($f in $files) { Copy-Item (Join-Path $app $f) $appOut }
   Copy-Item (Join-Path $app 'renderer') $appOut -Recurse

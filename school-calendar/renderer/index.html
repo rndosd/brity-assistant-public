@@ -33,6 +33,16 @@
         <output id="zoom-value" aria-live="polite">100%</output>
         <button type="button" class="zoom-big" id="zoom-in" aria-label="글자 크게">가</button>
       </div>
+      <!-- 의견 보내기: 누르면 바로 아래에 작은 입력 칸. 구글 화면 없이 앱이 제출한다(feedback.js). -->
+      <div class="feedback" id="feedback" hidden>
+        <button type="button" class="button" id="feedback-open" aria-expanded="false" aria-controls="feedback-pop">의견</button>
+        <form class="feedback-pop" id="feedback-pop" aria-label="의견 보내기" hidden>
+          <textarea id="feedback-text" rows="4" maxlength="2000" aria-label="의견" placeholder="불편한 점이나 바라는 기능을 적어 주세요. 답장이 필요하면 연락처도 함께 적어 주세요."></textarea>
+          <p class="small-note" id="feedback-info"></p>
+          <p class="small-note feedback-status" id="feedback-status" role="status" hidden></p>
+          <div class="feedback-actions"><button type="button" class="button" id="feedback-cancel">닫기</button><button type="submit" class="button primary" id="feedback-send">보내기</button></div>
+        </form>
+      </div>
       <button type="button" class="button" id="settings-open" aria-haspopup="dialog">설정</button>
       <button type="button" class="button primary" id="add-today">업무 추가</button>
     </div>

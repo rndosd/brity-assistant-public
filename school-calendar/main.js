@@ -12,6 +12,7 @@ const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
 const updater = require('./updater');
+const feedback = require('./feedback');
 const CHANGES = require('./CHANGES.json');
 const { spawn } = require('node:child_process');
 
@@ -81,7 +82,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), loginStart: loginStartState(), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -782,6 +783,16 @@ function bindHandlers() {
       pausingCollector = false;
     }
   });
+  bind('feedback', async message => {
+    if (!feedback.feedbackAvailable()) throw new CalendarError('의견 보내기가 준비되지 않았습니다.');
+    const text = typeof message === 'string' ? message.trim() : '';
+    if (!text) throw new CalendarError('보낼 내용을 적어 주세요.');
+    if (Date.now() - feedbackSentAt < 20000) throw new CalendarError('방금 보냈습니다. 잠시 뒤 다시 보내 주세요.');
+    try { await feedback.sendFeedback(text, feedbackInfo()); }
+    catch { throw new CalendarError('보내지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요. 쓴 글은 그대로 남겨 두었습니다.'); }
+    feedbackSentAt = Date.now();
+    return true;
+  });
   bind('login-start', enabled => {
     if (!loginStartAvailable()) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 켤 수 있습니다.');
     app.setLoginItemSettings({ openAtLogin: !!enabled, path: launcherPath, args: [] });
@@ -843,6 +854,12 @@ function createWindow() {
 // 컴퓨터를 켜면 자동 실행(2026-11-15 사용자): Windows 시작 프로그램(이 사용자의 Run 목록)에 실행기를 등록한다.
 // electron.exe가 아니라 실행기를 등록해야 폴더 권한 고침·남은 업데이트 마저 설치·샌드박스 대비가 그대로 적용된다.
 // 샘플과 소스 실행에서는 쓰지 않는다. 폴더를 옮기면 예전 자리를 가리키므로 설정에서 다시 켜야 한다.
+const AI_LABELS = { none: 'AI 없음', codex: 'Codex', claude: 'Claude Code', openai: 'OpenAI', anthropic: 'Claude API', factchat: '팩트챗' };
+function feedbackInfo() {
+  return [app.getVersion(), seoryongEdition ? '서룡판' : '일반판', `Windows ${os.release()}`, AI_LABELS[store.aiProvider] ?? store.aiProvider, demo ? '샘플' : null].filter(Boolean).join(' · ');
+}
+let feedbackSentAt = 0;
+
 const launcherPath = portableRoot ? path.join(portableRoot, 'Brity Messenger Calendar.exe') : null;
 function loginStartAvailable() {
   return !demo && process.platform === 'win32' && !!launcherPath && fs.existsSync(launcherPath);

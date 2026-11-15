@@ -2165,8 +2165,53 @@ function openSettings(tab) {
   $('settings-dialog').showModal();
 }
 
+// 의견 보내기: 머리줄 단추를 누르면 바로 아래 작은 칸. 닫아도 쓴 글은 남고, 보내면 비운다.
+function renderFeedback() {
+  const feedback = state.snapshot.feedback || {};
+  $('feedback').hidden = !feedback.available;
+  $('feedback-info').textContent = `함께 보내는 정보: ${feedback.info || ''}. 쪽지와 업무 내용은 보내지 않습니다.`;
+}
+function feedbackStatus(text, error = false) {
+  $('feedback-status').hidden = !text;
+  $('feedback-status').textContent = text || '';
+  $('feedback-status').classList.toggle('error', error);
+}
+function toggleFeedback(open, returnFocus = false) {
+  $('feedback-pop').hidden = !open;
+  $('feedback-open').setAttribute('aria-expanded', String(open));
+  if (open) { feedbackStatus(''); $('feedback-text').focus(); }
+  else if (returnFocus) $('feedback-open').focus();
+}
+$('feedback-open').addEventListener('click', () => toggleFeedback($('feedback-pop').hidden));
+$('feedback-cancel').addEventListener('click', () => toggleFeedback(false, true));
+$('feedback-pop').addEventListener('keydown', event => {
+  if (event.key === 'Escape') { event.stopPropagation(); toggleFeedback(false, true); }
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('feedback-pop').requestSubmit(); }
+});
+document.addEventListener('pointerdown', event => {
+  if (!$('feedback-pop').hidden && !$('feedback').contains(event.target)) toggleFeedback(false);
+});
+$('feedback-pop').addEventListener('submit', async event => {
+  event.preventDefault();
+  const text = $('feedback-text').value.trim();
+  if (!text) { feedbackStatus('보낼 내용을 적어 주세요.', true); $('feedback-text').focus(); return; }
+  $('feedback-send').disabled = true;
+  feedbackStatus('보내는 중…');
+  try {
+    await api.sendFeedback(text);
+    $('feedback-text').value = '';
+    toggleFeedback(false, true);
+    notice('의견을 보냈습니다. 고맙습니다.');
+  } catch (error) {
+    feedbackStatus(error.message, true);
+  } finally {
+    $('feedback-send').disabled = false;
+  }
+});
+
 // 새 판 알림(머리줄)과 바뀐 점 창.
 function renderUpdate() {
+  renderFeedback();
   const update = state.snapshot.update || {};
   const status = update.status || 'idle';
   const shown = update.enabled && ['available', 'full', 'downloading', 'installing'].includes(status);

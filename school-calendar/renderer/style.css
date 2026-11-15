@@ -63,6 +63,14 @@ button:disabled { cursor: default; opacity: .5; }
 .connection .small-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection strong { font-size: 12.5px; white-space: nowrap; }
 .header-actions { display: flex; gap: 4px; margin-left: auto; }
+/* 의견 보내기(2026-11-15): 단추 바로 아래 작은 칸. 창을 덮지 않고, 바깥을 누르거나 Esc로 닫으면 쓴 글은 남는다. */
+.feedback { position: relative; }
+.feedback-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 320px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--ink); background: var(--sheet); color: var(--ink); box-shadow: 0 6px 18px #1f1d1a26; }
+.feedback-pop textarea { width: 100%; min-height: 96px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5; padding: 8px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); }
+.feedback-pop textarea:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+.feedback-pop .small-note { line-height: 1.5; }
+.feedback-status.error { color: var(--red); font-weight: 700; }
+.feedback-actions { display: flex; justify-content: end; gap: 6px; }
 
 /* 세 칸 */
 .workspace {

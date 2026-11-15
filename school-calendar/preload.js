@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('calendar', {
   restoreBackup: () => invoke('calendar:backup-restore'),
   resolveRules: choice => invoke('calendar:rules-resolve', choice),
   createShortcut: () => invoke('calendar:shortcut-create'),
+  sendFeedback: message => invoke('calendar:feedback', String(message ?? '')),
   setLoginStart: enabled => invoke('calendar:login-start', enabled === true),
   checkUpdate: () => invoke('calendar:update-check'),
   applyUpdate: () => invoke('calendar:update-apply'),
