@@ -5,5 +5,5 @@
   try { const saved = localStorage.getItem('calendar-skin'); if (['diary', 'cute', 'evening', 'minimal', 'contrast'].includes(saved)) skin = saved; } catch {}
   document.documentElement.dataset.skin = skin;
   // 본문 글꼴: 고른 것이 있으면 입히고, 없으면 스킨 기본(data-font 없음).
-  try { const font = localStorage.getItem('calendar-font'); if (['pretendard', 'dodum', 'nanumsquare', 'plex', 'batang'].includes(font)) document.documentElement.dataset.font = font; } catch {}
+  try { const font = localStorage.getItem('calendar-font'); if (['pretendard', 'dodum', 'nanumsquare', 'plex', 'maruburi', 'batang'].includes(font)) document.documentElement.dataset.font = font; } catch {}
 })();

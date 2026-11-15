@@ -22,10 +22,13 @@
 @font-face { font-family: "Body NanumSquare Neo"; src: url("skins/fonts/NanumSquareNeo-Bold.woff2"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "Body IBM Plex"; src: url("skins/fonts/IBMPlexSansKR-Regular.woff2"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Body IBM Plex"; src: url("skins/fonts/IBMPlexSansKR-Bold.woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Body MaruBuri"; src: url("skins/fonts/MaruBuri-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Body MaruBuri"; src: url("skins/fonts/MaruBuri-Bold.woff2"); font-weight: 700; font-display: swap; }
 :root[data-font="pretendard"] { --body-font: "Body Pretendard", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 :root[data-font="dodum"] { --body-font: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 :root[data-font="nanumsquare"] { --body-font: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 :root[data-font="plex"] { --body-font: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font="maruburi"] { --body-font: "Body MaruBuri", "Noto Serif KR", "Batang", serif; }
 :root[data-font="batang"] { --body-font: "Skin Gowun Batang", "Noto Serif KR", "Batang", serif; }
 :root[data-font] { font-family: var(--body-font); --reading: var(--body-font); }
 /* 스킨이 요소마다 정한 꾸밈 글꼴을 이긴다. 남기는 것: 앱 이름, 큰 달 숫자(안의 "월"까지), 고르기 견본. */
@@ -42,6 +45,7 @@
 .font-sample-dodum { font-family: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-nanumsquare { font-family: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-plex { font-family: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+.font-sample-maruburi { font-family: "Body MaruBuri", "Noto Serif KR", serif; }
 .font-sample-batang { font-family: "Skin Gowun Batang", "Noto Serif KR", serif; }
 
 /* ═══════════ 1. 다이어리(기본) ═══════════

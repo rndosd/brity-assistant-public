@@ -3194,7 +3194,7 @@ for (const input of skinInputs) input.addEventListener('change', () => { if (inp
 
 // 글꼴(2026-11-15): 고르면 앱 이름·큰 달 숫자 말고 화면 글자 전체를 바꾼다(skins.css). 'skin'이면 스킨 기본(data-font 없음).
 // 첫 화면 전에 skin-boot.js가 먼저 입힌다.
-const FONTS = ['skin', 'pretendard', 'dodum', 'nanumsquare', 'plex', 'batang'];
+const FONTS = ['skin', 'pretendard', 'dodum', 'nanumsquare', 'plex', 'maruburi', 'batang'];
 const fontInputs = [...document.querySelectorAll('input[name="font"]')];
 function applyFont(font) {
   const value = FONTS.includes(font) ? font : 'skin';
