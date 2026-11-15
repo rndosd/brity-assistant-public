@@ -87,6 +87,76 @@ test('출력 한도에 닿으면 추론 보통으로 한 번, 일시 오류면 �
   assert.equal(failing, 2);
 });
 
+// Claude API(개인 Anthropic 키) · Haiku 5.5
+const claudeKey = 'sk-ant-synthetic-key-for-tests-0000';
+const claudeReply = (value, extra = {}) => Response.json({
+  type: 'message', role: 'assistant', stop_reason: 'end_turn',
+  content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(value) }], ...extra
+});
+
+test('claude 분류는 정리 기준을 캐시하는 system, 쪽지는 user로 보내고 Claude가 받는 스키마로 바꾼다', async () => {
+  let url, request, sent;
+  const result = await refineWithProvider('anthropic', { ...classifierSample, attachmentNames: ['외부에 보내지 않을 첨부.pdf'] }, {
+    rulesPath, apiKey: claudeKey,
+    fetchImpl: async (u, r) => { url = u; request = r; sent = JSON.parse(r.body); return claudeReply(structured); }
+  });
+  assert.deepEqual(result, structured);
+  assert.equal(url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(request.headers['x-api-key'], claudeKey);
+  assert.equal(request.headers['anthropic-version'], '2026-10-21');
+  assert.ok(!request.headers.Authorization);
+  assert.equal(sent.model, 'claude-haiku-5-5');
+  assert.equal(sent.max_tokens, 16000);
+  assert.equal(sent.output_config.effort, 'high');
+  assert.equal(sent.output_config.format.type, 'json_schema');
+  const sentSchema = sent.output_config.format.schema;
+  assert.equal(sentSchema.properties.dates.maxItems, undefined);
+  assert.deepEqual(sentSchema.properties.dates.items.properties.end, { anyOf: [{ type: 'string' }, { type: 'null' }] });
+  assert.equal(sentSchema.additionalProperties, false);
+  assert.equal(sentSchema.properties.dates.items.additionalProperties, false);
+  assert.deepEqual(sentSchema.required, schema.required);
+  assert.equal(sent.system[0].cache_control.type, 'ephemeral');
+  assert.ok(sent.system[0].text.startsWith('# 학교 쪽지 정리 기준'));
+  assert.equal(sent.messages.length, 1);
+  assert.equal(sent.messages[0].role, 'user');
+  assert.equal(JSON.parse(sent.messages[0].content).title, classifierSample.title);
+  assert.ok(!/외부에 보내지 않을 첨부|시험용 발신자/.test(request.body));
+});
+
+test('claude 분류: 날짜는 3개까지만 받고, 출력 한도면 보통으로 다시, 과부하(529)면 쉬었다 한 번 더', async () => {
+  const many = { ...structured, dates: [1, 2, 3, 4].map(day => ({ date: `2030-05-0${day}`, end: null, label: `일 ${day}`, kind: '까지' })) };
+  const capped = await refineWithProvider('anthropic', classifierSample, { rulesPath, apiKey: claudeKey, fetchImpl: async () => claudeReply(many) });
+  assert.equal(capped.dates.length, 3);
+
+  const efforts = [];
+  await refineWithProvider('anthropic', classifierSample, {
+    rulesPath, apiKey: claudeKey,
+    fetchImpl: async (_u, r) => { efforts.push(JSON.parse(r.body).output_config.effort); return efforts.length === 1 ? claudeReply({}, { stop_reason: 'max_tokens', content: [] }) : claudeReply(structured); }
+  });
+  assert.deepEqual(efforts, ['high', 'medium']);
+
+  const waits = [];
+  let calls = 0;
+  await refineWithProvider('anthropic', classifierSample, {
+    rulesPath, apiKey: claudeKey, wait: async ms => { waits.push(ms); },
+    fetchImpl: async () => ++calls === 1 ? new Response('overloaded', { status: 529 }) : claudeReply(structured)
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [3000]);
+});
+
+test('claude 키 오류·크레딧 부족·거절은 원격 본문 없이 안내하고 자동 분류를 멈춘다', async () => {
+  for (const [status, words] of [[401, 'Claude API 키가 올바르지'], [402, 'Claude API 크레딧이 부족'], [403, 'Claude API에서 요청을 거절']]) {
+    await assert.rejects(refineWithProvider('anthropic', classifierSample, {
+      rulesPath, apiKey: claudeKey,
+      fetchImpl: async () => Response.json({ type: 'error', error: { message: claudeKey } }, { status })
+    }), error => error.message.includes(words) && !error.message.includes(claudeKey));
+  }
+  await assert.rejects(refineWithProvider('anthropic', classifierSample, {
+    rulesPath, apiKey: claudeKey, fetchImpl: async () => claudeReply({}, { stop_reason: 'refusal', content: [] })
+  }), /Claude API에서 정리를 받지 못했습니다/);
+});
+
 test('브리티의 원본메시지 구분선과 한국어 머리말도 이번 글과 인용으로 나눈다', () => {
   const body = [
     '네 내일 2시에 뵙겠습니다.', '',

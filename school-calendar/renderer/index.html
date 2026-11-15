@@ -253,10 +253,15 @@
         <div class="ai-settings" id="ai-settings">
           <label class="field">AI 연결 방식
             <select id="ai-provider">
-              <option value="factchat" hidden disabled>서룡 팩트챗 API · Luna (권장)</option>
-              <option value="openai">개인 OpenAI API 키 · Luna</option>
-              <option value="claude">Claude Code CLI · Haiku (Claude 구독)</option>
-              <option value="codex">Codex CLI (ChatGPT 구독)</option>
+              <optgroup label="API 키 · 쓴 만큼 결제">
+                <option value="factchat" hidden disabled>서룡 팩트챗 API · Luna (권장)</option>
+                <option value="openai">개인 OpenAI API 키 · Luna</option>
+                <option value="anthropic">개인 Claude API 키 · Haiku</option>
+              </optgroup>
+              <optgroup label="구독 계정 · CLI 로그인">
+                <option value="claude">Claude Code CLI · Haiku (Claude 구독)</option>
+                <option value="codex">Codex CLI (ChatGPT 구독)</option>
+              </optgroup>
               <option value="none">사용 안 함</option>
             </select>
           </label>

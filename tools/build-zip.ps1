@@ -65,8 +65,8 @@ function New-Zip([string]$source, [string]$target) {
 # 앱 코드(자료·inbox·.qa·.demo·시험·캐시 없음). 전체 ZIP과 패치가 같은 내용을 쓴다.
 function Copy-AppCode([string]$appOut) {
   New-Item -ItemType Directory -Force $appOut | Out-Null
-  $files = 'ai-provider.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','collector-link.js','demo.js','main.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
-           'chat-journal.ps1','collect-chats.ps1','collector-link.ps1','resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','Claude-연결-안내.html','Codex-연결-안내.html'
+  $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','collector-link.js','demo.js','main.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
+           'chat-journal.ps1','collect-chats.ps1','collector-link.ps1','resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','Claude-연결-안내.html','Claude-API-연결-안내.html','Codex-연결-안내.html'
   foreach ($f in $files) { Copy-Item (Join-Path $app $f) $appOut }
   Copy-Item (Join-Path $app 'renderer') $appOut -Recurse
   Copy-Item (Join-Path $app 'assets') $appOut -Recurse -ErrorAction SilentlyContinue
@@ -126,7 +126,7 @@ if (Test-Path (Join-Path $launcherDir 'Brity Messenger Calendar.exe')) {
   "@echo off`r`nsetlocal`r`nif not exist `"%~dp0runtime\electron.exe`" (`r`n  echo Extract the entire ZIP before starting.`r`n  pause`r`n  exit /b 1`r`n)`r`nstart `"`" `"%~dp0runtime\electron.exe`" --brity`r`n" | Set-Content (Join-Path $root 'Start-Calendar.cmd') -Encoding ascii -NoNewline
   "@echo off`r`nsetlocal`r`nif not exist `"%~dp0runtime\electron.exe`" (`r`n  echo Extract the entire ZIP before starting the sample.`r`n  pause`r`n  exit /b 1`r`n)`r`nstart `"`" `"%~dp0runtime\electron.exe`" --demo`r`n" | Set-Content (Join-Path $root 'Start-Sample.cmd') -Encoding ascii -NoNewline
 }
-Copy-Item (Join-Path $app 'API-연결-안내.html'), (Join-Path $app 'Claude-연결-안내.html'), (Join-Path $app 'Codex-연결-안내.html') $root
+Copy-Item (Join-Path $app 'API-연결-안내.html'), (Join-Path $app 'Claude-연결-안내.html'), (Join-Path $app 'Claude-API-연결-안내.html'), (Join-Path $app 'Codex-연결-안내.html') $root
 $setup = Get-Content (Join-Path $app 'AI-SETUP.txt') -Raw -Encoding UTF8
 if ($Seoryong) {
   Set-Content (Join-Path $root 'seoryong.edition') $schoolGuide.AbsoluteUri -Encoding ascii

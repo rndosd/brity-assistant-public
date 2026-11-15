@@ -24,12 +24,13 @@
 
 ## AI 분류
 
-AI 연결은 선택입니다. 처음에는 쪽지를 직접 정리할 수 있고, 설정에서 **개인 OpenAI API 키 · Luna**, **Claude Code CLI · Haiku**, **Codex CLI** 중 하나를 연결할 수 있습니다. 개인 OpenAI API가 일반판의 권장 방식입니다.
+AI 연결은 선택입니다. 처음에는 쪽지를 직접 정리할 수 있고, 설정에서 API 키 방식(**개인 OpenAI API 키 · Luna**, **개인 Claude API 키 · Haiku**)이나 구독 계정 방식(**Claude Code CLI · Haiku**, **Codex CLI**) 중 하나를 연결할 수 있습니다. 개인 OpenAI API가 일반판의 권장 방식입니다.
 
 연결 시험은 가상 쪽지를 사용합니다. 연결이 성공하면 새 쪽지 자동 분류가 켜집니다. AI가 분류할 때 쪽지 본문과 인용된 이전 쪽지가 선택한 AI 서비스로 전달되며, 첨부 파일은 PC에 남습니다. 소속 기관의 쪽지 전송 기준을 확인한 뒤 연결하세요. 자동 분류는 설정에서 끌 수 있습니다.
 
 - [설치 후 AI 연결 안내](school-calendar/AI-SETUP.txt)
 - [OpenAI API 연결 안내](school-calendar/API-연결-안내.html)
+- [Claude API 키 연결 안내](school-calendar/Claude-API-연결-안내.html)
 - [Claude Code 연결 안내](school-calendar/Claude-연결-안내.html)
 - [Codex 연결 안내](school-calendar/Codex-연결-안내.html)
 - [캘린더 사용법과 백업](school-calendar/README.md)

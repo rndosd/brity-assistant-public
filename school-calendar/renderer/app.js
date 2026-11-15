@@ -8,7 +8,7 @@ const { daysBetween, receivedDay } = calendarPeriods;
 const WEEKDAYS = '일월화수목금토';
 const TYPE_ORDER = { span: 0, event: 0, task: 1, ref: 2 };
 const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '없음': '숨기기' };
-const aiNames = { claude: 'Claude Code CLI · Haiku', codex: 'Codex CLI', openai: 'OpenAI API · Luna', factchat: '서룡 팩트챗 API · Luna' };
+const aiNames = { claude: 'Claude Code CLI · Haiku', codex: 'Codex CLI', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
 const state = {
   snapshot: { tasks: [], messages: [], inbox: { status: 'loading', pending: 0 } },
   month: new Date(), dayKey: '', selected: null, detailToken: 0, detail: null,
@@ -2006,15 +2006,19 @@ function fillAiChoices() {
 function renderAiSettings() {
   const provider = $('ai-provider').value;
   const factchat = provider === 'factchat';
-  const isApi = factchat || provider === 'openai';
+  const anthropic = provider === 'anthropic';
+  const isApi = factchat || anthropic || provider === 'openai';
   const hasStoredKey = isApi && state.snapshot.aiProvider === provider;
   $('ai-settings').hidden = !!state.demo;
   $('ai-key-options').hidden = !isApi;
-  $('ai-key-label').textContent = factchat ? '팩트챗 API 키' : 'OpenAI API 키';
-  $('ai-key').placeholder = hasStoredKey ? '비워 두면 저장된 키 사용' : factchat ? 'baze_…' : 'sk-…';
-  $('ai-key-guide').dataset.aiGuide = factchat ? 'factchat' : 'key';
+  $('ai-key-label').textContent = factchat ? '팩트챗 API 키' : anthropic ? 'Claude API 키' : 'OpenAI API 키';
+  $('ai-key').placeholder = hasStoredKey ? '비워 두면 저장된 키 사용' : factchat ? 'baze_…' : anthropic ? 'sk-ant-…' : 'sk-…';
+  $('ai-key-guide').dataset.aiGuide = factchat ? 'factchat' : anthropic ? 'anthropic-key' : 'key';
   $('ai-key-guide').textContent = factchat ? '서룡 팩트챗 개발자 화면 ↗' : 'API 키 발급 ↗';
   $('ai-key-guide').hidden = factchat && !state.snapshot.factchatGuideAvailable;
+  // Claude 키는 가입·충전·발급 순서를 앱 폴더의 안내서로 연다.
+  $('ai-billing-guide').dataset.aiGuide = anthropic ? 'anthropic-guide' : 'billing';
+  $('ai-billing-guide').textContent = anthropic ? '처음 설정 안내 ↗' : 'API 결제 설정 ↗';
   $('ai-billing-guide').hidden = factchat;
   $('cli-guide').hidden = provider !== 'codex' && provider !== 'claude';
   $('claude-steps').hidden = provider !== 'claude';
@@ -2022,7 +2026,8 @@ function renderAiSettings() {
   $('ai-provider').disabled = !!state.testingAi;
   $('ai-connect').disabled = !!state.testingAi || (provider === 'none' && state.snapshot.aiProvider === 'none');
   $('ai-connect').textContent = state.testingAi ? '연결 시험 중…' : provider === 'none' ? 'AI 연결 끄기' : '연결 시험 및 저장';
-  $('ai-hint').textContent = isApi ? 'API 키를 붙여 넣으세요. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
+  $('ai-hint').textContent = anthropic ? 'Anthropic 콘솔에서 만든 키(sk-ant-로 시작)를 붙여 넣으세요. Haiku 모델을 쓰고, 쓴 만큼 그 계정에 청구됩니다. 연결 시험에는 가짜 쪽지를 사용합니다.'
+    : isApi ? 'API 키를 붙여 넣으세요. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
     : provider === 'claude' ? 'Claude 구독(Pro 이상)으로 Haiku 모델을 씁니다. ‘연결 시험 및 저장’을 누르면 Claude Code가 없을 때 설치할지 묻고, 로그인이 필요하면 로그인 창을 엽니다.'
     : '이 PC의 CLI 로그인으로 가짜 쪽지 한 건을 시험합니다.';
 }

@@ -666,8 +666,14 @@ function bindHandlers() {
   bind('open-ai-guide', async page => {
     const urls = {
       key: 'https://platform.openai.com/api-keys',
-      billing: 'https://platform.openai.com/settings/organization/billing/overview'
+      billing: 'https://platform.openai.com/settings/organization/billing/overview',
+      'anthropic-key': 'https://platform.claude.com/settings/keys'
     };
+    if (page === 'anthropic-guide') {
+      const failure = await shell.openPath(path.join(__dirname, 'Claude-API-연결-안내.html'));
+      if (failure) throw new CalendarError('안내서를 열지 못했습니다. 앱 폴더의 Claude-API-연결-안내.html을 직접 열어 주세요.');
+      return;
+    }
     if (page === 'factchat' && factchatGuideAvailable) {
       await shell.openExternal(factchatGuideUrl.href);
       return;

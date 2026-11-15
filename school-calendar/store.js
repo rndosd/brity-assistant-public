@@ -34,7 +34,7 @@ const BACKUP_DATA_FOLDERS = ['chats'];
 const BACKUP_INBOX_FILES = ['state.json', 'latest.json', 'digest.md'];
 const BACKUP_INBOX_FOLDERS = ['notes', 'files'];
 // 이 PC에만 맞는 설정은 백업에서 빼고, 되돌릴 때 지금 PC의 값을 쓴다.
-const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'codexExecutable', 'claudeExecutable', 'seenVersion'];
+const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'anthropicKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'codexExecutable', 'claudeExecutable', 'seenVersion'];
 const BEFORE_RESTORE = '되돌리기 전 백업';
 const AUTO_MINUTES = [5, 10, 30, 60, 120];
 // 지금까지 배포한 정리 기준(rules-seed.md)의 지문. 설치된 파일이 이 가운데 하나면 선생님이 고치지 않은 것이다.
@@ -558,6 +558,7 @@ class CalendarStore {
         settings.aiProvider = 'none';
         settings.automatic = false;
         delete settings.openaiKeyEncrypted;
+        delete settings.anthropicKeyEncrypted;
         delete settings.factchatKeyEncrypted;
       }
       // 되돌린 쪽지는 이미 본 것으로 친다: 첨부를 다시 복사하지 않고 자동 분류도 새로 하지 않는다.
@@ -782,13 +783,15 @@ class CalendarStore {
   }
 
   saveAiConnection(provider, encryptedKey) {
-    if (!['none', 'codex', 'claude', 'openai', 'factchat'].includes(provider)) throw new CalendarError('AI 연결 방식을 확인해 주세요.');
+    if (!['none', 'codex', 'claude', 'openai', 'anthropic', 'factchat'].includes(provider)) throw new CalendarError('AI 연결 방식을 확인해 주세요.');
     return this.serialize(async () => {
       // 새 쪽지 자동 분류는 AI를 연결하면 켜진다(2026-11-11 결정: 본문은 자동 전송).
       const settings = { ...this.settings, aiProvider: provider, automatic: provider !== 'none' };
       this.aiBlocked = null;
       if (provider === 'openai') settings.openaiKeyEncrypted = encryptedKey;
       else delete settings.openaiKeyEncrypted;
+      if (provider === 'anthropic') settings.anthropicKeyEncrypted = encryptedKey;
+      else delete settings.anthropicKeyEncrypted;
       if (provider === 'factchat') settings.factchatKeyEncrypted = encryptedKey;
       else delete settings.factchatKeyEncrypted;
       if (this.tasks.some(task => task.autoPending)) {

@@ -20,6 +20,13 @@ const apiProviders = new Map([
     keySetting: 'openaiKeyEncrypted', keyPattern: /^sk-[A-Za-z0-9_-]{16,510}$/,
     limitMessage: '결제·사용 한도를 확인하거나 잠시 후 다시 시도해 주세요.'
   }],
+  // 개인 Anthropic API 키 · Haiku 5.5(루나와 같은 값의 빠른 등급). 요청 형식이 달라 anthropic-api.js가 부른다.
+  ['anthropic', {
+    name: 'Claude API', kind: 'anthropic', url: 'https://api.anthropic.com/v1/messages', model: 'claude-haiku-5-5',
+    maxOutputTokens: 16000,
+    keySetting: 'anthropicKeyEncrypted', keyPattern: /^sk-ant-[A-Za-z0-9_-]{16,500}$/,
+    limitMessage: '결제·사용 한도를 확인하거나 잠시 후 다시 시도해 주세요.'
+  }],
   ['factchat', {
     name: '팩트챗 API', url: 'https://factchat-cloud.mindlogic.ai/v1/gateway/responses/', model: 'gpt-6-luna',
     maxOutputTokens: 6144,
@@ -40,9 +47,12 @@ function apiError(status, { name, limitMessage }, failure) {
 
 // 출력 한도에 닿으면 추론 보통으로 한 번, 429·5xx 또는 시간 초과면 잠깐 쉬고 한 번 다시 부른다.
 const REQUEST = Object.freeze({ effort: 'high', fallbackEffort: 'medium', timeoutMs: 90_000 });
-const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 
 async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl }) {
+  if (provider.kind === 'anthropic') {
+    return require('./anthropic-api').callClaude(provider, input, effort, schema, { apiKey, signal, fetchImpl, timeoutMs: REQUEST.timeoutMs });
+  }
   const deadline = AbortSignal.timeout(REQUEST.timeoutMs);
   const execution = signal ? AbortSignal.any([signal, deadline]) : deadline;
   try {
