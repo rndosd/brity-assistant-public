@@ -12,8 +12,8 @@
 @font-face { font-family: "Skin Gaegu"; src: url("skins/fonts/Gaegu-Bold.woff2"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "Skin Song Myung"; src: url("skins/fonts/SongMyung-Regular.woff2"); font-display: swap; }
 
-/* 본문 글꼴 고르기(2026-11-15 사용자 "글꼴 예쁜걸로 후보로"): 읽는 글자(목록·달력·자세히·쪽지 원문)만 바꾼다.
-   제목·달 숫자·버튼 같은 스킨의 꾸밈 글꼴은 그대로. <html data-font>로 고르고, 없으면 스킨 기본(PC의 고딕).
+/* 글꼴 고르기(2026-11-15 사용자 "글꼴 예쁜걸로 후보로", "추천안대로"): 고르면 앱 이름과 큰 달 숫자만 스킨 글꼴로 두고
+   나머지 화면 글자(날짜 숫자·요일·제목·버튼·탭 포함)를 모두 그 글꼴로 맞춘다. <html data-font>, 없으면 스킨 기본.
    모두 OFL, 한글 2,350자·영숫자·기호만 남긴 woff2(skins/fonts/, 라이선스 동봉). */
 @font-face { font-family: "Body Pretendard"; src: url("skins/fonts/Pretendard-Regular.woff2"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "Body Pretendard"; src: url("skins/fonts/Pretendard-Bold.woff2"); font-weight: 700; font-display: swap; }
@@ -26,11 +26,23 @@
 :root[data-font="dodum"] { --body-font: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 :root[data-font="nanumsquare"] { --body-font: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 :root[data-font="plex"] { --body-font: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font="batang"] { --body-font: "Skin Gowun Batang", "Noto Serif KR", "Batang", serif; }
 :root[data-font] { font-family: var(--body-font); --reading: var(--body-font); }
+/* 스킨이 요소마다 정한 꾸밈 글꼴을 이긴다. 남기는 것: 앱 이름, 큰 달 숫자(안의 "월"까지), 고르기 견본. */
+:root[data-font] body *:not(.app-header h1, .month-number, .month-number *, .font-sample) { font-family: inherit !important; }
+/* 다이어리는 손글씨(나눔손글씨 펜)의 작은 글자에 맞춰 일부 크기를 키워 두었다. 다른 글꼴을 고르면 보통 크기로 되돌린다. */
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) .today-line { font-size: 12.5px; line-height: 1.45; }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) .legend { font-size: 12px; }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) .weekdays span { font-size: 12px; line-height: 1.45; padding: 4px 0 5px; }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) .group h3 { font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) :is(.detail-section h3, .settings-section > legend, .settings-section > h3) { font-size: 15px; font-weight: 700; }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) .detail-heading h2 { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+:root[data-font]:is([data-skin="diary"], :not([data-skin])) dialog h2 { font-size: 16px; font-weight: 700; }
 .font-sample-pretendard { font-family: "Body Pretendard", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-dodum { font-family: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-nanumsquare { font-family: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-plex { font-family: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+.font-sample-batang { font-family: "Skin Gowun Batang", "Noto Serif KR", serif; }
 
 /* ═══════════ 1. 다이어리(기본) ═══════════
    종이 결, 옅은 모눈, 마스킹테이프, 빨간 도장 오늘, 클립 꽂은 쪽지. 제목은 손글씨(나눔손글씨 펜), 숫자·쪽지 제목은 고운바탕. */
@@ -441,6 +453,7 @@
 :root[data-skin="contrast"] .row:hover { background: var(--hover); }
 /* 달력 */
 :root[data-skin="contrast"] .calendar-header { border-bottom: 3px solid #000; }
+:root[data-skin="contrast"] .month-number { font-family: inherit; font-weight: 800; letter-spacing: -.02em; }
 :root[data-skin="contrast"] .legend { color: #000; font-weight: 600; }
 :root[data-skin="contrast"] .weekdays span { color: #000; font-size: 13px; font-weight: 800; border-bottom: 2px solid #000; }
 :root[data-skin="contrast"] .weekdays .weekday-sat { color: var(--blue); }
