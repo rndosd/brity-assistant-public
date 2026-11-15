@@ -31,6 +31,7 @@ AI 연결은 선택입니다. 처음에는 쪽지를 직접 정리할 수 있고
 - [설치 후 AI 연결 안내](school-calendar/AI-SETUP.txt)
 - [OpenAI API 연결 안내](school-calendar/API-연결-안내.html)
 - [Claude Code 연결 안내](school-calendar/Claude-연결-안내.html)
+- [Codex 연결 안내](school-calendar/Codex-연결-안내.html)
 - [캘린더 사용법과 백업](school-calendar/README.md)
 
 소스 실행, 테스트, 배포 파일 생성은 [에이전트·유지보수 안내](AGENTS.md)에 있습니다.
