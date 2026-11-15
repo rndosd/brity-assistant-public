@@ -622,7 +622,7 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .create-date-row .field input, .create-date-row .field select { width: 100%; min-width: 0; }
 
 /* 화면 꾸미기(2026-11-13): 스킨 세 가지를 견본 그림과 함께 고른다. 견본은 스킨과 상관없이 늘 같은 모습. */
-.skin-choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.skin-choices { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .skin-choice { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--rule); background: var(--sheet); cursor: pointer; min-width: 0; }
 .skin-choice:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .skin-choice:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 1px; }
@@ -631,6 +631,8 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .skin-swatch-diary { background: url("skins/washi.svg") 8px 6px / 54px 13px no-repeat, linear-gradient(to right, #efe8d9 1px, transparent 1px) 0 0 / 10px 10px, linear-gradient(to bottom, #efe8d9 1px, transparent 1px) 0 0 / 10px 10px, #fffcf4; }
 .skin-swatch-cute { background: url("skins/cat-face.png") center 14px / 40px auto no-repeat, url("skins/gingham.svg") 0 0 / 14px 14px; }
 .skin-swatch-evening { background: url("skins/moon.svg") center / 64px auto no-repeat, url("skins/stars.svg") 0 0 / 130px 130px, #131729; }
+/* 고대비 견본: 흰 바탕에 검정 굵은 칸 줄과 진한 노랑 오늘 */
+.skin-swatch-contrast { background: linear-gradient(#ffd400, #ffd400) 9px 26px / 22px 16px no-repeat, linear-gradient(to right, #000 2px, transparent 2px) 0 0 / 33.4% 100%, linear-gradient(to bottom, #000 3px, transparent 3px) 0 16px / 100% 100% no-repeat, #fff; border: 2px solid #000; }
 /* 미니멀 견본: 흰 종이에 옅은 칸 줄과 노란 오늘 점 하나 */
 .skin-swatch-minimal { background: radial-gradient(circle at 26px 22px, #fbe38a 0 7px, transparent 7.5px), linear-gradient(to right, #e8e8e5 1px, transparent 1px) 0 0 / 25% 100%, linear-gradient(to bottom, transparent 18px, #e8e8e5 18px 19px, transparent 19px), #ffffff; }
 .skin-name { display: grid; gap: 1px; font-size: 13px; }

@@ -394,6 +394,91 @@
 :root[data-skin="minimal"] dialog h2 { border-bottom: 1px solid var(--rule); }
 :root[data-skin="minimal"] .notice { border-radius: 8px; }
 
+/* ═══════════ 5. 고대비 ═══════════
+   예쁜 쪽보다 잘 보이는 쪽(2026-11-15 사용자 "고대비로 가자"): 흰 바탕·검정 굵은 선·조금 큰 굵은 글씨·진한 노랑 오늘.
+   모든 글자 대비 7:1 이상(WCAG AAA), 끝냄·지남 같은 흐린 글자도 8.9:1. 그림·질감·전용 글꼴 없음. 고른 것은 검정 3px 테두리로. */
+:root[data-skin="contrast"] {
+  --paper: #ffffff;
+  --sheet: #ffffff;
+  --rule: #5c5c5c;
+  --rule-strong: #000000;
+  --ink: #000000;
+  --ink-2: #1a1a1a;
+  --ink-3: #4a4a4a;
+  --muted-text: #2e2e2e;
+  --red: #a8001c;
+  --important-bg: #ffe0e0;
+  --blue: #003d9e;
+  --today: #ffd400;
+  --selected: #fff1a6;
+  --hover: #f0f0f0;
+  --span-0: #ffe58a; --span-1: #bdeebd; --span-2: #c4d8ff; --span-3: #ffcccc; --span-4: #e0d0ff; --span-5: #b8ece4;
+}
+:root[data-skin="contrast"] body { font-size: 14px; background: #fff; }
+/* 창·자세히를 열 때 코드로 초점을 옮기는 제목(tabindex="-1")에는 테두리를 그리지 않는다(기본 스타일과 같게). */
+:root[data-skin="contrast"] :focus-visible:not([tabindex="-1"]) { outline: 3px solid var(--blue); outline-offset: 2px; }
+:root[data-skin="contrast"] .small-note { color: var(--ink-2); }
+:root[data-skin="contrast"] .app-header { background: #fff; border-bottom: 2px solid #000; }
+:root[data-skin="contrast"] .app-header h1 { font-size: 15px; font-weight: 800; }
+:root[data-skin="contrast"] .button { border: 2px solid #000; border-radius: 4px; font-weight: 700; background: #fff; }
+:root[data-skin="contrast"] .button:hover:not(:disabled) { background: var(--hover); }
+:root[data-skin="contrast"] .button.primary { background: #000; color: #fff; }
+:root[data-skin="contrast"] .button.primary:hover:not(:disabled) { outline: 3px solid var(--today); background: #000; }
+:root[data-skin="contrast"] .button.text-button { border-color: transparent; text-decoration-thickness: 2px; }
+:root[data-skin="contrast"] :is(.zoom, .seg) { border: 2px solid #000; border-radius: 4px; overflow: hidden; }
+:root[data-skin="contrast"] .seg button + button { border-left: 2px solid #000; }
+:root[data-skin="contrast"] :is(.badge, .flag, .received, .imp-flag, .same-count) { border-width: 2px; font-weight: 700; }
+:root[data-skin="contrast"] .box { border-width: 2px; }
+:root[data-skin="contrast"] .pane-divider::before { width: 2px; background: #000; }
+/* 왼쪽 목록 */
+:root[data-skin="contrast"] .today-line { font-size: 14px; font-weight: 700; color: #000; }
+:root[data-skin="contrast"] .list-tabs { border-width: 2px; }
+:root[data-skin="contrast"] .list-tabs button { font-size: 14px; }
+:root[data-skin="contrast"] .group h3 { font-size: 13px; font-weight: 800; color: #000; letter-spacing: 0; }
+:root[data-skin="contrast"] .row-text { font-size: 14.5px; }
+:root[data-skin="contrast"] .row-when { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+:root[data-skin="contrast"] .row.selected { background: var(--selected); box-shadow: inset 4px 0 0 #000; }
+:root[data-skin="contrast"] .row:hover { background: var(--hover); }
+/* 달력 */
+:root[data-skin="contrast"] .calendar-header { border-bottom: 3px solid #000; }
+:root[data-skin="contrast"] .legend { color: #000; font-weight: 600; }
+:root[data-skin="contrast"] .weekdays span { color: #000; font-size: 13px; font-weight: 800; border-bottom: 2px solid #000; }
+:root[data-skin="contrast"] .weekdays .weekday-sat { color: var(--blue); }
+:root[data-skin="contrast"] .weekdays .weekday-sun { color: var(--red); }
+:root[data-skin="contrast"] .month { border-left: 1px solid var(--rule); }
+:root[data-skin="contrast"] .day { border-color: var(--rule); }
+:root[data-skin="contrast"] .day.adjacent { background: #f2f2f2; }
+:root[data-skin="contrast"] .day-number { font-size: 14px; font-weight: 800; }
+:root[data-skin="contrast"] .day.is-today { box-shadow: inset 0 0 0 3px #000; }
+:root[data-skin="contrast"] .day.is-today .day-number { background: var(--today); color: #000; }
+:root[data-skin="contrast"] .day-plus { opacity: .7; color: #000; }
+:root[data-skin="contrast"] .item { font-size: 13px; }
+:root[data-skin="contrast"] .item.type-task .item-title { font-weight: 800; }
+:root[data-skin="contrast"] .item.selected { outline: 3px solid #000; background: var(--selected); }
+:root[data-skin="contrast"] .item.important { background: var(--important-bg); box-shadow: inset 3px 0 0 var(--red); }
+:root[data-skin="contrast"] .span-piece { color: #000; font-weight: 600; }
+:root[data-skin="contrast"] .span-piece.selected { box-shadow: inset 0 0 0 3px #000; }
+:root[data-skin="contrast"] .more { color: #000; font-weight: 700; }
+/* 자세히 */
+:root[data-skin="contrast"] .detail-panel { background: #fff; box-shadow: -3px 0 0 #000, -16px 0 36px #00000026; }
+:root[data-skin="contrast"] .detail-heading { background: #fff; }
+:root[data-skin="contrast"] .detail-heading h2 { color: #000; font-size: 13px; }
+:root[data-skin="contrast"] .detail-lead { font-size: 20px; }
+:root[data-skin="contrast"] .detail-section { border-top: 2px solid #000; }
+:root[data-skin="contrast"] .paper { border: 2px solid #000; border-top-width: 4px; background: #fff; }
+:root[data-skin="contrast"] .original { font-size: 16px; }
+:root[data-skin="contrast"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border: 2px solid #000; border-radius: 4px; color: #000; }
+:root[data-skin="contrast"] .date-row { border: 2px solid #000; }
+:root[data-skin="contrast"] .task-mark[aria-pressed="true"], :root[data-skin="contrast"] .task-mark.marked { background: var(--selected); border-color: #000; }
+/* 창 */
+:root[data-skin="contrast"] dialog { border: 3px solid #000; border-radius: 6px; }
+:root[data-skin="contrast"] dialog::backdrop { background: #000000a6; }
+:root[data-skin="contrast"] dialog h2 { border-bottom: 2px solid #000; }
+:root[data-skin="contrast"] .settings-tabs { background: #e6e6e6; border: 2px solid #000; }
+:root[data-skin="contrast"] .settings-tabs button { color: #000; font-weight: 600; }
+:root[data-skin="contrast"] .settings-tabs button[aria-selected="true"] { background: #000; color: #fff; box-shadow: none; }
+:root[data-skin="contrast"] .notice { border: 2px solid #fff; outline: 2px solid #000; font-weight: 700; }
+
 /* 달력이 넓어 범례가 달 숫자 줄로 올라오면(style.css 540px 기준) 장식은 연도 오른쪽 빈자리, 괘선 위에 앉힌다. */
 @container (min-width: 541px) {
   :root[data-skin="cute"] .calendar-header::after { left: 168px; bottom: 6px; width: 60px; height: 49px; }
