@@ -435,15 +435,16 @@
 
       <fieldset class="settings-section" id="range-settings" data-settings-tab="fetch">
         <legend>지난 쪽지 불러오기</legend>
-        <p class="small-note section-note">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 세는 동안 브리티의 쪽지 목록이 움직입니다. 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
+        <p class="small-note section-note">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 불러오는 동안 브리티의 쪽지 목록이 움직입니다. 기간이 길면 ‘먼저 몇 건인지 보기’로 건수를 미리 볼 수 있습니다(꼭 하지 않아도 됩니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
         <div class="form-grid">
           <label class="field span-2">시작일<input type="date" id="range-from" min="2000-01-01" max="9999-12-31"></label>
           <label class="field span-2">끝일<input type="date" id="range-to" min="2000-01-01" max="9999-12-31"></label>
         </div>
         <label class="check-field" id="range-auto-classify-field"><input type="checkbox" id="range-auto-classify" checked>불러온 뒤 AI로 분류 <span class="small-note" id="range-auto-classify-note"></span></label>
         <div class="ai-actions">
-          <button type="button" class="button" id="range-preview">몇 건인지 보기</button>
+          <!-- 2026-11-15 “몇건인지 보기를 눌러야 하게 돼있나 … 필요있는지”: 세기는 선택. 불러오기를 주 단추로 앞에 두고, 세기는 작은 링크로. -->
           <button type="button" class="button primary" id="range-import" disabled>불러오기</button>
+          <button type="button" class="button text-button small" id="range-preview">먼저 몇 건인지 보기</button>
           <button type="button" class="button text-button small" id="range-stop" hidden>멈추기</button>
         </div>
         <p class="small-note" id="range-status" role="status" hidden></p>
@@ -557,7 +558,7 @@
       <h2 id="send-heading">이 내용을 AI로 보냅니다</h2>
       <p class="small-note" id="send-provider"></p>
       <div class="send-preview" id="send-preview" tabindex="0"></div>
-      <p class="small-note">첨부 파일 자체는 보내지 않습니다. 보낸 내용은 학습에 쓰이지 않지만 OpenAI에 최대 30일 보관될 수 있습니다.</p>
+      <p class="small-note" id="send-note">첨부 파일은 보내지 않습니다.</p>
       <div class="dialog-actions"><button type="button" class="button" id="send-cancel">보내지 않기</button><button type="button" class="button primary" id="send-confirm">보내고 다듬기</button></div>
     </div>
   </dialog>

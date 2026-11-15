@@ -2232,9 +2232,11 @@ $('feedback-pop').addEventListener('keydown', event => {
   if (event.key === 'Escape') { event.stopPropagation(); toggleFeedback(false, true); }
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('feedback-pop').requestSubmit(); }
 });
+// 바깥을 누르면 닫는다. 다른 창(다른 프로그램)을 눌러 캘린더가 뒤로 가도 닫는다(2026-11-15 “다른 영역 누르면 닫히게”). 쓴 글은 남는다.
 document.addEventListener('pointerdown', event => {
   if (!$('feedback-pop').hidden && !$('feedback').contains(event.target)) toggleFeedback(false);
-});
+}, true);
+window.addEventListener('blur', () => { if (!$('feedback-pop').hidden) toggleFeedback(false); });
 $('feedback-pop').addEventListener('submit', async event => {
   event.preventDefault();
   const text = $('feedback-text').value.trim();
@@ -2380,7 +2382,7 @@ function renderFirstImport() {
   const busy = connecting || saving || !!state.rangeBusy || !!rangeImport?.running;
   const message = state.firstImportError || (connecting ? '브리티 쪽지 목록에 연결하고 있습니다.'
     : ready && !collector.managed ? '다른 수집기가 실행 중이라 이 창에서 기간을 정해 가져올 수 없습니다.'
-      : ready ? '원하는 기간을 고르고 몇 건을 가져올 수 있는지 확인하세요.'
+      : ready ? '기간을 고르고 ‘불러오기’를 누르세요. 기간이 길면 먼저 몇 건인지 볼 수 있습니다.'
         : '브리티에 로그인하고 창을 띄운 뒤 연결을 다시 확인해 주세요.');
   setMessage('first-import-connection', message, !!state.firstImportError);
   $('first-import-ai').hidden = !aiNotConnected();
@@ -3207,6 +3209,9 @@ async function previewRefine() {
     part('본문', preview.body);
     if (preview.attachmentNames.length) part('첨부 이름', preview.attachmentNames.join('\n'));
     $('send-provider').textContent = `보내는 곳: ${preview.provider}`;
+    // OpenAI·Claude API 키 방식은 학습에 쓰이지 않는다(두 회사 공식 안내, 2026-11 확인). 구독 방식·팩트챗은 확인하지 않았으므로 말하지 않는다.
+    const viaApi = ['openai', 'anthropic'].includes(state.snapshot.aiProvider);
+    $('send-note').textContent = viaApi ? 'API로 보낸 내용은 AI 학습에 쓰이지 않습니다. 첨부 파일은 보내지 않습니다.' : '첨부 파일은 보내지 않습니다.';
     $('send-dialog').showModal();
     $('send-cancel').focus();
   } catch (error) {
