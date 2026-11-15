@@ -63,7 +63,7 @@
   width: 26px; height: 26px; display: inline-grid; place-items: center; padding: 0; margin: -4px 0 0 -3px; transform: rotate(-10deg);
 }
 :root:is([data-skin="diary"], :not([data-skin])) .detail-panel { background: url("skins/paper-grain.svg"), var(--sheet); }
-:root:is([data-skin="diary"], :not([data-skin])) .detail-heading { background: transparent; }
+:root:is([data-skin="diary"], :not([data-skin])) .detail-heading { background: url("skins/paper-grain.svg"), var(--sheet); }
 :root:is([data-skin="diary"], :not([data-skin])) .paper { position: relative; border: 0; border-radius: 2px; background: #fffef9; box-shadow: 0 1px 2px #3a321f1f, 0 6px 14px #3a321f14; transform: rotate(-.4deg); }
 :root:is([data-skin="diary"], :not([data-skin])) .paper::before {
   content: ""; position: absolute; right: 22px; top: -18px; width: 20px; height: 38px; pointer-events: none;
@@ -167,7 +167,7 @@
 :root[data-skin="cute"] .span-piece:not(.start) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 :root[data-skin="cute"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 :root[data-skin="cute"] .detail-panel { background: url("skins/cat-wave.png") no-repeat right 16px bottom 12px / 100px auto, #fff; box-shadow: -1px 0 0 var(--rule), -16px 0 36px #8c4a621f; }
-:root[data-skin="cute"] .detail-heading { background: transparent; }
+:root[data-skin="cute"] .detail-heading { background: #fff; }
 :root[data-skin="cute"] .seg { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; }
 :root[data-skin="cute"] .seg button { font-family: var(--jua); }
 :root[data-skin="cute"] .seg button + button { border-left-color: var(--rule); }
@@ -259,7 +259,7 @@
 :root[data-skin="evening"] .span-piece { border-radius: 3px; }
 :root[data-skin="evening"] .span-piece.selected { box-shadow: inset 0 0 0 1.5px var(--glow); }
 :root[data-skin="evening"] .detail-panel { background: #181d33; box-shadow: -1px 0 0 #ffffff14, -16px 0 40px #00000066; }
-:root[data-skin="evening"] .detail-heading { background: transparent; }
+:root[data-skin="evening"] .detail-heading { background: #181d33; }
 :root[data-skin="evening"] .seg { border-color: #ffffff26; border-radius: 9px; overflow: hidden; }
 :root[data-skin="evening"] .seg button { background: transparent; }
 :root[data-skin="evening"] .seg button + button { border-left-color: #ffffff1a; }

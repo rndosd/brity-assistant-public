@@ -2083,8 +2083,45 @@ function renderAiSettings() {
     : '이 PC의 CLI 로그인으로 가짜 쪽지 한 건을 시험합니다.';
 }
 
-function openSettings() {
+// 설정 묶음 탭(2026-11-15 사용자 "설정에 정보가 좀 많아졌는데"): AI · 가져오기 · 화면 · 백업·정보.
+// 연결 전에는 AI부터 열고, 그 뒤에는 이 PC에서 마지막에 본 묶음으로 연다. 다른 코드가 구역을 숨기기도 하므로(샘플의 백업 등)
+// 탭은 hidden 대신 off-tab 클래스로 가린다.
+const SETTINGS_TABS = ['ai', 'fetch', 'look', 'about'];
+let settingsTab = 'ai';
+try { const saved = localStorage.getItem('calendar-settings-tab'); if (SETTINGS_TABS.includes(saved)) settingsTab = saved; } catch {}
+
+function showSettingsTab(tab, { focus = false } = {}) {
+  settingsTab = SETTINGS_TABS.includes(tab) ? tab : 'ai';
+  for (const button of document.querySelectorAll('.settings-tabs [data-tab-target]')) {
+    const on = button.dataset.tabTarget === settingsTab;
+    button.setAttribute('aria-selected', String(on));
+    button.tabIndex = on ? 0 : -1;
+    if (on && focus) button.focus();
+  }
+  for (const section of document.querySelectorAll('#settings-body > [data-settings-tab]')) {
+    section.classList.toggle('off-tab', section.dataset.settingsTab !== settingsTab);
+  }
+  $('settings-body').setAttribute('aria-labelledby', `settings-tab-${settingsTab}`);
+  $('settings-body').scrollTop = 0;
+  try { localStorage.setItem('calendar-settings-tab', settingsTab); } catch {}
+}
+
+for (const button of document.querySelectorAll('.settings-tabs [data-tab-target]')) {
+  button.addEventListener('click', () => showSettingsTab(button.dataset.tabTarget));
+}
+document.querySelector('.settings-tabs').addEventListener('keydown', event => {
+  const at = SETTINGS_TABS.indexOf(settingsTab);
+  const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: SETTINGS_TABS.length - 1 }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  showSettingsTab(SETTINGS_TABS[(next + SETTINGS_TABS.length) % SETTINGS_TABS.length], { focus: true });
+});
+
+function openSettings(tab) {
   setMessage('settings-error', '');
+  const notConnected = !state.demo && (state.snapshot.aiProvider ?? 'none') === 'none';
+  $('settings-ai-dot').hidden = !notConnected;
+  showSettingsTab(typeof tab === 'string' ? tab : notConnected ? 'ai' : settingsTab);
   setMessage('ai-status', aiNames[state.snapshot.aiProvider] ? `현재 연결 방식 · ${aiNames[state.snapshot.aiProvider]}` : '');
   // 아직 연결 전이면 권장 방식(서룡 판은 팩트챗, 다른 판은 개인 OpenAI API)을 먼저 고른다.
   const offered = fillAiChoices();
@@ -2666,7 +2703,7 @@ $('create-form').addEventListener('submit', async event => {
     $('create-save').disabled = false;
   }
 });
-$('settings-open').addEventListener('click', openSettings);
+$('settings-open').addEventListener('click', () => openSettings());
 $('settings-close').addEventListener('click', () => $('settings-dialog').close());
 $('day-close').addEventListener('click', () => $('day-dialog').close());
 $('settings-dialog').addEventListener('close', () => { $('ai-key').value = ''; });
@@ -2757,7 +2794,7 @@ async function changeCollector(action) {
   }
 }
 $('collector-connect').addEventListener('click', () => void collectNow());
-$('ai-setup-open').addEventListener('click', () => $('settings-open').click());
+$('ai-setup-open').addEventListener('click', () => openSettings('ai'));
 $('automatic').addEventListener('change', async event => {
   const checkbox = event.currentTarget;
   state.savingAutomatic = true;
@@ -3006,7 +3043,7 @@ async function previewRefine() {
   }
 }
 $('refine').addEventListener('click', () => {
-  if (state.snapshot.aiProvider === 'none') openSettings();
+  if (state.snapshot.aiProvider === 'none') openSettings('ai');
   else if (state.demo) void refine();
   else void previewRefine();
 });

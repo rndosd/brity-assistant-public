@@ -248,8 +248,15 @@
       <h2 id="settings-heading" tabindex="-1" autofocus>설정</h2>
       <button type="button" class="button primary" id="settings-close">닫기</button>
     </div>
-    <div class="settings-body">
-      <section class="settings-section" aria-labelledby="set-ai-title">
+    <!-- 설정 묶음 탭(2026-11-15): 처음엔 AI만 보면 된다. 각 구역은 data-settings-tab으로 묶음을 정한다. -->
+    <div class="settings-tabs" role="tablist" aria-label="설정 묶음">
+      <button type="button" role="tab" id="settings-tab-ai" data-tab-target="ai" aria-controls="settings-body">AI<span class="tab-dot" id="settings-ai-dot" title="아직 AI 연결 전" hidden></span></button>
+      <button type="button" role="tab" id="settings-tab-fetch" data-tab-target="fetch" aria-controls="settings-body">가져오기</button>
+      <button type="button" role="tab" id="settings-tab-look" data-tab-target="look" aria-controls="settings-body">화면</button>
+      <button type="button" role="tab" id="settings-tab-about" data-tab-target="about" aria-controls="settings-body">백업·정보</button>
+    </div>
+    <div class="settings-body" id="settings-body" role="tabpanel" tabindex="-1">
+      <section class="settings-section" data-settings-tab="ai" aria-labelledby="set-ai-title">
         <h3 id="set-ai-title">AI 정리</h3>
         <div class="ai-settings" id="ai-settings">
           <label class="field">AI 연결 방식
@@ -299,7 +306,7 @@
         <div class="ai-actions"><button type="button" class="button text-button small" id="rules">정리 기준 파일 열기 ↗</button></div>
       </section>
 
-      <fieldset class="settings-section" id="profile-settings">
+      <fieldset class="settings-section" id="profile-settings" data-settings-tab="ai">
         <legend>내 역할</legend>
         <p class="small-note section-note">쪽지가 나에게 해당하는지 가릴 때 씁니다.</p>
         <div class="form-grid">
@@ -361,7 +368,7 @@
         <div class="ai-actions"><button type="button" class="button" id="profile-save">역할 저장</button><span class="small-note" id="profile-status" role="status"></span></div>
       </fieldset>
 
-      <fieldset class="settings-section" id="auto-settings">
+      <fieldset class="settings-section" id="auto-settings" data-settings-tab="fetch">
         <legend>브리티에서 가져오기</legend>
         <p class="small-note section-note"><b>자동</b>은 캘린더가 켜져 있는 동안 주기마다, <b>지금 가져오기</b>는 바로 한 번 가져옵니다.</p>
         <div class="fetch-group">
@@ -408,7 +415,7 @@
         </div>
       </fieldset>
 
-      <fieldset class="settings-section" id="range-settings">
+      <fieldset class="settings-section" id="range-settings" data-settings-tab="fetch">
         <legend>지난 쪽지 불러오기</legend>
         <p class="small-note section-note">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 세는 동안 브리티의 쪽지 목록이 움직입니다. 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
         <div class="form-grid">
@@ -428,7 +435,7 @@
         </div>
       </fieldset>
 
-      <fieldset class="settings-section" id="skin-settings">
+      <fieldset class="settings-section" id="skin-settings" data-settings-tab="look">
         <legend>화면 꾸미기</legend>
         <p class="small-note section-note">버튼과 칸의 자리는 그대로 두고 색·질감·글꼴·그림만 바꿉니다. 이 PC에만 기억합니다.</p>
         <div class="skin-choices">
@@ -439,7 +446,7 @@
         </div>
       </fieldset>
 
-      <fieldset class="settings-section" id="downloads-settings">
+      <fieldset class="settings-section" id="downloads-settings" data-settings-tab="fetch">
         <legend>첨부 저장 폴더</legend>
         <p class="small-note section-note">새로 받은 쪽지의 첨부를 여기에 복사합니다.</p>
         <p class="folder-path" id="downloads-folder"></p>
@@ -451,7 +458,7 @@
         <p class="small-note" id="downloads-status" role="status" hidden></p>
       </fieldset>
 
-      <fieldset class="settings-section" id="backup-settings">
+      <fieldset class="settings-section" id="backup-settings" data-settings-tab="about">
         <legend>백업</legend>
         <p class="small-note section-note">업무·설정·정리 기준·대화방 기록과 받은 쪽지·첨부를 ZIP 하나로 저장합니다. 쪽지 원문(동료 이름·학생 관련 내용)이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. AI 키는 넣지 않으므로 다른 PC에서 되돌리면 AI를 다시 연결합니다.</p>
         <div class="ai-actions">
@@ -461,7 +468,7 @@
         <p class="small-note" id="backup-status" role="status" hidden></p>
       </fieldset>
 
-      <section class="settings-section settings-about" aria-label="앱 정보">
+      <section class="settings-section settings-about" data-settings-tab="about" aria-label="앱 정보">
         <div class="ai-actions" id="shortcut-row" hidden>
           <button type="button" class="button" id="shortcut-create">바탕 화면에 바로 가기 만들기</button>
           <span class="small-note" id="shortcut-status" role="status"></span>
