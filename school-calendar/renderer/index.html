@@ -36,8 +36,10 @@
       <!-- 의견 보내기: 누르면 바로 아래에 작은 입력 칸. 구글 화면 없이 앱이 제출한다(feedback.js). -->
       <div class="feedback" id="feedback" hidden>
         <button type="button" class="button" id="feedback-open" aria-expanded="false" aria-controls="feedback-pop">의견</button>
-        <form class="feedback-pop" id="feedback-pop" aria-label="의견 보내기" hidden>
-          <textarea id="feedback-text" rows="4" maxlength="2000" aria-label="의견" placeholder="불편한 점이나 바라는 기능을 적어 주세요. 답장이 필요하면 연락처도 함께 적어 주세요."></textarea>
+        <form class="feedback-pop" id="feedback-pop" aria-labelledby="feedback-heading" aria-describedby="feedback-lead" hidden>
+          <strong class="feedback-heading" id="feedback-heading">캘린더 만든 사람에게 의견 보내기</strong>
+          <p class="small-note" id="feedback-lead">불편한 점, 바라는 기능, 잘못 정리된 일정 무엇이든 좋습니다. 이름은 전해지지 않으니 답장이 필요하면 연락처도 적어 주세요.</p>
+          <textarea id="feedback-text" rows="4" maxlength="2000" aria-labelledby="feedback-heading" placeholder="예: 주간 보기도 있으면 좋겠어요."></textarea>
           <p class="small-note" id="feedback-info"></p>
           <p class="small-note feedback-status" id="feedback-status" role="status" hidden></p>
           <div class="feedback-actions"><button type="button" class="button" id="feedback-cancel">닫기</button><button type="submit" class="button primary" id="feedback-send">보내기</button></div>

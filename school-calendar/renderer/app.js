@@ -2169,7 +2169,7 @@ function openSettings(tab) {
 function renderFeedback() {
   const feedback = state.snapshot.feedback || {};
   $('feedback').hidden = !feedback.available;
-  $('feedback-info').textContent = `함께 보내는 정보: ${feedback.info || ''}. 쪽지와 업무 내용은 보내지 않습니다.`;
+  $('feedback-info').textContent = `쪽지와 업무 내용은 보내지 않습니다. 함께 가는 정보: ${feedback.info || ''}`;
 }
 function feedbackStatus(text, error = false) {
   $('feedback-status').hidden = !text;
