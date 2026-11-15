@@ -12,6 +12,26 @@
 @font-face { font-family: "Skin Gaegu"; src: url("skins/fonts/Gaegu-Bold.woff2"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "Skin Song Myung"; src: url("skins/fonts/SongMyung-Regular.woff2"); font-display: swap; }
 
+/* 본문 글꼴 고르기(2026-11-15 사용자 "글꼴 예쁜걸로 후보로"): 읽는 글자(목록·달력·자세히·쪽지 원문)만 바꾼다.
+   제목·달 숫자·버튼 같은 스킨의 꾸밈 글꼴은 그대로. <html data-font>로 고르고, 없으면 스킨 기본(PC의 고딕).
+   모두 OFL, 한글 2,350자·영숫자·기호만 남긴 woff2(skins/fonts/, 라이선스 동봉). */
+@font-face { font-family: "Body Pretendard"; src: url("skins/fonts/Pretendard-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Body Pretendard"; src: url("skins/fonts/Pretendard-Bold.woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Body Gowun Dodum"; src: url("skins/fonts/GowunDodum-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Body NanumSquare Neo"; src: url("skins/fonts/NanumSquareNeo-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Body NanumSquare Neo"; src: url("skins/fonts/NanumSquareNeo-Bold.woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Body IBM Plex"; src: url("skins/fonts/IBMPlexSansKR-Regular.woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Body IBM Plex"; src: url("skins/fonts/IBMPlexSansKR-Bold.woff2"); font-weight: 700; font-display: swap; }
+:root[data-font="pretendard"] { --body-font: "Body Pretendard", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font="dodum"] { --body-font: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font="nanumsquare"] { --body-font: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font="plex"] { --body-font: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+:root[data-font] { font-family: var(--body-font); --reading: var(--body-font); }
+.font-sample-pretendard { font-family: "Body Pretendard", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+.font-sample-dodum { font-family: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+.font-sample-nanumsquare { font-family: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+.font-sample-plex { font-family: "Body IBM Plex", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
+
 /* ═══════════ 1. 다이어리(기본) ═══════════
    종이 결, 옅은 모눈, 마스킹테이프, 빨간 도장 오늘, 클립 꽂은 쪽지. 제목은 손글씨(나눔손글씨 펜), 숫자·쪽지 제목은 고운바탕. */
 :root:is([data-skin="diary"], :not([data-skin])) {

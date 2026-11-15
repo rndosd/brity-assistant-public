@@ -3192,6 +3192,19 @@ function applySkin(skin) {
 applySkin(document.documentElement.dataset.skin);
 for (const input of skinInputs) input.addEventListener('change', () => { if (input.checked) applySkin(input.value); });
 
+// 본문 글꼴(2026-11-15): 읽는 글자만 바꾼다. 'skin'이면 스킨 기본(data-font 없음). 첫 화면 전에 skin-boot.js가 먼저 입힌다.
+const FONTS = ['skin', 'pretendard', 'dodum', 'nanumsquare', 'plex'];
+const fontInputs = [...document.querySelectorAll('input[name="font"]')];
+function applyFont(font) {
+  const value = FONTS.includes(font) ? font : 'skin';
+  if (value === 'skin') delete document.documentElement.dataset.font;
+  else document.documentElement.dataset.font = value;
+  for (const input of fontInputs) input.checked = input.value === value;
+  try { localStorage.setItem('calendar-font', value); } catch {}
+}
+applyFont(document.documentElement.dataset.font || 'skin');
+for (const input of fontInputs) input.addEventListener('change', () => { if (input.checked) applyFont(input.value); });
+
 redraw();
 api.onChange(sync);
 api.load().then(sync, error => { $('inbox-note').textContent = error.message; });
