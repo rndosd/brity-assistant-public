@@ -50,7 +50,7 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
 <body>
 <main>
   <h1>브리티 메신저 캘린더 · Codex로 연결하기</h1>
-  <p class="lead">ChatGPT 구독이 있으면 OpenAI의 Codex CLI로 쪽지를 정리할 수 있습니다. API 키를 따로 만들 필요가 없습니다. 이 PC에 Codex를 한 번 설치하고 ChatGPT 계정으로 로그인해 두면, 캘린더가 그 로그인으로 정리합니다.</p>
+  <p class="lead">ChatGPT 구독이 있으면 OpenAI의 Codex CLI로 쪽지를 정리할 수 있습니다. API 키를 따로 만들 필요가 없습니다. 보통은 앱이 설치와 로그인을 이어서 해 줍니다. 이 안내서의 2번·3번은 <b>자동으로 안 될 때</b> 직접 하는 방법입니다.</p>
 
   <h2><span class="n">0</span>먼저 알아 두기</h2>
   <div class="box">
@@ -68,10 +68,12 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
   <h2><span class="n">1</span>캘린더에서 연결하기</h2>
   <ol>
     <li>캘린더 <span class="ui">설정</span> → AI 연결 방식에서 <b>Codex CLI (ChatGPT 구독)</b>를 고릅니다.</li>
-    <li><span class="ui">연결 시험 및 저장</span>을 누릅니다. 가짜 쪽지 한 건으로 시험합니다.</li>
-    <li>“연결 시험을 통과했습니다”가 나오면 끝입니다. 새 쪽지 자동 분류가 켜집니다.</li>
+    <li><span class="ui">연결 시험 및 저장</span>을 누릅니다.</li>
+    <li>Codex가 없으면 “지금 설치할까요?”가 뜹니다. <span class="ui">설치</span>를 누르고 1~2분 기다립니다. OpenAI 공식 설치 명령을 쓰고, 관리자 권한은 필요 없습니다.</li>
+    <li>로그인이 안 돼 있으면 검은 창과 브라우저가 열립니다. 브라우저에서 평소 쓰는 ChatGPT 계정으로 로그인하고 허용을 누르면 창이 저절로 닫힙니다.</li>
+    <li>캘린더가 바로 가짜 쪽지 한 건으로 다시 시험하고, “연결 시험을 통과했습니다”가 나오면 끝입니다. 새 쪽지 자동 분류가 켜집니다.</li>
   </ol>
-  <p class="small">“Codex에서 정리를 받지 못했습니다”가 나오면 Codex가 아직 없거나 로그인이 안 된 것입니다. 아래 2번(설치)과 3번(로그인)을 차례로 한 뒤 다시 누르세요.</p>
+  <p class="small">설치나 로그인에서 막히면 아래 2번(설치)과 3번(로그인)을 직접 한 뒤 다시 누르세요. 설정의 <span class="ui">설치 명령 복사</span>와 <span class="ui">로그인 창 열기</span>도 같은 일을 합니다.</p>
 
   <h2><span class="n">2</span>Codex 설치하기</h2>
   <h3>방법 가. PowerShell에 한 줄 붙여 넣기 (권장)</h3>

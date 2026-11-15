@@ -8,6 +8,7 @@ const { pathToFileURL, fileURLToPath } = require('node:url');
 const { CalendarStore, CalendarError } = require('./store');
 const { apiProviders, refineWithProvider, classifierSample, cleanReplyBody } = require('./ai-provider');
 const claudeCli = require('./claude-cli');
+const codexCli = require('./codex-cli');
 const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply } = require('./collector-link');
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
@@ -663,6 +664,33 @@ function bindHandlers() {
   bind('claude-install-copy', () => {
     clipboard.writeText(claudeCli.INSTALL_COMMAND);
     return claudeCli.INSTALL_COMMAND;
+  });
+  // Codex(ChatGPT 구독): 없으면 묻고 공식 명령으로 설치하고, 로그인이 안 됐으면 로그인 창을 연다.
+  bind('codex-status', () => codexCli.codexStatus(store.settings.codexExecutable));
+  bind('codex-install', async () => {
+    if (demo) throw new CalendarError('샘플에서는 쓸 수 없습니다.');
+    const { executable: existing } = await codexCli.codexStatus(store.settings.codexExecutable);
+    if (existing) return { executable: existing, installed: false };
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'question', buttons: ['설치', '취소'], defaultId: 0, cancelId: 1, noLink: true,
+      title: 'Codex 설치', message: '이 PC에 캘린더가 쓸 수 있는 Codex가 없습니다. 지금 설치할까요?',
+      detail: `OpenAI 공식 설치 명령으로 Codex를 내려받아 이 Windows 사용자 폴더(${path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'OpenAI', 'Codex')})에 설치합니다. 관리자 권한은 필요 없고 1~2분 걸립니다.\n\n실행할 명령: ${codexCli.INSTALL_COMMAND}\n\n설치가 끝나면 ChatGPT 로그인 창이 열립니다.`
+    });
+    if (response !== 0) return { executable: null, installed: false, cancelled: true };
+    const { executable } = await codexCli.installCodex({ signal: lifetime.signal });
+    return { executable, installed: true };
+  });
+  bind('codex-login', async () => {
+    if (demo) throw new CalendarError('샘플에서는 쓸 수 없습니다.');
+    const { executable } = await codexCli.codexStatus(store.settings.codexExecutable);
+    if (!executable) throw new CalendarError('이 PC에서 쓸 수 있는 Codex를 찾지 못했습니다. ‘연결 시험 및 저장’을 누르면 설치할지 묻습니다.');
+    const { closed } = await codexCli.openCodexLogin(executable);
+    return { closed, loggedIn: await codexCli.loginStatus(executable) };
+  });
+  bind('codex-install-copy', () => {
+    const command = `powershell -ExecutionPolicy ByPass -c "${codexCli.INSTALL_COMMAND}"`;
+    clipboard.writeText(command);
+    return command;
   });
   bind('open-ai-guide', async page => {
     const urls = {

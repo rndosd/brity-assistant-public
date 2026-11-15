@@ -13,6 +13,17 @@ if ($Explicit) {
 $command = Get-Command codex.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($command) { $command.Source; exit }
 
+# Where the official installer (chatgpt.com/codex/install.ps1) puts codex.exe; not yet on this app's PATH right after install.
+$installDir = if ($env:CODEX_INSTALL_DIR) { $env:CODEX_INSTALL_DIR } elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Programs\OpenAI\Codex\bin' } else { $null }
+if ($installDir) {
+    $standalone = Join-Path $installDir 'codex.exe'
+    if (Test-Path -LiteralPath $standalone -PathType Leaf) { $standalone; exit }
+}
+
+# npm install (codex.cmd) before the desktop app: the codex.exe inside WindowsApps can refuse to start from other programs (EPERM).
+$command = Get-Command codex.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($command) { $command.Source; exit }
+
 if (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue) {
     try {
         foreach ($app in (Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction Stop | Sort-Object Version -Descending)) {
@@ -39,7 +50,4 @@ foreach ($app in (Get-Process -Name 'Codex' -ErrorAction SilentlyContinue)) {
     $native = Join-Path (Split-Path -Parent $app.Path) 'resources\codex.exe'
     if (Test-Path -LiteralPath $native -PathType Leaf) { $native; exit }
 }
-
-$command = Get-Command codex.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($command) { $command.Source; exit }
 exit 1

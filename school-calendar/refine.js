@@ -59,7 +59,7 @@ async function resolveCodex(explicit, signal) {
     return (await run(POWERSHELL, args, { signal })).trim();
   } catch (error) {
     if (signal.aborted) throw signal.reason;
-    throw aiStopError('이 PC에서 Codex CLI를 찾지 못했습니다. 설정의 ‘CLI 설치와 로그인 안내’대로 설치하고 로그인한 뒤 다시 시험하거나, API 키 방식을 고르세요.');
+    throw aiStopError('이 PC에서 Codex CLI를 찾지 못했습니다. 설정에서 ‘연결 시험 및 저장’을 누르면 설치와 로그인을 이어서 합니다. 안 되면 ‘안내서 열기’를 따르거나, API 키 방식을 고르세요.');
   }
 }
 
@@ -110,4 +110,4 @@ async function refineNote(note, { rulesPath, codexExecutable, signal, profile })
   }
 }
 
-module.exports = { refineNote, readResult, buildClassifierInput };
+module.exports = { refineNote, readResult, buildClassifierInput, resolveCodex, run, POWERSHELL, SYSTEM };

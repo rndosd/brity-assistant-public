@@ -2084,25 +2084,38 @@ function renderAiSettings() {
   $('ai-key').placeholder = hasStoredKey ? '비워 두면 저장된 키 사용' : factchat ? 'baze_…' : anthropic ? 'sk-ant-…' : 'sk-…';
   $('ai-key-guide').dataset.aiGuide = factchat ? 'factchat' : anthropic ? 'anthropic-key' : 'key';
   $('ai-key-guide').textContent = factchat ? '서룡 팩트챗 개발자 화면 ↗' : 'API 키 발급 ↗';
-  $('ai-key-guide').hidden = factchat && !state.snapshot.factchatGuideAvailable;
-  // 처음 하는 사람은 가입·결제·키 만들기 순서를 앱 폴더의 안내서로 먼저 본다(OpenAI·Claude 같은 자리).
-  $('ai-start-guide').dataset.aiGuide = anthropic ? 'anthropic-guide' : 'openai-guide';
-  $('ai-start-guide').hidden = factchat;
+  $('ai-key-guide').hidden = factchat;
+  // 고른 방식의 안내서를 연결 방식 바로 아래에 크게 보인다(2026-11-15 “관련거 딱 보이게”).
+  const guide = AI_GUIDES[provider];
+  const guideShown = !!guide && !(factchat && !state.snapshot.factchatGuideAvailable);
+  $('ai-guide-card').hidden = !guideShown;
+  if (guideShown) {
+    $('ai-guide-title').textContent = guide.title;
+    $('ai-guide-desc').textContent = guide.desc;
+    $('ai-guide-open').dataset.aiGuide = guide.page;
+  }
   // Claude 결제 화면 주소는 확인하지 못해 안내서에서 따라가게 하고, OpenAI만 결제 화면을 바로 연다.
   $('ai-billing-guide').dataset.aiGuide = 'billing';
   $('ai-billing-guide').textContent = '결제 설정 ↗';
   $('ai-billing-guide').hidden = factchat || anthropic;
-  $('cli-guide').hidden = provider !== 'codex' && provider !== 'claude';
-  $('claude-steps').hidden = provider !== 'claude';
-  $('cli-guide').textContent = provider === 'claude' ? '설치·로그인이 안 될 때 안내 ↗' : 'CLI 설치와 로그인 안내 ↗';
+  // 구독 방식(Claude Code·Codex)은 연결 시험이 설치·로그인까지 이끈다. 직접 하고 싶을 때만 아래 단추를 쓴다.
+  $('claude-steps').hidden = provider !== 'claude' && provider !== 'codex';
   $('ai-provider').disabled = !!state.testingAi;
   $('ai-connect').disabled = !!state.testingAi || (provider === 'none' && state.snapshot.aiProvider === 'none');
   $('ai-connect').textContent = state.testingAi ? '연결 시험 중…' : provider === 'none' ? 'AI 연결 끄기' : '연결 시험 및 저장';
   $('ai-hint').textContent = anthropic ? 'Anthropic 콘솔에서 만든 키(sk-ant-로 시작)를 붙여 넣으세요. Haiku 모델을 쓰고, 쓴 만큼 그 계정에 청구됩니다. 연결 시험에는 가짜 쪽지를 사용합니다.'
     : isApi ? 'API 키를 붙여 넣으세요. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
     : provider === 'claude' ? 'Claude 구독(Pro 이상)으로 Haiku 모델을 씁니다. ‘연결 시험 및 저장’을 누르면 Claude Code가 없을 때 설치할지 묻고, 로그인이 필요하면 로그인 창을 엽니다.'
-    : '이 PC의 CLI 로그인으로 가짜 쪽지 한 건을 시험합니다.';
+    : 'ChatGPT 구독(Plus 이상)으로 Codex를 씁니다. ‘연결 시험 및 저장’을 누르면 Codex가 없을 때 설치할지 묻고, 로그인이 필요하면 ChatGPT 로그인 창을 엽니다.';
 }
+
+const AI_GUIDES = {
+  openai: { page: 'openai-guide', title: 'OpenAI API 키로 연결하기', desc: '가입 → 결제 설정 → 키 만들기 → 붙여 넣기 순서를 차례대로 안내합니다.' },
+  anthropic: { page: 'anthropic-guide', title: 'Claude API 키로 연결하기', desc: '가입 → 결제 설정 → 키 만들기 → 붙여 넣기 순서를 차례대로 안내합니다.' },
+  claude: { page: 'claude', title: 'Claude 구독으로 연결하기', desc: '보통은 ‘연결 시험 및 저장’만 누르면 설치와 로그인까지 이어집니다. 막히면 이 안내서를 보세요.' },
+  codex: { page: 'codex', title: 'ChatGPT 구독(Codex)으로 연결하기', desc: '보통은 ‘연결 시험 및 저장’만 누르면 설치와 로그인까지 이어집니다. 막히면 이 안내서를 보세요.' },
+  factchat: { page: 'factchat', title: '서룡 팩트챗으로 연결하기', desc: '학교에서 받은 팩트챗 키를 만드는 화면을 엽니다.' }
+};
 
 // 설정 묶음 탭(2026-11-15 사용자 "설정에 정보가 좀 많아졌는데"): AI · 가져오기 · 화면 · 백업·정보.
 // 연결 전에는 AI부터 열고, 그 뒤에는 이 PC에서 마지막에 본 묶음으로 연다. 다른 코드가 구역을 숨기기도 하므로(샘플의 백업 등)
@@ -2820,6 +2833,7 @@ $('ai-connect').addEventListener('click', async () => {
   setMessage('ai-status', provider === 'none' ? '' : '가짜 쪽지로 연결을 시험하고 있습니다.');
   try {
     if (provider === 'claude' && !(await prepareClaude())) return;
+    if (provider === 'codex' && !(await prepareCodex())) return;
     try {
       sync(await api.connectAi(provider, $('ai-key').value));
     } catch (error) {
@@ -2862,17 +2876,51 @@ async function prepareClaude() {
     clearTimeout(timer);
   }
 }
+// Codex(ChatGPT 구독): 없으면 묻고 설치하고, 로그인이 안 됐으면 로그인 창을 연다. 구독은 있다고 보고 진행한다.
+// 설치를 취소하거나 로그인을 마치지 못하면 false/오류.
+async function prepareCodex() {
+  setMessage('ai-status', 'Codex가 설치·로그인돼 있는지 확인하고 있습니다.');
+  let { executable, loggedIn } = await api.codexStatus();
+  if (!executable) {
+    setMessage('ai-status', 'Codex가 없습니다. 설치할지 묻는 창을 확인해 주세요.');
+    const timer = setTimeout(() => setMessage('ai-status', 'Codex를 설치하고 있습니다. 1~2분 걸립니다. 창을 닫지 마세요.'), 1500);
+    try {
+      const result = await api.codexInstall();
+      if (result?.cancelled) { setMessage('ai-status', '설치를 취소했습니다. ‘설치 명령 복사’로 직접 설치할 수도 있습니다.'); return false; }
+      executable = result?.executable;
+      loggedIn = false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (!loggedIn) {
+    setMessage('ai-status', '로그인 창을 열었습니다. 브라우저가 열리면 ChatGPT 계정으로 로그인하고 허용을 누르세요. 끝나면 창이 저절로 닫히고 바로 다시 시험합니다.');
+    const login = await api.codexLogin();
+    if (!login?.loggedIn) {
+      throw new Error(login?.closed ? 'ChatGPT 로그인이 확인되지 않았습니다. 로그인을 마친 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.'
+        : '로그인 창이 닫히지 않았습니다. 로그인을 마친 뒤 ‘연결 시험 및 저장’을 다시 눌러 주세요.');
+    }
+  }
+  setMessage('ai-status', '가짜 쪽지로 연결을 시험하고 있습니다.');
+  return true;
+}
+// 아래 두 단추는 Claude Code와 Codex가 함께 쓴다(고른 방식에 따라 부른다).
 $('claude-login').addEventListener('click', async () => {
-  setMessage('ai-status', '로그인 창을 열었습니다. 로그인을 마치고 그 창을 닫은 뒤 ‘연결 시험 및 저장’을 누르세요.');
-  try { await api.claudeLogin(); }
+  const codex = $('ai-provider').value === 'codex';
+  setMessage('ai-status', codex ? '로그인 창을 열었습니다. 브라우저에서 ChatGPT 계정으로 로그인하고 허용을 누르세요. 끝나면 ‘연결 시험 및 저장’을 누르세요.'
+    : '로그인 창을 열었습니다. 로그인을 마치고 그 창을 닫은 뒤 ‘연결 시험 및 저장’을 누르세요.');
+  try { await (codex ? api.codexLogin() : api.claudeLogin()); }
   catch (error) { setMessage('ai-status', error.message, true); }
 });
 $('claude-install-copy').addEventListener('click', async () => {
-  try { const command = await api.claudeInstallCopy(); setMessage('ai-status', `설치 명령을 복사했습니다: ${command} — 시작 메뉴에서 PowerShell을 열어 붙여 넣고 Enter를 누르세요. 끝나면 ‘로그인 창 열기’를 누르세요.`); }
+  try {
+    const command = await ($('ai-provider').value === 'codex' ? api.codexInstallCopy() : api.claudeInstallCopy());
+    setMessage('ai-status', `설치 명령을 복사했습니다: ${command} — 시작 메뉴에서 PowerShell을 열어 붙여 넣고 Enter를 누르세요. 끝나면 ‘로그인 창 열기’를 누르세요.`);
+  }
   catch (error) { setMessage('ai-status', error.message, true); }
 });
 document.querySelectorAll('[data-ai-guide]').forEach(button => button.addEventListener('click', () => void openAiGuide(button.dataset.aiGuide)));
-$('cli-guide').addEventListener('click', () => void openAiGuide($('ai-provider').value));
+$('ai-guide-open').addEventListener('click', () => void openAiGuide($('ai-guide-open').dataset.aiGuide));
 async function changeCollector(action) {
   state.connectingCollector = true;
   renderCollector();

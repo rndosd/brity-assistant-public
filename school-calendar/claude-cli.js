@@ -17,7 +17,7 @@ const SCHEMA = path.join(__dirname, 'refinement-schema.json');
 const SYSTEM_PROMPT = '너는 학교 쪽지 분류기다. 사용자가 준 지침과 쪽지 자료만 보고, 지정된 JSON 형식으로만 답한다. 도구를 쓰지 않는다.';
 const INSTALL_COMMAND = 'irm https://claude.ai/install.ps1 | iex';
 const LOGIN_MESSAGE = 'Claude Code에 로그인되어 있지 않습니다. 설정의 ‘로그인 창 열기’를 눌러 Claude 구독 계정(Pro 이상)으로 로그인한 뒤 다시 시험해 주세요.';
-const MISSING_MESSAGE = '이 PC에서 Claude Code를 찾지 못했습니다. ‘연결 시험 및 저장’을 누르면 설치할지 묻습니다. 자동 설치가 안 되면 설정의 ‘설치·로그인이 안 될 때 안내’를 따라 주세요.';
+const MISSING_MESSAGE = '이 PC에서 Claude Code를 찾지 못했습니다. ‘연결 시험 및 저장’을 누르면 설치할지 묻습니다. 자동 설치가 안 되면 설정 AI 탭의 ‘안내서 열기’를 따라 주세요.';
 
 function versionKey(name) {
   return String(name).split('.').map(part => Number.parseInt(part, 10) || 0);
@@ -188,9 +188,9 @@ function installClaude({ env = process.env, signal, timeoutMs = 5 * 60_000, run 
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
     const fail = message => reject(new CalendarError(message));
-    const timer = setTimeout(() => { child.kill(); fail('Claude Code 설치가 5분 안에 끝나지 않았습니다. 인터넷 연결을 확인하거나 설정의 ‘설치·로그인이 안 될 때 안내’를 따라 직접 설치해 주세요.'); }, timeoutMs);
+    const timer = setTimeout(() => { child.kill(); fail('Claude Code 설치가 5분 안에 끝나지 않았습니다. 인터넷 연결을 확인하거나 설정 AI 탭의 ‘안내서 열기’를 따라 직접 설치해 주세요.'); }, timeoutMs);
     signal?.addEventListener('abort', () => { clearTimeout(timer); child.kill(); reject(signal.reason); }, { once: true });
-    child.on('error', () => { clearTimeout(timer); fail('설치 프로그램을 실행하지 못했습니다. 설정의 ‘설치·로그인이 안 될 때 안내’를 따라 직접 설치해 주세요.'); });
+    child.on('error', () => { clearTimeout(timer); fail('설치 프로그램을 실행하지 못했습니다. 설정 AI 탭의 ‘안내서 열기’를 따라 직접 설치해 주세요.'); });
     child.on('close', code => {
       clearTimeout(timer);
       // 새로 깐 claude.exe는 ~\.local\bin에 생긴다. 이 앱의 PATH는 설치 전 값이라 그 자리를 직접 본다.
@@ -198,8 +198,8 @@ function installClaude({ env = process.env, signal, timeoutMs = 5 * 60_000, run 
       if (installed) return resolve({ executable: installed, log });
       const blocked = /403|blocked|unable to connect|could not resolve|ssl|tls|원격 서버/i.test(log);
       fail(blocked
-        ? 'Claude Code를 내려받지 못했습니다. 학교망이나 보안 프로그램이 막았을 수 있습니다. 정보 담당자에게 claude.ai 접속을 확인하거나 설정의 ‘설치·로그인이 안 될 때 안내’를 따라 직접 설치해 주세요.'
-        : `Claude Code 설치를 마치지 못했습니다(종료 코드 ${code}). 설정의 ‘설치·로그인이 안 될 때 안내’를 따라 직접 설치해 주세요.`);
+        ? 'Claude Code를 내려받지 못했습니다. 학교망이나 보안 프로그램이 막았을 수 있습니다. 정보 담당자에게 claude.ai 접속을 확인하거나 설정 AI 탭의 ‘안내서 열기’를 따라 직접 설치해 주세요.'
+        : `Claude Code 설치를 마치지 못했습니다(종료 코드 ${code}). 설정 AI 탭의 ‘안내서 열기’를 따라 직접 설치해 주세요.`);
     });
   });
 }

@@ -289,11 +289,15 @@
               <option value="none">사용 안 함</option>
             </select>
           </label>
+          <!-- 고른 방식의 안내서(2026-11-15 “관련거 딱 보이게”): 방식을 고르면 바로 아래에 그 방식 안내서가 크게 보인다. -->
+          <div class="ai-guide-card" id="ai-guide-card" hidden>
+            <div class="ai-guide-text"><b id="ai-guide-title"></b><span class="small-note" id="ai-guide-desc"></span></div>
+            <button type="button" class="button" id="ai-guide-open">안내서 열기 ↗</button>
+          </div>
           <p class="small-note" id="ai-hint"></p>
           <div class="ai-key-options" id="ai-key-options" hidden>
             <label class="field"><span id="ai-key-label">API 키</span><input type="password" id="ai-key" maxlength="512" autocomplete="off" spellcheck="false"></label>
             <div class="ai-actions">
-              <button type="button" class="button text-button small" id="ai-start-guide" data-ai-guide="openai-guide">처음 설정 안내 ↗</button>
               <button type="button" class="button text-button small" id="ai-key-guide" data-ai-guide="key">API 키 발급 ↗</button>
               <button type="button" class="button text-button small" id="ai-billing-guide" data-ai-guide="billing">API 결제 설정 ↗</button>
             </div>
@@ -304,7 +308,6 @@
           </div>
           <div class="ai-actions">
             <button type="button" class="button" id="ai-connect">연결 시험 및 저장</button>
-            <button type="button" class="button text-button small" id="cli-guide" hidden>CLI 설치와 로그인 안내 ↗</button>
           </div>
           <p class="small-note" id="ai-status" role="status" hidden></p>
         </div>
