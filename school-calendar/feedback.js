@@ -4,9 +4,10 @@
 // 사용자는 구글 화면을 보지 않는다. 쪽지 원문·업무 내용은 보내지 않고, 화면에 보여 준 앱 정보만 붙인다.
 // FORM.action이 비어 있으면 의견 단추를 숨긴다.
 const FORM = {
-  action: '', // https://docs.google.com/forms/d/e/<폼 ID>/formResponse
-  message: '', // entry.<번호> — 의견(긴 답변)
-  info: '' // entry.<번호> — 앱 정보(짧은 답변)
+  // 폼 “브리티 메신저 캘린더 의견”(2026-11-15). 응답은 폼 편집 화면의 응답 탭과 연결한 시트에서 본다.
+  action: 'https://docs.google.com/forms/d/e/1FAIpQLSdtAOqZgYJ4d7CRvYItphKuhKTDv3xx1ShnqAa729V6-1IuAA/formResponse',
+  message: 'entry.1744634059', // 의견(장문형)
+  info: 'entry.1101122569' // 앱 정보(단답형)
 };
 
 const MAX_MESSAGE = 2000;
