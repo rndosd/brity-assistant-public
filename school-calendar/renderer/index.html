@@ -291,25 +291,21 @@
               <option value="none">사용 안 함</option>
             </select>
           </label>
-          <!-- 고른 방식의 안내서(2026-11-15 “관련거 딱 보이게”): 방식을 고르면 바로 아래에 그 방식 안내서가 크게 보인다. -->
-          <div class="ai-guide-card" id="ai-guide-card" hidden>
-            <div class="ai-guide-text"><b id="ai-guide-title"></b><span class="small-note" id="ai-guide-desc"></span></div>
-            <button type="button" class="button" id="ai-guide-open">안내서 열기 ↗</button>
-          </div>
           <p class="small-note" id="ai-hint"></p>
           <div class="ai-key-options" id="ai-key-options" hidden>
             <label class="field"><span id="ai-key-label">API 키</span><input type="password" id="ai-key" maxlength="512" autocomplete="off" spellcheck="false"></label>
+            <!-- API 키 방식은 가입·결제·키 만들기가 필요하므로 안내서를 첫 링크로 둔다(작은 글 한 줄). -->
             <div class="ai-actions">
+              <button type="button" class="button text-button small" id="ai-guide-open">처음 설정 안내 ↗</button>
               <button type="button" class="button text-button small" id="ai-key-guide" data-ai-guide="key">API 키 발급 ↗</button>
-              <button type="button" class="button text-button small" id="ai-billing-guide" data-ai-guide="billing">API 결제 설정 ↗</button>
+              <button type="button" class="button text-button small" id="ai-billing-guide" data-ai-guide="billing">결제 설정 ↗</button>
             </div>
           </div>
-          <div class="ai-actions" id="claude-steps" hidden>
-            <button type="button" class="button small" id="claude-login">로그인 창 열기</button>
-            <button type="button" class="button text-button small" id="claude-install-copy">설치 명령 복사</button>
-          </div>
+          <!-- 2026-11-15 “연결 누르면 알아서 로그인창 나오던데 … 헷갈리지 않나”: 구독 방식은 연결 단추 하나가 설치·로그인까지 한다.
+               따로 있던 ‘로그인 창 열기·설치 명령 복사’는 빼고, 막힐 때 볼 안내서만 작게 둔다. -->
           <div class="ai-actions">
-            <button type="button" class="button" id="ai-connect">연결 시험 및 저장</button>
+            <button type="button" class="button primary" id="ai-connect">연결 시험 및 저장</button>
+            <button type="button" class="button text-button small" id="ai-help" hidden>막히면 안내서 ↗</button>
           </div>
           <p class="small-note" id="ai-status" role="status" hidden></p>
         </div>

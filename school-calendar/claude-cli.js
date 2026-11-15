@@ -16,7 +16,7 @@ const MODEL = 'claude-haiku-5-5';
 const SCHEMA = path.join(__dirname, 'refinement-schema.json');
 const SYSTEM_PROMPT = '너는 학교 쪽지 분류기다. 사용자가 준 지침과 쪽지 자료만 보고, 지정된 JSON 형식으로만 답한다. 도구를 쓰지 않는다.';
 const INSTALL_COMMAND = 'irm https://claude.ai/install.ps1 | iex';
-const LOGIN_MESSAGE = 'Claude Code에 로그인되어 있지 않습니다. 설정의 ‘로그인 창 열기’를 눌러 Claude 구독 계정(Pro 이상)으로 로그인한 뒤 다시 시험해 주세요.';
+const LOGIN_MESSAGE = 'Claude Code에 로그인되어 있지 않습니다. 설정에서 ‘연결 시험 및 저장’을 다시 누르면 로그인 창이 열립니다. Claude 구독 계정(Pro 이상)으로 로그인해 주세요.';
 const MISSING_MESSAGE = '이 PC에서 Claude Code를 찾지 못했습니다. ‘연결 시험 및 저장’을 누르면 설치할지 묻습니다. 자동 설치가 안 되면 설정 AI 탭의 ‘안내서 열기’를 따라 주세요.';
 
 function versionKey(name) {

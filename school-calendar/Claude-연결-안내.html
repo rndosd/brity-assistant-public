@@ -82,7 +82,7 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
   <h2><span class="n">2</span>설치가 안 될 때: 직접 설치하기</h2>
   <h3>방법 가. PowerShell에 한 줄 붙여 넣기 (권장)</h3>
   <ol>
-    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">설치 명령 복사</span>를 누릅니다. (또는 아래 줄을 직접 복사합니다.)
+    <li>아래 줄을 복사합니다.
       <div class="box"><span class="en">irm https://claude.ai/install.ps1 | iex</span></div></li>
     <li>키보드의 <b>Windows 키</b>를 누르고 <b>PowerShell</b>을 입력한 뒤 <b>Windows PowerShell</b>을 엽니다. 파란 창에 <span class="en">PS C:\Users\…&gt;</span>가 보이면 맞습니다.</li>
     <li>창 안에서 <b>마우스 오른쪽 단추</b>를 누르면 붙여 넣어집니다. <b>Enter</b>를 누릅니다.</li>
@@ -99,7 +99,7 @@ footer{margin-top:40px;padding-top:12px;border-top:1px solid var(--rule)}
 
   <h2><span class="n">3</span>로그인이 안 될 때: 직접 로그인하기</h2>
   <ol>
-    <li>캘린더 <span class="ui">설정</span>에서 <span class="ui">로그인 창 열기</span>를 누릅니다. 창이 안 뜨면 PowerShell을 열고 <span class="en">claude auth login --claudeai</span>를 입력합니다.</li>
+    <li>PowerShell을 열고 <span class="en">claude auth login --claudeai</span>를 입력합니다.</li>
     <li>브라우저가 열리면 평소 쓰는 Claude 계정으로 로그인하고 <b>승인</b>을 누릅니다. 브라우저가 저절로 열리지 않으면 창에 나온 주소를 복사해 브라우저에 붙여 넣습니다.</li>
     <li>로그인되면 명령이 끝납니다. 확인하려면 PowerShell에서 <span class="en">claude auth status</span>를 입력해 <span class="en">"loggedIn": true</span>가 보이는지 봅니다.</li>
     <li>캘린더에서 <span class="ui">연결 시험 및 저장</span>을 다시 누릅니다.</li>
