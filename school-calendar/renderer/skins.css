@@ -12,7 +12,7 @@
 @font-face { font-family: "Skin Gaegu"; src: url("skins/fonts/Gaegu-Bold.woff2"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "Skin Song Myung"; src: url("skins/fonts/SongMyung-Regular.woff2"); font-display: swap; }
 
-/* ═══════════ 1. 깔끔한 다이어리(기본) ═══════════
+/* ═══════════ 1. 다이어리(기본) ═══════════
    종이 결, 옅은 모눈, 마스킹테이프, 빨간 도장 오늘, 클립 꽂은 쪽지. 제목은 손글씨(나눔손글씨 펜), 숫자·쪽지 제목은 고운바탕. */
 :root:is([data-skin="diary"], :not([data-skin])) {
   --hand: "Skin Nanum Pen", "Noto Sans KR", sans-serif;
@@ -20,7 +20,7 @@
   --paper: #efe9db;
   --sheet: #fffcf4;
   --rule: #e0d8c6;
-  --grid: #efe8d9;
+  --grid: #f3eee2;
   --margin-line: #e9c2b9;
   --today: #f5e27e;
   --stamp: #c8382d;
@@ -46,13 +46,14 @@
 :root:is([data-skin="diary"], :not([data-skin])) .year { font-family: var(--serif); }
 :root:is([data-skin="diary"], :not([data-skin])) .legend { font-family: var(--hand); font-size: 17px; }
 :root:is([data-skin="diary"], :not([data-skin])) .weekdays { gap: 2px; padding-top: 4px; }
-:root:is([data-skin="diary"], :not([data-skin])) .weekdays span { border-bottom: 0; background: #8d8576; color: #fff; text-align: center; font-size: 11px; padding: 2px 0; margin-bottom: 3px; }
-:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:first-child { background: var(--stamp); color: #fff; }
-:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:last-child { background: #5f7fa8; color: #fff; }
+/* 요일 머리: 채운 띠 대신 글자만(2026-11-15 다듬기: 틀이 업무보다 진하지 않게). 일·토의 빨강·파랑 뜻은 글자색으로 남긴다. */
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span { border-bottom: 1px solid var(--rule); background: transparent; color: var(--ink-2); text-align: center; font-family: var(--hand); font-size: 22px; line-height: 1; padding: 0 0 4px; }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:first-child { color: var(--stamp); }
+:root:is([data-skin="diary"], :not([data-skin])) .weekdays span:last-child { color: #4f73a3; }
 :root:is([data-skin="diary"], :not([data-skin])) .day:not(.adjacent) {
   background:
-    linear-gradient(to right, var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
-    linear-gradient(to bottom, var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(to right, var(--grid) 1px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px) 0 0 / 16px 16px,
     var(--sheet);
 }
 :root:is([data-skin="diary"], :not([data-skin])) .day.adjacent { background: #ece5d5; }
@@ -72,7 +73,7 @@
 :root:is([data-skin="diary"], :not([data-skin])) dialog { border-radius: 3px; background: url("skins/paper-grain.svg"), var(--sheet); box-shadow: 0 1px 0 var(--rule), 0 12px 30px #3a321f2e; }
 :root:is([data-skin="diary"], :not([data-skin])) .imp-flag { border-radius: 2px; }
 
-/* ═══════════ 2. 귀엽고 깜찍 ═══════════
+/* ═══════════ 2. 파스텔 ═══════════
    고양이 캐릭터(달 머리에서 빼꼼, 목록 아래서 낮잠, 자세히에서 손 흔들기), 체크무늬 천 머리줄, 별 스티커 오늘,
    말랑한 사탕 버튼, 파스텔 일정 칩. 글꼴: 제목·버튼 주아, 손글씨 개구. */
 :root[data-skin="cute"] {
@@ -146,7 +147,8 @@
 :root[data-skin="cute"] .weekdays span { border-bottom: 0; text-align: center; font-family: var(--jua); font-size: 13px; padding-bottom: 6px; }
 :root[data-skin="cute"] .month { gap: 4px; border-left: 0; }
 :root[data-skin="cute"] .day { border: 1.5px solid var(--rule); border-radius: 14px; background: #fff; box-shadow: 0 2px 0 var(--rule); }
-:root[data-skin="cute"] .day.adjacent { background: #ffffff99; box-shadow: none; border-style: dashed; }
+:root[data-skin="cute"] .day.adjacent { background: #ffffff66; box-shadow: none; border-color: #f7e9ee; }
+:root[data-skin="cute"] .day.adjacent .day-number { opacity: .6; }
 :root[data-skin="cute"] .day-hit { border-radius: 12px; }
 :root[data-skin="cute"] .day-hit:hover { background: #fff1f580; }
 :root[data-skin="cute"] .day-number { font-family: var(--jua); font-weight: 400; font-size: 14px; }
@@ -185,7 +187,7 @@
 :root[data-skin="cute"] .notice { border-radius: 999px; padding: 8px 16px; font-family: var(--jua); }
 :root[data-skin="cute"] .connection .small-note.busy::before { background: var(--pink); }
 
-/* ═══════════ 3. 차분한 저녁(어두운 화면) ═══════════
+/* ═══════════ 3. 저녁(어두운 화면) ═══════════
    별 뜬 밤하늘 바탕, 달 그림, 반투명 유리 판, 은은한 빛. 글꼴: 달 숫자는 송명, 제목은 고운바탕. */
 :root[data-skin="evening"] {
   color-scheme: dark;
@@ -197,7 +199,7 @@
   --rule-strong: #8d97b0;
   --ink: #e6e9f2;
   --ink-2: #b0b7c9;
-  --ink-3: #7c849b;
+  --ink-3: #8f97ad;
   --muted-text: #969eb2;
   --red: #ff8a80;
   --important-bg: #3b2534;
@@ -207,7 +209,8 @@
   --hover: #242b45;
   --glow: #9db8ff;
   --glass: #ffffff0a;
-  --span-0: #4a4231; --span-1: #2f4537; --span-2: #2d3d55; --span-3: #4d3132; --span-4: #3d3554; --span-5: #284846;
+  /* 기간 띠: 흙빛 대신 밤하늘과 어울리는 낮은 채도의 맑은 색(글자 대비 7:1 이상). */
+  --span-0: #4a4636; --span-1: #2f4a40; --span-2: #2e4166; --span-3: #553a48; --span-4: #43395f; --span-5: #2b4d55;
 }
 :root[data-skin="evening"] body { background: url("skins/stars.svg"), radial-gradient(ellipse at 70% -10%, #2a3160 0%, transparent 55%), var(--paper); }
 :root[data-skin="evening"] :focus-visible { outline-color: var(--glow); }
@@ -216,7 +219,7 @@
 :root[data-skin="evening"] .app-header h1::before { content: "☾ "; color: #f7e6ad; text-shadow: 0 0 10px #f7e6ad99; }
 :root[data-skin="evening"] .button { border-radius: 9px; border-color: #ffffff1f; background: var(--glass); }
 :root[data-skin="evening"] .button:hover:not(:disabled) { border-color: var(--glow); box-shadow: 0 0 0 3px #9db8ff22; }
-:root[data-skin="evening"] .button.primary { background: linear-gradient(135deg, #a9c1ff, #c2a8ff); border-color: transparent; color: #141831; box-shadow: 0 0 18px #a9b6ff55; }
+:root[data-skin="evening"] .button.primary { background: #b4c6ff; border-color: transparent; color: #141831; }
 :root[data-skin="evening"] .button.primary:hover:not(:disabled) { outline: 0; filter: brightness(1.06); }
 :root[data-skin="evening"] .button.text-button { background: transparent; border-color: transparent; box-shadow: none; }
 :root[data-skin="evening"] :is(.badge, .flag, .chip, .imp-flag) { border-radius: 5px; }
@@ -272,6 +275,104 @@
 :root[data-skin="evening"] :is(.check-field input, .chat-room-option input) { accent-color: var(--glow); }
 :root[data-skin="evening"] .notice { background: #e6e9f2; color: #131729; border-radius: 10px; }
 :root[data-skin="evening"] :is(.original::selection, .original *::selection) { background: #5b4c1c; }
+
+/* ═══════════ 4. 미니멀 ═══════════
+   흰 바탕, 옅은 회색 괘선, 넉넉한 여백. 장식·그림·질감·전용 글꼴 없음(추가 파일 0).
+   강조는 줄여서 만든다: 틀(머리·요일·괘선)은 흐리게, 업무 글자만 진하게. 색은 뜻이 있을 때만 쓰고 모서리는 살짝 둥글게(6px). */
+:root[data-skin="minimal"] {
+  --paper: #f6f6f4;
+  --sheet: #ffffff;
+  --rule: #e8e8e5;
+  --rule-strong: #d9d9d5;
+  --ink: #18181b;
+  --ink-2: #63636b;
+  --ink-3: #8a8a92;
+  --muted-text: #707078;
+  --red: #c4372d;
+  --important-bg: #fdeeec;
+  --blue: #2f62b0;
+  --today: #fbe38a;
+  --selected: #f1f1ef;
+  --hover: #f6f6f4;
+  --soft: #f1f1ee;
+  --span-0: #efe8d8; --span-1: #e1ecdf; --span-2: #e0e8f3; --span-3: #f5e2df; --span-4: #e9e4f3; --span-5: #ddeeeb;
+}
+:root[data-skin="minimal"] body { background: var(--paper); }
+:root[data-skin="minimal"] :focus-visible { outline-color: var(--ink); }
+:root[data-skin="minimal"] .app-header { background: var(--sheet); border-bottom-color: var(--rule); }
+:root[data-skin="minimal"] .app-header h1 { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+:root[data-skin="minimal"] .button { border-radius: 6px; border-color: var(--rule-strong); background: var(--sheet); font-weight: 500; }
+:root[data-skin="minimal"] .button:hover:not(:disabled) { border-color: var(--ink-3); background: var(--hover); }
+:root[data-skin="minimal"] .button.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+:root[data-skin="minimal"] .button.primary:hover:not(:disabled) { outline: 0; background: #2e2e33; }
+:root[data-skin="minimal"] .button.text-button { border-color: transparent; background: transparent; text-decoration-color: var(--ink-3); }
+:root[data-skin="minimal"] .button.text-button:hover:not(:disabled) { background: var(--soft); text-decoration-color: currentColor; }
+:root[data-skin="minimal"] :is(.zoom, .seg) { border-radius: 6px; overflow: hidden; }
+:root[data-skin="minimal"] :is(.badge, .flag, .received, .imp-flag, .same-count) { border-radius: 4px; }
+:root[data-skin="minimal"] .box { border-radius: 3px; }
+:root[data-skin="minimal"] .pane-divider::before { background: var(--rule); }
+/* 왼쪽 목록: 탭은 눌린 칸만 흰색으로 떠오르는 분할 단추 */
+:root[data-skin="minimal"] .todo { background: var(--paper); }
+:root[data-skin="minimal"] .today-line { font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+:root[data-skin="minimal"] .list-tabs { gap: 2px; padding: 2px; background: #ebebe8; border: 0; border-radius: 8px; }
+:root[data-skin="minimal"] .list-tabs button { border-radius: 6px; background: transparent; color: var(--ink-2); }
+:root[data-skin="minimal"] .list-tabs button:hover { background: #ffffff99; }
+:root[data-skin="minimal"] .list-tabs button[aria-selected="true"] { background: var(--sheet); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px #0000001a, 0 0 0 1px #0000000a; }
+:root[data-skin="minimal"] .list-tabs button[aria-selected="true"] .tab-counts > b { color: var(--ink-2); }
+:root[data-skin="minimal"] .list-tabs button[aria-selected="true"] .tab-unread { color: var(--red); }
+:root[data-skin="minimal"] .group h3 { font-size: 11.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .02em; }
+:root[data-skin="minimal"] .late-group h3 { color: var(--red); }
+:root[data-skin="minimal"] .row { border-radius: 6px; padding-inline: 6px; }
+:root[data-skin="minimal"] .row.selected { background: var(--sheet); box-shadow: 0 0 0 1px var(--rule-strong); }
+:root[data-skin="minimal"] .row.important, :root[data-skin="minimal"] .row.important.selected { box-shadow: inset 2px 0 0 var(--red); }
+/* 달력: 바깥 괘선 없이 칸 사이만 옅게, 요일은 작은 회색 글자 */
+:root[data-skin="minimal"] .calendar { background: var(--sheet); }
+:root[data-skin="minimal"] .calendar-header { border-bottom: 0; padding-bottom: 12px; }
+:root[data-skin="minimal"] .month-number { font-family: inherit; font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+:root[data-skin="minimal"] .year { color: var(--ink-3); }
+:root[data-skin="minimal"] .legend { color: var(--ink-3); }
+:root[data-skin="minimal"] .weekdays span { border-bottom: 1px solid var(--rule); font-size: 11.5px; font-weight: 500; color: var(--ink-3); padding: 6px 8px; }
+:root[data-skin="minimal"] .weekdays span:first-child { color: #d6857e; }
+:root[data-skin="minimal"] .weekdays span:last-child { color: #7f9cc9; }
+:root[data-skin="minimal"] .month { border-left: 0; }
+:root[data-skin="minimal"] .day { background: var(--sheet); border-color: var(--rule); padding-inline: 5px; }
+:root[data-skin="minimal"] .day:nth-child(7n) { border-right: 0; }
+:root[data-skin="minimal"] .day.adjacent { background: #fbfbfa; }
+:root[data-skin="minimal"] .day-hit { padding: 5px 7px; }
+:root[data-skin="minimal"] .day-hit:hover { background: #00000005; }
+:root[data-skin="minimal"] .day-number { font-weight: 500; font-size: 12.5px; color: var(--ink-2); min-width: 22px; text-align: center; }
+:root[data-skin="minimal"] .day.sunday .day-number { color: var(--red); }
+:root[data-skin="minimal"] .day.saturday .day-number { color: var(--blue); }
+:root[data-skin="minimal"] .day.adjacent .day-number { color: var(--ink-3); opacity: .7; }
+:root[data-skin="minimal"] .day.is-today .day-number { background: var(--today); color: var(--ink); font-weight: 700; border-radius: 999px; padding: 0 6px; }
+:root[data-skin="minimal"] .day-plus { opacity: .3; }
+:root[data-skin="minimal"] .item { border-radius: 4px; padding: 1px 4px; }
+:root[data-skin="minimal"] .item:hover { background: var(--soft); }
+:root[data-skin="minimal"] .item.type-task .item-title { font-weight: 600; }
+:root[data-skin="minimal"] .item.selected { background: var(--soft); outline: 1.5px solid var(--ink); }
+:root[data-skin="minimal"] .item.important { background: var(--important-bg); box-shadow: none; }
+:root[data-skin="minimal"] .span-piece { border-radius: 3px; height: 17px; }
+:root[data-skin="minimal"] .span-piece:not(.start) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+:root[data-skin="minimal"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+:root[data-skin="minimal"] .more { text-decoration: none; color: var(--ink-3); font-weight: 600; }
+/* 자세히: 흰 판, 원문은 옅은 회색 카드 */
+:root[data-skin="minimal"] .detail-panel { background: var(--sheet); box-shadow: -1px 0 0 var(--rule); }
+:root[data-skin="minimal"] .detail-heading { background: var(--sheet); }
+:root[data-skin="minimal"] .detail-heading h2 { color: var(--ink-3); font-weight: 600; }
+:root[data-skin="minimal"] .seg { border-color: var(--rule-strong); }
+:root[data-skin="minimal"] .seg button + button { border-left-color: var(--rule-strong); }
+:root[data-skin="minimal"] .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; font-weight: 600; }
+:root[data-skin="minimal"] .task-mark[aria-pressed="true"], :root[data-skin="minimal"] .task-mark.marked { background: var(--soft); border-color: var(--ink); }
+:root[data-skin="minimal"] .paper { border: 0; border-radius: 10px; background: #f8f8f6; box-shadow: inset 0 0 0 1px var(--rule); padding: 16px 18px 18px; }
+:root[data-skin="minimal"] .original-meta-row { border-bottom-color: var(--rule); }
+:root[data-skin="minimal"] .detail-section { border-top-color: var(--rule); }
+:root[data-skin="minimal"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border-radius: 6px; border-color: var(--rule-strong); }
+:root[data-skin="minimal"] .field :is(input, select, textarea):focus { border-color: var(--ink); }
+:root[data-skin="minimal"] :is(.date-row, .detail-message, .same-work, .candidate-box, .forwarded-review, .rules-update, .update-bar, .send-preview, .chat-room-options) { border-radius: 8px; }
+:root[data-skin="minimal"] dialog { border: 0; border-radius: 12px; box-shadow: 0 0 0 1px #0000000f, 0 20px 50px #0000002a; }
+:root[data-skin="minimal"] dialog::backdrop { background: #18181b40; }
+:root[data-skin="minimal"] dialog h2 { border-bottom: 1px solid var(--rule); }
+:root[data-skin="minimal"] .notice { border-radius: 8px; }
 
 /* 달력이 넓어 범례가 달 숫자 줄로 올라오면(style.css 540px 기준) 장식은 연도 오른쪽 빈자리, 괘선 위에 앉힌다. */
 @container (min-width: 541px) {
