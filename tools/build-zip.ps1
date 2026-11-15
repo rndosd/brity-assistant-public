@@ -202,12 +202,19 @@ $manifest = [ordered]@{ version = $version; file = $patchName; sha256 = $sha; ch
 if (-not $ElectronRuntimeZip) { $manifest.electron = $electronVersion }
 [IO.File]::WriteAllText((Join-Path $releaseDir 'update.json'), ($manifest | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding($false)))
 $current = @($changes | Where-Object { $_.version -eq $version })
-$installNotes = if ($ElectronRuntimeZip) {
-  "앱이 열리면 머리줄의 **업데이트**를 누르세요. 앱이 열리지 않고 기존 자료가 있으면 ``$patchName``을 기존 캘린더 폴더 안에 풀고 ``School-Calendar-Patch/update.cmd``를 실행하세요. 처음 설치하거나 샘플로 확인하려면 ``brity-messenger-calendar-windows-x64-$version.zip``을 새 폴더에 풀어 주세요."
+# 릴리스 페이지에는 파일이 여럿(전체 ZIP·패치·update.json + GitHub가 붙이는 Source code 둘) 보여 헷갈리므로(2026-11-15 사용자),
+# 노트 맨 위에 받을 파일 하나를 바로 받는 링크로 두고, 나머지는 받지 않아도 된다고 맨 아래에 작게 적는다.
+$fullName = "brity-messenger-calendar-windows-x64-$version.zip"
+$fullUrl = "https://github.com/rndosd/brity-assistant-public/releases/download/v$version/$fullName"
+$updateNote = if ($ElectronRuntimeZip) {
+  "이미 쓰고 있다면 앱 머리줄의 **업데이트**를 누르세요. 앱이 열리지 않고 기존 자료가 있으면 ``$patchName``을 기존 캘린더 폴더 안에 풀고 ``School-Calendar-Patch/update.cmd``를 실행하세요."
 } else {
-  "처음 설치하려면 brity-messenger-calendar-windows-x64-$version.zip 을 받으세요. 사용 중인 앱에 새 판 알림이 뜨면 '업데이트'를 누르세요."
+  "이미 쓰고 있다면 받을 필요 없이 앱 머리줄의 **업데이트**를 누르세요."
 }
-$notes = "## $version`n`n" + (($current | ForEach-Object { $_.items | ForEach-Object { "- $_" } }) -join "`n") + "`n`n$installNotes`n"
+$items = ($current | ForEach-Object { $_.items | ForEach-Object { "- $_" } }) -join "`n"
+$notes = "### ⬇️ 설치하려면 이것만 받으세요`n`n**[$fullName]($fullUrl)**`n받은 ZIP을 **전체 압축 풀기**한 뒤 ``Brity Messenger Calendar``를 실행하세요.`n`n$updateNote`n`n" +
+         "## $($version)에서 바뀐 점`n`n$items`n`n---`n`n" +
+         "<sub>아래 다른 파일은 받지 않아도 됩니다. ``$patchName``과 ``update.json``은 앱의 업데이트 버튼이 자동으로 쓰고, Source code는 GitHub가 붙이는 프로그램 소스라 실행 파일이 없습니다.</sub>`n"
 [IO.File]::WriteAllText((Join-Path $releaseDir 'notes.md'), $notes, (New-Object Text.UTF8Encoding($false)))
 Get-ChildItem $releaseDir | Select-Object Name, Length
 } finally {
