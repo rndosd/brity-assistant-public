@@ -32,7 +32,7 @@
 :root[data-font="batang"] { --body-font: "Skin Gowun Batang", "Noto Serif KR", "Batang", serif; }
 :root[data-font] { font-family: var(--body-font); --reading: var(--body-font); }
 /* 스킨이 요소마다 정한 꾸밈 글꼴을 이긴다. 남기는 것: 앱 이름, 큰 달 숫자(안의 "월"까지), 고르기 견본. */
-:root[data-font] body *:not(.app-header h1, .month-number, .month-number *, .font-sample) { font-family: inherit !important; }
+:root[data-font] body *:not(.app-header h1, .month-number, .month-number *, .font-choice, .font-choice *) { font-family: inherit !important; }
 /* 다이어리는 손글씨(나눔손글씨 펜)의 작은 글자에 맞춰 일부 크기를 키워 두었다. 다른 글꼴을 고르면 보통 크기로 되돌린다. */
 :root[data-font]:is([data-skin="diary"], :not([data-skin])) .today-line { font-size: 12.5px; line-height: 1.45; }
 :root[data-font]:is([data-skin="diary"], :not([data-skin])) .legend { font-size: 12px; }
@@ -41,6 +41,9 @@
 :root[data-font]:is([data-skin="diary"], :not([data-skin])) :is(.detail-section h3, .settings-section > legend, .settings-section > h3) { font-size: 15px; font-weight: 700; }
 :root[data-font]:is([data-skin="diary"], :not([data-skin])) .detail-heading h2 { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
 :root[data-font]:is([data-skin="diary"], :not([data-skin])) dialog h2 { font-size: 16px; font-weight: 700; }
+/* 글꼴 고르기 항목은 이름과 견본 모두 그 글꼴로 보인다(2026-11-15 “글꼴은 보여줄때 자기 글꼴로”). 스킨 기본 = PC 고딕(style.css의 바탕 글꼴). */
+.font-choice > span { font-family: inherit !important; }
+.font-sample-skin { font-family: "Noto Sans KR", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", system-ui, sans-serif; }
 .font-sample-pretendard { font-family: "Body Pretendard", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-dodum { font-family: "Body Gowun Dodum", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
 .font-sample-nanumsquare { font-family: "Body NanumSquare Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif; }
