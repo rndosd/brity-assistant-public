@@ -1920,7 +1920,10 @@ function renderCollector() {
     connecting: `${name}의 쪽지 목록을 확인하고 있습니다.`,
     ready: collector?.managed ? [schedule, checked, checked && collector.imported != null ? (collector.imported ? `새 쪽지 ${collector.imported}건 받음` : '새 쪽지 없음') : ''].filter(Boolean).join(' · ')
       : `이미 실행 중인 ${name} 수집기의 결과를 읽습니다.`,
-    'in-use': `${name}를 쓰는 중이라 이번에는 쪽지를 가져오지 않았습니다. 쪽지 가져오기를 누르면 확인한 뒤 가져옵니다.`,
+    // 2026-11-16 “자동 불러오기 … 그런 거에 대한 안내 메시지가 필요할 것 같은데”: 건너뛴 이유와 다음 확인 시각을 보인다.
+    'in-use': collector?.busyReason === 'note-open'
+      ? `${name}에 쪽지 창이 열려 있어 이번에는 쪽지를 가져오지 않았습니다. ${nextCheckText(collector, auto) ? `쪽지 창을 닫아 두면 ${nextCheckText(collector, auto)} 가져옵니다.` : '쪽지 창을 닫은 뒤 쪽지 가져오기를 눌러 주세요.'}`
+      : `${name}를 쓰는 중이라 이번에는 쪽지를 가져오지 않았습니다. ${nextCheckText(collector, auto) ? `${nextCheckText(collector, auto)} 다시 확인하고, ` : ''}쪽지 가져오기를 누르면 확인한 뒤 바로 가져옵니다.`,
     offline: collectorConnected && auto?.enabled && !collectorFirstImportPending
       ? `${fullName}가 닫혀 있습니다. 다시 열고 로그인하면 자동으로 연결합니다.`
       : `${fullName}를 열고 로그인한 뒤 연결해 주세요.`,
@@ -1951,6 +1954,13 @@ function renderCollector() {
   $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
     : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : aiFirst ? `AI 없이 ${name} 연결` : `${name} 연결`;
   $('collector-connect').disabled = !!state.connectingCollector || status === 'connecting' || !!state.rangeBusy;
+}
+
+// 자동 가져오기가 켜져 있으면 다음 확인 시각("오후 3:40에"), 아니면 빈 글.
+function nextCheckText(collector, auto) {
+  if (!auto?.enabled || !collector?.checkedAt || !(auto.minutes > 0)) return '';
+  const next = new Date(collector.checkedAt + auto.minutes * 60_000);
+  return `${next.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}에`;
 }
 
 function minutesLabel(minutes) {
@@ -2132,7 +2142,8 @@ async function collectNow() {
   await changeCollector(async () => {
     const { name } = state.messenger;
     let next = await api.collectNow(false);
-    if (next.collector?.status === 'in-use' && window.confirm(`${name}를 쓰는 중입니다. 지금 쪽지를 가져올까요?\n가져오는 동안 ${name} 화면이 잠깐 쪽지 목록으로 바뀔 수 있습니다.`)) {
+    // 쪽지 창이 열려 있으면 묻고 다시 해도 막힌다: 머리줄 안내(창을 닫으라는 말)만 보인다.
+    if (next.collector?.status === 'in-use' && next.collector.busyReason !== 'note-open' && window.confirm(`${name}를 쓰는 중입니다. 지금 쪽지를 가져올까요?\n가져오는 동안 ${name} 화면이 잠깐 쪽지 목록으로 바뀔 수 있습니다.`)) {
       next = await api.collectNow(true);
     }
     return next;

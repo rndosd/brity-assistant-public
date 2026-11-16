@@ -86,6 +86,7 @@ try {
         $result.attached = $collected.attached
     }
     if ($Mode -eq 'Reply' -and $collected) { $result.reply = $collected.reply }
+    if ($collected -and $collected.busyReason) { $result.busyReason = $collected.busyReason }
 } catch {
     $result.status = 'unavailable'
 } finally {

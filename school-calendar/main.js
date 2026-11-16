@@ -97,7 +97,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -399,7 +399,9 @@ function notifyInUse() {
   inUseNotified = true;
   const note = new Notification({
     title: messenger.appName, icon: path.join(__dirname, 'assets', 'app.png'),
-    body: `${messenger.name}를 쓰는 중이라 새 쪽지를 가져오지 않았습니다. 이 알림을 누르면 지금 가져옵니다.`
+    body: collector.busyReason === 'note-open'
+      ? `${messenger.name}에 쪽지 창이 열려 있어 새 쪽지를 가져오지 않았습니다. 쪽지 창을 닫으면 다음 확인 때 가져옵니다.`
+      : `${messenger.name}를 쓰는 중이라 새 쪽지를 가져오지 않았습니다. 이 알림을 누르면 지금 가져옵니다.`
   });
   note.on('click', () => {
     if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.focus(); }

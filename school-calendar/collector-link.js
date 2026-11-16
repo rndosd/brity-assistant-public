@@ -75,6 +75,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           value.attached = count(result.attached);
         }
         if (reply) value.reply = GOE_REPLY_RESULTS.has(result.reply) ? result.reply : 'not-found';
+        // GOE판이 건너뛴 이유: 쪽지 창이 열려 있음(note-open) / GOE 창을 쓰는 중(in-goe)
+        if (goe && (result.busyReason === 'note-open' || result.busyReason === 'in-goe')) value.busyReason = result.busyReason;
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {
             visible: count(result.visible), matched: count(result.matched), fresh: count(result.fresh), unknown: count(result.unknown),

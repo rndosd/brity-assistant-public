@@ -31,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     status = 'ok'; visible = 0; matched = 0; fresh = 0; unknown = 0
-    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'
+    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''
 }
 
 function Publish-Result([string]$Reason) {
@@ -306,6 +306,8 @@ function Close-Note($n) {
 }
 
 if ((-not $Force -and (Goe-IsForeground)) -or (Get-NoteWindow)) {
+    # tell the calendar why: an open note window blocks even a forced run
+    $result.busyReason = if (Get-NoteWindow) { 'note-open' } else { 'in-goe' }
     $result.status = 'busy'
     Publish-Result 'user-is-in-goe'
     return
@@ -864,6 +866,7 @@ try {
             if ($ListOnly) { continue }
             if ($result.opened -ge $Max) { $result.remaining++; $stop = $true; break }
             if ((-not $Force -and (Goe-IsForeground)) -or (Get-NoteWindow)) {
+                $result.busyReason = if (Get-NoteWindow) { 'note-open' } else { 'in-goe' }
                 $result.status = 'busy'
                 $stop = $true
                 break
@@ -984,7 +987,7 @@ try {
             if ($stop) { break }
         }
         if ($stop -or $page -ge $MaxPages) { break }
-        if (-not $Force -and (Goe-IsForeground)) { $result.status = 'busy'; break }
+        if (-not $Force -and (Goe-IsForeground)) { $result.status = 'busy'; $result.busyReason = 'in-goe'; break }
         # PageDown leaves a half-cut row at the top that OCR misses: scroll ~4 rows with the wheel so pages overlap
         $before = ($view.rows | ForEach-Object { Row-Key $_ }) -join [Environment]::NewLine
         $wlp = [IntPtr](($lr.T + 100) * 65536 + ($lr.L + 150))
