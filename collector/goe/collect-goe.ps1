@@ -731,8 +731,9 @@ function Read-Rows {
     $rows = @(foreach ($t in $timeLines) {
         $dt = Parse-ListTime $t.t
         $top = $t.y - (S 16)
-        $title = ($o | Where-Object { [Math]::Abs($_.y - $t.y) -lt (S 6) -and $_.x -lt $timeMinX } | Select-Object -First 1).t
-        $sender = ($o | Where-Object { $_.y -gt $t.y + (S 10) -and $_.y -lt $t.y + (S 35) -and $_.x -lt $timeMinX } | Select-Object -First 1).t
+        # title and sender sit left of this row's own time text
+        $title = ($o | Where-Object { [Math]::Abs($_.y - $t.y) -lt (S 6) -and $_.x -lt $t.x } | Select-Object -First 1).t
+        $sender = ($o | Where-Object { $_.y -gt $t.y + (S 10) -and $_.y -lt $t.y + (S 35) -and $_.x -lt $t.x } | Select-Object -First 1).t
         [pscustomobject]@{
             datetime = $dt; titleOcr = $title; sender = (Clean-Sender $sender)
             unread = ((Count-Yellow $bmp ($listRight - (S 56)) ($listRight - (S 29)) ($top + (S 40)) ($top + (S 64))) -gt (40 * $k * $k))
@@ -759,7 +760,9 @@ try {
 
     $mr = Get-Rect $main; $lr = Get-Rect $H.list; $ir = Get-Rect $H[$L.inboxButton]; $sr = Get-Rect $H[$L.sentButton]
     $listTop = $lr.T - $mr.T; $listBottom = $lr.B - $mr.T; $listLeft = $lr.L - $mr.L; $listRight = $lr.Rt - $mr.L
-    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.6)
+    # In a narrow GOE window the time text starts just left of 60% of the list (x=201 of 340, 2026-11-16),
+    # so the cut is 40%; a time is also recognised by its date pattern, so titles never pass for one.
+    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)
 
     Click $H[$L.noteTab]; Start-Sleep -Milliseconds 300; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 300
     # the list keeps its scroll position between visits, and Home/PageUp/wheel do not scroll it up.
