@@ -16,12 +16,13 @@
 <body>
   <header class="app-header">
     <h1><span id="app-name">브리티 메신저 캘린더</span> <span class="badge" id="demo-badge" hidden>샘플</span></h1>
-    <section class="connection" id="collector-bar" aria-label="브리티 연결" hidden>
-      <strong id="collector-title">브리티 쪽지 연결</strong>
-      <span class="small-note" id="collector-status" role="status">브리티에 로그인한 뒤 연결하면 안 읽은 쪽지를 가져옵니다. 가져온 쪽지는 브리티에서 읽음 처리됩니다.</span>
+    <!-- 첫 자료를 받기 전에도 비어 보이지 않게 '준비 중'으로 시작한다(2026-11-16 “아예 비어 있었어”). 샘플은 첫 자료를 받으면 숨긴다. -->
+    <section class="connection" id="collector-bar" aria-label="연결">
+      <strong id="collector-title">준비하고 있습니다…</strong>
+      <span class="small-note" id="collector-status" role="status"></span>
       <!-- 처음 시작(2026-11-15): AI가 없으면 1단계 AI 연결을 먼저 보이고, 브리티 연결은 작은 글 단추로 둔다. -->
       <button type="button" class="button primary" id="collector-ai" hidden>AI 연결</button>
-      <button type="button" class="button" id="collector-connect">브리티 연결</button>
+      <button type="button" class="button" id="collector-connect" hidden>연결</button>
       <button type="button" class="button text-button small" id="start-guide" hidden>처음 시작 안내 ↗</button>
     </section>
     <section class="update-bar" id="update-bar" aria-label="새 판 알림" hidden>

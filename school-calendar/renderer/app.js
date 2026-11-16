@@ -1909,6 +1909,7 @@ function renderCollector() {
   const { name, fullName } = state.messenger;
   $('collector-bar').hidden = !collectorAvailable;
   if (!collectorAvailable) return;
+  $('collector-connect').hidden = false;
   const status = collector?.status || 'idle';
   const auto = state.snapshot.autoRefresh?.notes;
   const checked = collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
