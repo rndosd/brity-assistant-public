@@ -30,6 +30,20 @@ test('켜지지 않는 Codex(권한 오류)는 쓸 수 없는 것으로 본다',
   assert.equal(await codexCli.loginState('C:\\가상\\codex.exe', { run: failing }), 'unusable');
 });
 
+test('설정 파일을 못 읽는 옛 Codex는 로그인 안 됨이 아니라 쓸 수 없는 것으로 본다', async () => {
+  const printing = (code, text) => () => {
+    const child = new EventEmitter();
+    child.kill = () => {};
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => { child.stderr.emit('data', text); child.emit('close', code); });
+    return child;
+  };
+  const configError = 'Error loading configuration: C:\\가상\\.codex\\config.toml:7:16: unknown variant `priority`, expected `fast` or `flex`';
+  assert.equal(await codexCli.loginState('C:\\가상\\codex.cmd', { run: printing(1, configError) }), 'unusable');
+  assert.equal(await codexCli.loginState('C:\\가상\\codex.exe', { run: printing(1, 'Not logged in') }), 'out');
+});
+
 test('npm으로 깐 codex.cmd는 cmd.exe로 감싸 부른다', () => {
   const direct = codexCli.codexCommand('C:\\가상\\codex.exe', ['login']);
   assert.equal(direct.file, 'C:\\가상\\codex.exe');

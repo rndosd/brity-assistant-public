@@ -34,15 +34,27 @@ function codexCommand(executable, args) {
 // codex login status: 로그인돼 있으면 종료 코드 0('in'), 아니면 1("Not logged in", 'out').
 // 켜지지 않는 실행 파일('unusable')도 있다: Codex 데스크톱 앱(WindowsApps) 안의 codex.exe는 다른 프로그램이 켜면
 // 권한 오류(EPERM)가 날 수 있다(2026-11-15 이 PC에서 확인). 그때는 설치 안 된 것으로 보고 공식 설치를 권한다.
+// 옛 Codex(npm 0.111 등)는 새 Codex가 쓴 ~/.codex/config.toml을 못 읽고 곧장 끝난다. 그러면 codex login도 같은 오류로
+// 바로 꺼져 로그인 창이 안 열린 것처럼 보인다(2026-11-16 이 PC). 이때도 쓸 수 없는 것으로 보고 공식 설치를 권한다.
+const CONFIG_ERROR = /error loading config|unknown variant|unknown field|invalid configuration/i;
+
 function loginState(executable, { timeoutMs = 20_000, run = spawn } = {}) {
   return new Promise(resolve => {
     const { file, args, verbatim } = codexCommand(executable, ['login', 'status']);
     let child;
-    try { child = run(file, args, { windowsHide: true, cwd: os.homedir(), stdio: 'ignore', windowsVerbatimArguments: verbatim }); }
+    try { child = run(file, args, { windowsHide: true, cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: verbatim }); }
     catch { resolve('unusable'); return; }
+    let log = '';
+    const keep = chunk => { if (log.length < 8 * 1024) log += chunk; };
+    child.stdout?.on('data', keep);
+    child.stderr?.on('data', keep);
     const timer = setTimeout(() => { child.kill(); resolve('out'); }, timeoutMs);
     child.on('error', () => { clearTimeout(timer); resolve('unusable'); });
-    child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? 'in' : 'out'); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code === 0) return resolve('in');
+      resolve(CONFIG_ERROR.test(log) ? 'unusable' : 'out');
+    });
   });
 }
 
