@@ -956,7 +956,16 @@ try {
                 # another note with the same time and sender: keep looking
             } elseif ($retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
                 $result.attached = Get-SavedAttachmentCount $retryNote
-                if ($expired) { $result.attachStatus = 'expired' }
+                if ($expired) {
+                    $result.attachStatus = 'expired'
+                    # remember it, so the calendar stops offering "download again" for this note
+                    if ($retryNote.attachStatus -ne 'saved' -and $retryNote.attachStatus -ne 'expired') {
+                        $updated = [ordered]@{}
+                        foreach ($prop in $retryNote.PSObject.Properties) { $updated[$prop.Name] = $prop.Value }
+                        $updated.attachStatus = 'expired'
+                        try { Write-Note ([pscustomobject]$updated) $notePath $true } catch {}
+                    }
+                }
                 elseif (!$hasAttachments) { $result.attachStatus = 'review' }
                 elseif ($attCount -gt 0 -and $result.attached -eq $attCount) { $result.attachStatus = 'already-saved' }
                 else {

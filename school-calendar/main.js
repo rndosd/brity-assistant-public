@@ -611,6 +611,9 @@ async function retryNoteAttachments(id) {
       throw new CalendarError('현재 캘린더의 GOE 수집 폴더를 확인하지 못했습니다.');
     }
     const result = await retryGoeAttachments(note.id, { ...collectorOptions, signal: lifetime.signal });
+    if (result.status === 'in-use' && result.busyReason === 'note-open') {
+      throw new CalendarError('GOE 메신저에 쪽지 창이 열려 있어 받지 않았습니다. 쪽지 창을 닫은 뒤 다시 눌러 주세요.');
+    }
     if (result.status === 'in-use' || result.status === 'conflict') {
       throw new CalendarError('GOE 메신저를 처리 중입니다. 잠시 뒤 캘린더에서 다시 눌러 주세요.');
     }
