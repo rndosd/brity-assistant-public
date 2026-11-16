@@ -99,6 +99,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
@@ -697,7 +698,13 @@ function Write-Note($Note, [string]$Target, [bool]$Replace = $false) {
 
 # show the main window without activating it (put back at the end)
 $wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVisible($main)
+$widenedFrom = $null
 function Restore-Main {
+    if ($widenedFrom) {
+        $o = $widenedFrom
+        [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $o.L, $o.T, $o.Rt - $o.L, $o.B - $o.T, 0x14)
+        $script:widenedFrom = $null
+    }
     if (Goe-IsForeground) { return }
     if ($wasHidden) { [void][GoeWin.W]::ShowWindow($main, 0) } elseif ($wasMin) { [void][GoeWin.W]::ShowWindow($main, 7) }
 }
@@ -717,7 +724,12 @@ function Read-Rows {
     # the selected box button is darker than the other one
     $bIn = Avg-Bright $bmp ($ir.L - $mr.L + 5) ($ir.Rt - $mr.L - 5) ($ir.T - $mr.T + 3) ($ir.B - $mr.T - 3)
     $bSent = Avg-Bright $bmp ($sr.L - $mr.L + 5) ($sr.Rt - $mr.L - 5) ($sr.T - $mr.T + 3) ($sr.B - $mr.T - 3)
-    $timeLines = @($o | Where-Object { $_.y -ge $listTop + 5 -and $_.y -lt $listBottom - 50 -and $_.x -ge $timeMinX -and (Parse-ListTime $_.t) })
+    # A row's time is found by its "yyyy-MM-dd am/pm hh:mm" shape alone, not by where it sits, so the GOE
+    # window width does not matter (a fixed column cut missed every row in a narrow window, 2026-11-16).
+    # If a title also holds such text, the rightmost one on that line is the row's time.
+    $timeLines = @($o | Where-Object { $_.y -ge $listTop + 5 -and $_.y -lt $listBottom - 50 -and (Parse-ListTime $_.t) } |
+        Group-Object { [Math]::Round($_.y / 8) } | ForEach-Object { $_.Group | Sort-Object x -Descending | Select-Object -First 1 } |
+        Sort-Object y)
     # Pixel offsets below were measured at a 70 px row. If GOE draws larger rows (display scaling),
     # scale them by the measured row pitch.
     $k = 1.0
@@ -734,6 +746,8 @@ function Read-Rows {
         # title and sender sit left of this row's own time text
         $title = ($o | Where-Object { [Math]::Abs($_.y - $t.y) -lt (S 6) -and $_.x -lt $t.x } | Select-Object -First 1).t
         $sender = ($o | Where-Object { $_.y -gt $t.y + (S 10) -and $_.y -lt $t.y + (S 35) -and $_.x -lt $t.x } | Select-Object -First 1).t
+        # OCR may read the title and the time as one line: keep the text before the date as the title
+        if (!$title) { $title = ($t.t -replace '\s*\d{4}-\d{2}-\d{2}.*$', '').Trim() }
         [pscustomobject]@{
             datetime = $dt; titleOcr = $title; sender = (Clean-Sender $sender)
             unread = ((Count-Yellow $bmp ($listRight - (S 56)) ($listRight - (S 29)) ($top + (S 40)) ($top + (S 64))) -gt (40 * $k * $k))
@@ -757,12 +771,20 @@ try {
         while ([GoeWin.W]::IsIconic($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
         Start-Sleep -Milliseconds 300
     }
+    # A small GOE window squeezes the inbox/sent buttons (300 px wide) or shows too few rows to page through
+    # (420 px high) (2026-11-16). Enlarge it to GOE's usual size only while reading, without moving or
+    # activating it; Restore-Main puts the size back. PrintWindow reads it even if it runs off screen.
+    $mr = Get-Rect $main
+    if ($mr.Rt - $mr.L -lt 360 -or $mr.B - $mr.T -lt 585) {
+        $script:widenedFrom = $mr
+        [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $mr.L, $mr.T,
+            [Math]::Max(360, $mr.Rt - $mr.L), [Math]::Max(585, $mr.B - $mr.T), 0x14)
+        Start-Sleep -Milliseconds 400
+    }
 
     $mr = Get-Rect $main; $lr = Get-Rect $H.list; $ir = Get-Rect $H[$L.inboxButton]; $sr = Get-Rect $H[$L.sentButton]
     $listTop = $lr.T - $mr.T; $listBottom = $lr.B - $mr.T; $listLeft = $lr.L - $mr.L; $listRight = $lr.Rt - $mr.L
-    # In a narrow GOE window the time text starts just left of 60% of the list (x=201 of 340, 2026-11-16),
-    # so the cut is 40%; a time is also recognised by its date pattern, so titles never pass for one.
-    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)
+    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)  # debug output only
 
     Click $H[$L.noteTab]; Start-Sleep -Milliseconds 300; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 300
     # the list keeps its scroll position between visits, and Home/PageUp/wheel do not scroll it up.
