@@ -9,7 +9,8 @@ const { CalendarStore, CalendarError } = require('./store');
 const { apiProviders, refineWithProvider, classifierSample, cleanReplyBody } = require('./ai-provider');
 const claudeCli = require('./claude-cli');
 const codexCli = require('./codex-cli');
-const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, retryGoeAttachments } = require('./collector-link');
+const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, openGoeReply, retryGoeAttachments } = require('./collector-link');
+const GOE_NOTE_ID = /^goe_\d{12}_[a-f0-9]{8}$/;
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
 const updater = require('./updater');
@@ -19,7 +20,7 @@ const { spawn } = require('node:child_process');
 
 const goeEdition = process.env.SCHOOL_CALENDAR_GOE === '1';
 const messenger = goeEdition
-  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, supportsReply: false }
+  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, supportsReply: true }
   : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, supportsReply: true };
 const launcherName = goeEdition ? 'GOE Messenger Calendar.exe' : 'Brity Messenger Calendar.exe';
 const view = path.join(__dirname, 'renderer', 'index.html');
@@ -628,6 +629,28 @@ async function retryNoteAttachments(id) {
   }
 }
 
+// GOE판 답장(2026-11-16 “답장기능도 브리티처럼”): 수집기가 GOE에서 그 쪽지를 찾아 열고 답장 단추를 누른다.
+async function replyInGoe(note) {
+  if (!GOE_NOTE_ID.test(note.id ?? '')) throw new CalendarError('GOE 메신저에서 가져온 쪽지만 답장창을 열 수 있습니다.');
+  brityReplyRun = openGoeReply(note.id, collectorOptions);
+  try {
+    const result = await brityReplyRun;
+    if (result.status === 'ready') {
+      if (result.reply === 'opened' || result.reply === 'opened-background') return { foreground: result.reply === 'opened' };
+      if (result.reply === 'reply-unavailable') return { foreground: false, notice: 'GOE 메신저에 쪽지를 띄웠습니다. 답장 단추를 찾지 못해 답장창은 열지 않았습니다. 쪽지 창에서 답장을 눌러 주세요.' };
+      if (result.reply === 'reply-unconfirmed') return { foreground: false, notice: 'GOE 메신저에 쪽지를 띄우고 답장을 눌렀습니다. 답장창이 열렸는지는 확인하지 못했습니다. 작업 표시줄에서 GOE 메신저 창을 확인해 주세요.' };
+    }
+    const messages = {
+      'in-use': 'GOE 메신저에 열린 쪽지 창이 있거나 쓰는 중이라 열지 않았습니다. 쪽지 창을 닫은 뒤 다시 눌러 주세요.',
+      offline: 'GOE 메신저에 로그인한 뒤 다시 눌러 주세요.',
+      conflict: 'GOE 메신저에서 쪽지를 가져오는 중입니다. 잠시 뒤 다시 눌러 주세요.'
+    };
+    throw new CalendarError(messages[result.status] || 'GOE 메신저 쪽지함에서 이 쪽지를 찾지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.');
+  } finally {
+    brityReplyRun = null;
+  }
+}
+
 async function replyInBrity(id) {
   if (!messenger.supportsReply || demo || closing) throw new CalendarError(`현재는 ${messenger.name} 답장창을 열 수 없습니다.`);
   const task = store.getTask(id);
@@ -635,7 +658,8 @@ async function replyInBrity(id) {
   if (note?.verified !== true || store.inbox.status !== 'ready') {
     throw new CalendarError('캘린더에서 원문이 확인된 쪽지의 답장창을 열 수 있습니다.');
   }
-  if (collectorRun || chatRun || brityReplyRun) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  if (collectorRun || chatRun || brityReplyRun) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
+  if (goeEdition) return replyInGoe(note);
   brityReplyRun = openBrityReply(note, collectorOptions);
   try {
     const result = await brityReplyRun;

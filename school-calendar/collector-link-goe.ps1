@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory)][ValidateSet('Inspect', 'Tick', 'ChatRooms', 'Chats', 'RangePreview', 'Range', 'RetryAttachments')][string]$Mode,
+    [Parameter(Mandatory)][ValidateSet('Inspect', 'Tick', 'ChatRooms', 'Chats', 'RangePreview', 'Range', 'RetryAttachments', 'Reply')][string]$Mode,
     [Parameter(Mandatory)][string]$ScriptsDir,
     [string]$ChatDirectory,
     [switch]$Force,
@@ -20,7 +20,7 @@ $locked = $false
 try {
     if ($Mode -in 'ChatRooms', 'Chats') { return }
     if ($Mode -in 'RangePreview', 'Range' -and -not ($From -or $To)) { return }
-    if ($Mode -eq 'RetryAttachments' -and -not $NoteId) { return }
+    if ($Mode -in 'RetryAttachments', 'Reply' -and -not $NoteId) { return }
 
     $collect = Join-Path $ScriptsDir 'collect-goe.ps1'
     if (-not (Test-Path -LiteralPath $collect -PathType Leaf) -or
@@ -38,6 +38,10 @@ try {
     if ($PSBoundParameters.ContainsKey('AttachmentFolder')) { $collectArgs.AttachmentFolder = $AttachmentFolder }
     switch ($Mode) {
         'Inspect' { $collectArgs.Inspect = $true }
+        'Reply' {
+            $collectArgs.RetryId = $NoteId
+            $collectArgs.Reply = $true
+        }
         'RetryAttachments' {
             $collectArgs.RetryId = $NoteId
             $collectArgs.MaxPages = 60
@@ -81,6 +85,7 @@ try {
         $result.attachStatus = $collected.attachStatus
         $result.attached = $collected.attached
     }
+    if ($Mode -eq 'Reply' -and $collected) { $result.reply = $collected.reply }
 } catch {
     $result.status = 'unavailable'
 } finally {

@@ -11,6 +11,7 @@ const statuses = new Set(['ready', 'offline', 'unavailable', 'conflict', 'unveri
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const GOE_NOTE_ID = /^goe_\d{12}_[a-f0-9]{8}$/;
 const GOE_ATTACHMENT_RESULTS = new Set(['saved', 'already-saved', 'folder-not-configured', 'review', 'failed', 'expired', 'not-found', 'none']);
+const GOE_REPLY_RESULTS = new Set(['opened', 'opened-background', 'reply-unavailable', 'reply-unconfirmed', 'not-found']);
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 const HOLD_REASONS = new Set(['missing', 'unstable', 'mismatch', 'error', 'gap']);
 // 방마다 보류·끊김 사유(collect-chats.ps1). 형식이 맞는 것만 넘긴다.
@@ -29,13 +30,14 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
 
   const chatMode = mode === 'Chats' || mode === 'ChatRooms';
   const retry = mode === 'RetryAttachments';
-  if ((goe && chatMode) || (retry && (!goe || typeof noteId !== 'string' || !GOE_NOTE_ID.test(noteId)))) {
+  const reply = mode === 'Reply';
+  if ((goe && chatMode) || ((retry || reply) && (!goe || typeof noteId !== 'string' || !GOE_NOTE_ID.test(noteId)))) {
     return Promise.resolve(unavailable);
   }
   const script = path.join(__dirname, goe ? 'collector-link-goe.ps1' : 'collector-link.ps1');
   const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode, '-ScriptsDir', scriptsDir];
   if (goe && attachmentFolder && ['Tick', 'Range', 'RetryAttachments'].includes(mode)) args.push('-AttachmentFolder', attachmentFolder);
-  if (retry) args.push('-NoteId', noteId);
+  if (retry || reply) args.push('-NoteId', noteId);
   if (chatMode) {
     if (typeof chatDirectory !== 'string' || !path.isAbsolute(chatDirectory)) return Promise.resolve(unavailable);
     args.push('-ChatDirectory', chatDirectory);
@@ -55,6 +57,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
     // 기간 세기는 쪽지 목록을 끝까지 내려 가며 읽는다(한 번에 5줄쯤, 약 1초).
     if (mode === 'RangePreview') options.timeout = 180_000;
     if (mode === 'ChatRooms') options.maxBuffer = 512 * 1024;
+    // 답장: 옛 쪽지는 목록을 내려 가며 찾는다.
+    if (reply) options.timeout = 90_000;
     const child = execFile(powershell, args, options, (error, stdout) => {
       if (error) return resolve(unavailable);
       try {
@@ -70,6 +74,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           value.attachStatus = GOE_ATTACHMENT_RESULTS.has(result.attachStatus) ? result.attachStatus : 'failed';
           value.attached = count(result.attached);
         }
+        if (reply) value.reply = GOE_REPLY_RESULTS.has(result.reply) ? result.reply : 'not-found';
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {
             visible: count(result.visible), matched: count(result.matched), fresh: count(result.fresh), unknown: count(result.unknown),
@@ -135,8 +140,13 @@ function collectRange({ preview = false, ...options }) {
   return runCollector(preview ? 'RangePreview' : 'Range', options);
 }
 
+// GOE판 답장: 그 쪽지를 GOE에서 찾아 열고 답장 단추를 누른다.
+function openGoeReply(noteId, options) {
+  return runCollector('Reply', { ...options, noteId });
+}
+
 function retryGoeAttachments(noteId, options) {
   return runCollector('RetryAttachments', { ...options, noteId });
 }
 
-module.exports = { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, retryGoeAttachments };
+module.exports = { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, openGoeReply, retryGoeAttachments };

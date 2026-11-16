@@ -14,6 +14,7 @@ param(
     [string]$From,
     [string]$To,
     [ValidatePattern('^goe_\d{12}_[a-f0-9]{8}$')][string]$RetryId,
+    [switch]$Reply,             # with -RetryId: open that note in GOE and press its reply button (nothing is saved)
     [AllowEmptyString()][string]$AttachmentFolder,
     [string]$Inbox = (Join-Path $PSScriptRoot 'inbox')
 )
@@ -30,12 +31,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     status = 'ok'; visible = 0; matched = 0; fresh = 0; unknown = 0
-    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0
+    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'
 }
 
 function Publish-Result([string]$Reason) {
     if ($ResultObject) { return [pscustomobject]$result }
     if ($Reason) { Write-Output "status=$($result.status) reason=$Reason"; return }
+    if ($RetryId -and $Reply) { Write-Output "status=$($result.status) reply=$($result.reply)"; return }
     if ($RetryId) { Write-Output "status=$($result.status) attachStatus=$($result.attachStatus) filesSaved=$($result.attached)"; return }
     Write-Output ("status={0} rowsSeen={1} opened={2} verified={3} filesSaved={4} timeUnchecked={5}" -f
         $result.status, $result.visible, $result.opened,
@@ -64,9 +66,12 @@ if ($RetryId) {
             if ($savedTime -lt $retryTime) { $retryTime = $savedTime }
         }
     } catch { Publish-Result ''; return }
-    if ($retryTime -lt (Get-Date).AddDays(-7)) { $result.attachStatus = 'expired'; Publish-Result ''; return }
+    if (!$Reply -and $retryTime -lt (Get-Date).AddDays(-7)) { $result.attachStatus = 'expired'; Publish-Result ''; return }
     $From = $To = $retryNote.datetime.Substring(0, 10)
-    $Download = $IncludeRead = $true
+    $IncludeRead = $true
+    $Download = -not $Reply
+    # an old note sits further down the list
+    if ($Reply -and $MaxPages -lt 60) { $MaxPages = 60 }
     $Force = $false
 }
 $range = $RangeImport -or $From -or $To
@@ -99,6 +104,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
@@ -268,6 +274,28 @@ function DoubleClick($h, $x, $y) {
 }
 function Get-NoteWindow {
     $AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object { $_.Current.ClassName -eq $L.childClass -and $_.Current.Name -eq $L.noteWindow } | Select-Object -First 1
+}
+$keepNote = $false
+# Press the reply button in an open note window and bring the new reply window to the front.
+function Open-GoeReply($NoteEl, $Elements) {
+    $button = $Elements | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.replyButton } | Select-Object -First 1
+    if (!$button -or !$button.Current.IsEnabled) { return 'reply-unavailable' }
+    $before = @{}
+    foreach ($w in $AE::RootElement.FindAll($TS::Children, $pidCond)) { $before[[int64]$w.Current.NativeWindowHandle] = $true }
+    Click $button.Current.NativeWindowHandle
+    for ($i = 0; $i -lt 50; $i++) {
+        Start-Sleep -Milliseconds 100
+        $new = @($AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object {
+            !$before.ContainsKey([int64]$_.Current.NativeWindowHandle) -and [GoeWin.W]::IsWindowVisible([IntPtr]$_.Current.NativeWindowHandle)
+        })
+        if ($new.Count) {
+            $h = [IntPtr]$new[0].Current.NativeWindowHandle
+            [void][GoeWin.W]::SetForegroundWindow($h)
+            if ([GoeWin.W]::GetForegroundWindow() -eq $h) { return 'opened' }
+            return 'opened-background'
+        }
+    }
+    'reply-unconfirmed'
 }
 function Close-Note($n) {
     if (-not $n) { return }
@@ -448,11 +476,17 @@ function Get-SavedAttachmentCount($Note) {
     $paths.Count
 }
 
-function Read-AttachmentNames($Lines, $Header, [int]$Count) {
+function Read-AttachmentNames($Lines, $Header, [int]$Count, $NextRow) {
     if (-not $Header) { return }
     $sizeSuffix = '\s*[\(\[]?\s*[\d.,]+\s*(?:KB|MB|GB|B)\s*[\)\]]?\s*$'
-    $lastY = $Header.y + 50 + 32 * [Math]::Max(0, $Count - 1)
-    foreach ($line in $Lines | Where-Object { $_.y -ge $Header.y + 20 -and $_.y -le $lastY -and $_.x -lt 110 }) {
+    # A wide note window lays several files side by side in one row, so read every line between the header and
+    # the recipients row, not only the left column (2026-11-16).
+    $lastY = if ($NextRow) { $NextRow.y - 5 } else { $Header.y + 50 + 32 * [Math]::Max(0, $Count - 1) }
+    foreach ($line in $Lines | Where-Object { $_.y -ge $Header.y + 20 -and $_.y -le $lastY } | Sort-Object y, x) {
+        # garbage after the extension (a misread size) is dropped: "name.png 92 <x" -> "name.png"
+        if ($line.t -match '^(?<n>.+?\.[A-Za-z][A-Za-z0-9]{1,6})\s+\S{0,3}\s*\S{0,3}$' -and $line.t -notmatch $sizeSuffix) {
+            $Matches.n.Trim(); continue
+        }
         if ($line.t -match $sizeSuffix) {
             $name = ($line.t -replace $sizeSuffix, '').Trim()
             if ($name) { $name }
@@ -866,11 +900,15 @@ try {
             if (-not $title) { $title = $r.titleOcr }
             $recLine = ($nl | Where-Object { $_.t -match $L.recipientHeader } | Select-Object -First 1).t
             if ($recLine) { $recLine = $recLine.Substring($recLine.IndexOf($L.recipientHeader)) }
-            $attachHeader = $nl | Where-Object { $_.t -match $L.attachHeader } | Select-Object -First 1
+            # The attachment header is a short line below the body ("1^1 <attachments> (3<unit>)"); a body sentence
+            # that mentions attachments is longer, so take the last short match (2026-11-16, 27 notes misread).
+            $attachHeader = $nl | Where-Object { $_.t -match $L.attachHeader -and $_.t.Trim().Length -le 24 } | Select-Object -Last 1
             $attLine = $attachHeader.t
             $attCount = 0
-            if ($attLine -match '\(\s*(\d{1,3})\s*\)') { $attCount = [int]$Matches[1] }
-            $fileNames = @(Read-AttachmentNames $nl $attachHeader $attCount)
+            # the count may carry a unit after the number, e.g. "(3" + unit + ")"
+            if ($attLine -match '\(\s*(\d{1,3})\s*\D{0,2}\)') { $attCount = [int]$Matches[1] }
+            $recipientRow = $nl | Where-Object { $attachHeader -and $_.y -gt $attachHeader.y -and $_.t -match $L.recipientHeader } | Select-Object -First 1
+            $fileNames = @(Read-AttachmentNames $nl $attachHeader $attCount $recipientRow)
             $fileSizes = @(Read-AttachmentSizes $nl $attachHeader $attCount)
             $hasAttachments = $attCount -gt 0 -or $fileNames.Count -gt 0 -or $r.attach -or
                 [bool]($els | Where-Object { $_.Current.Name -eq $L.downloadAll } | Select-Object -First 1)
@@ -894,7 +932,14 @@ try {
                 recipients = $recLine; files = $fileNames; saved = @(); body = $body
                 ocr = [pscustomobject]@{ sentLine = $sentLine; attachLine = $attLine; listTitle = $r.titleOcr }
             }
-            if ($retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
+            if ($Reply -and $retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
+                # leave the note (and the reply window) open for the teacher
+                $result.reply = Open-GoeReply $n $els
+                $keepNote = $true
+                $stop = $true
+            } elseif ($Reply -and $retryNote) {
+                # another note with the same time and sender: keep looking
+            } elseif ($retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
                 $result.attached = Get-SavedAttachmentCount $retryNote
                 if ($expired) { $result.attachStatus = 'expired' }
                 elseif (!$hasAttachments) { $result.attachStatus = 'review' }
@@ -922,7 +967,7 @@ try {
                 $result.imported++
                 $opened.Add($note)
             }
-            if ([GoeWin.W]::IsWindow($nh)) { Close-Note $ownedNote }
+            if (!$keepNote -and [GoeWin.W]::IsWindow($nh)) { Close-Note $ownedNote }
             $ownedNote = $null
             if ($stop) { break }
         }

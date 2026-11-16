@@ -1847,6 +1847,7 @@ function renderMessenger() {
   $('range-goe-help').hidden = !goe;
   $('downloads-help').textContent = goe ? `${attachmentFolderHelp} 아래 폴더에는 새 쪽지 첨부의 사본을 저장합니다.` : '새로 받은 쪽지의 첨부를 여기에 복사합니다.';
   $('first-import-retry').textContent = `${name} 연결 다시 확인`;
+  $('brity-reply').textContent = `${name}에서 답장`;
 }
 
 function sync(snapshot) {
@@ -3259,13 +3260,14 @@ $('brity-reply').addEventListener('click', async () => {
   const id = state.selected;
   if (!state.messenger.supportsReply || !id || state.detail?.note?.verified !== true) return;
   $('brity-reply').disabled = true;
-  setMessage('detail-message', '브리티에서 쪽지를 찾고 있습니다.');
+  const { name } = state.messenger;
+  setMessage('detail-message', `${name}에서 쪽지를 찾고 있습니다.`);
   try {
     const { foreground, notice } = await api.replyInBrity(id);
     // notice: 쪽지는 띄웠지만 답장창은 못 연 경우. 금방 사라지지 않게 flash 대신 그대로 둔다.
     if (id === state.selected) {
       if (notice) setMessage('detail-message', notice);
-      else flash('detail-message', foreground ? '브리티 답장창을 열었습니다.' : '답장창을 열었습니다. 작업 표시줄에서 브리티 창을 선택해 주세요.');
+      else flash('detail-message', foreground ? `${name} 답장창을 열었습니다.` : `답장창을 열었습니다. 작업 표시줄에서 ${name} 창을 선택해 주세요.`);
     }
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
