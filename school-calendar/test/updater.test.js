@@ -73,3 +73,21 @@ test('패치는 지문이 맞을 때만 풀고, 앱 코드·수집기 스크립�
   assert.throws(() => updater.patchEntries([{ name: 'School-Calendar-Patch/files/calendar-data/tasks.json', data: Buffer.from('') }]), /Unexpected/);
   assert.throws(() => updater.patchEntries([{ name: 'School-Calendar-Patch/update-apply.ps1', data: Buffer.from('') }]), /Incomplete/);
 });
+
+test('GOE판과 브리티판은 서로의 업데이트 정보와 패치를 거절한다', async () => {
+  const goeUrl = updater.assetUrl(manifestUrl, 'update-goe.json');
+  const patchFile = 'goe-messenger-calendar-patch-0.4.0.zip';
+  const general = { version: '0.4.0', file: 'brity-messenger-calendar-patch-0.4.0.zip', sha256: 'a'.repeat(64) };
+  const goe = { ...general, edition: 'goe', file: patchFile };
+  const fetchImpl = fakeFetch({ [manifestUrl]: JSON.stringify(general), [goeUrl]: JSON.stringify(goe) });
+  const options = { current: '0.3.0', fetchImpl };
+  assert.equal((await updater.checkForUpdate({ ...options, manifestUrl: goeUrl, goe: true })).file, patchFile);
+  await assert.rejects(updater.checkForUpdate({ ...options, manifestUrl, goe: true }), /Unexpected update edition/);
+  await assert.rejects(updater.checkForUpdate({ ...options, manifestUrl: goeUrl }), /Unexpected update edition/);
+
+  const { readZip } = require('../backup');
+  const goePatch = readZip(patchZip([{ name: 'School-Calendar-Patch/goe.patch', data: Buffer.from('goe') }]));
+  assert.ok(updater.patchEntries(goePatch, true).some(entry => entry.name === 'goe.patch'));
+  assert.throws(() => updater.patchEntries(goePatch), /Unexpected patch edition/);
+  assert.throws(() => updater.patchEntries(readZip(patchZip()), true), /Unexpected patch edition/);
+});

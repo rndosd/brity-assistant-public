@@ -4,12 +4,13 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-const script = path.join(__dirname, 'collector-link.ps1');
 const unavailable = Object.freeze({ status: 'unavailable', inboxDir: null, managed: false, imported: 0 });
 // in-use: 선생님이 브리티를 쓰는 중이라 쪽지를 가져오지 않았다(캘린더가 확인을 묻는다).
 const statuses = new Set(['ready', 'offline', 'unavailable', 'conflict', 'unverified', 'in-use']);
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const GOE_NOTE_ID = /^goe_\d{12}_[a-f0-9]{8}$/;
+const GOE_ATTACHMENT_RESULTS = new Set(['saved', 'already-saved', 'folder-not-configured', 'review', 'failed', 'expired', 'not-found', 'none']);
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 const HOLD_REASONS = new Set(['missing', 'unstable', 'mismatch', 'error', 'gap']);
 // 방마다 보류·끊김 사유(collect-chats.ps1). 형식이 맞는 것만 넘긴다.
@@ -21,13 +22,20 @@ function roomHolds(value) {
 
 const REASONS = new Set(['not-running', 'tray', 'menu-open', 'not-minimized', 'in-use', 'screen']);
 
-function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '' } = {}) {
+function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '', goe = false, attachmentFolder, noteId } = {}) {
   if (process.platform !== 'win32' || typeof scriptsDir !== 'string' || !path.isAbsolute(scriptsDir) || signal?.aborted) {
     return Promise.resolve(unavailable);
   }
 
-  const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode, '-ScriptsDir', scriptsDir];
   const chatMode = mode === 'Chats' || mode === 'ChatRooms';
+  const retry = mode === 'RetryAttachments';
+  if ((goe && chatMode) || (retry && (!goe || typeof noteId !== 'string' || !GOE_NOTE_ID.test(noteId)))) {
+    return Promise.resolve(unavailable);
+  }
+  const script = path.join(__dirname, goe ? 'collector-link-goe.ps1' : 'collector-link.ps1');
+  const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode, '-ScriptsDir', scriptsDir];
+  if (goe && attachmentFolder && ['Tick', 'Range', 'RetryAttachments'].includes(mode)) args.push('-AttachmentFolder', attachmentFolder);
+  if (retry) args.push('-NoteId', noteId);
   if (chatMode) {
     if (typeof chatDirectory !== 'string' || !path.isAbsolute(chatDirectory)) return Promise.resolve(unavailable);
     args.push('-ChatDirectory', chatDirectory);
@@ -58,6 +66,10 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           managed: result.managed === true,
           imported: count(result.imported)
         };
+        if (retry) {
+          value.attachStatus = GOE_ATTACHMENT_RESULTS.has(result.attachStatus) ? result.attachStatus : 'failed';
+          value.attached = count(result.attached);
+        }
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {
             visible: count(result.visible), matched: count(result.matched), fresh: count(result.fresh), unknown: count(result.unknown),
@@ -95,6 +107,7 @@ function collectOnce(options) {
 
 // 대화방만 읽는다(쪽지와 따로 주기를 둔다).
 function collectChats(options) {
+  if (options?.goe) return Promise.resolve(unavailable);
   if (!Array.isArray(options?.roomKeys) || !options.roomKeys.length) return Promise.resolve({ status: 'ready', read: 0, added: 0 });
   return runCollector('Chats', options);
 }
@@ -122,4 +135,8 @@ function collectRange({ preview = false, ...options }) {
   return runCollector(preview ? 'RangePreview' : 'Range', options);
 }
 
-module.exports = { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply };
+function retryGoeAttachments(noteId, options) {
+  return runCollector('RetryAttachments', { ...options, noteId });
+}
+
+module.exports = { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, retryGoeAttachments };

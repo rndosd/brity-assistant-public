@@ -15,7 +15,7 @@
 </head>
 <body>
   <header class="app-header">
-    <h1>브리티 메신저 캘린더 <span class="badge" id="demo-badge" hidden>샘플</span></h1>
+    <h1><span id="app-name">브리티 메신저 캘린더</span> <span class="badge" id="demo-badge" hidden>샘플</span></h1>
     <section class="connection" id="collector-bar" aria-label="브리티 연결" hidden>
       <strong id="collector-title">브리티 쪽지 연결</strong>
       <span class="small-note" id="collector-status" role="status">브리티에 로그인한 뒤 연결하면 안 읽은 쪽지를 가져옵니다. 가져온 쪽지는 브리티에서 읽음 처리됩니다.</span>
@@ -97,7 +97,7 @@
           <li><span class="disc" aria-hidden="true"></span>일정</li>
           <li><span class="bar" aria-hidden="true"></span>기간</li>
           <li class="ref-label">확인할 것</li>
-          <li><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
+          <li id="chat-candidate-legend"><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
         </ul>
         <div class="calendar-controls" aria-label="달력 이동">
           <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
@@ -176,8 +176,15 @@
         </section>
 
         <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
-          <div class="detail-section-heading"><h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3><button type="button" class="button text-button small" id="attachment-folder" hidden>폴더 열기</button></div>
+          <div class="detail-section-heading">
+            <h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3>
+            <div class="ai-actions">
+              <button type="button" class="button text-button small" id="goe-attachment-retry" hidden>첨부만 다시 받기</button>
+              <button type="button" class="button text-button small" id="attachment-folder" hidden>폴더 열기</button>
+            </div>
+          </div>
           <ul class="attachment-list" id="attachments"></ul>
+          <p class="small-note" id="attachment-status" role="status" hidden></p>
         </section>
 
         <section class="detail-section" id="refine-section" aria-labelledby="refine-heading">
@@ -387,7 +394,7 @@
       </fieldset>
 
       <fieldset class="settings-section" id="auto-settings" data-settings-tab="fetch">
-        <legend>브리티에서 가져오기</legend>
+        <legend id="fetch-legend">브리티에서 가져오기</legend>
         <p class="small-note section-note"><b>자동</b>은 캘린더가 켜져 있는 동안 주기마다, <b>지금 가져오기</b>는 바로 한 번 가져옵니다.</p>
         <div class="fetch-group">
           <h3 class="fetch-title">쪽지</h3>
@@ -398,7 +405,7 @@
           </div>
           <p class="small-note" id="notes-collection-status" role="status" hidden></p>
         </div>
-        <div class="fetch-group">
+        <div class="fetch-group" id="chat-fetch">
           <h3 class="fetch-title">대화방</h3>
           <div class="auto-row">
             <label class="check-field"><input type="checkbox" id="auto-chats">자동으로 가져오기</label>
@@ -425,7 +432,7 @@
         </div>
         <p class="small-note" id="auto-status" role="status" hidden></p>
         <div class="fetch-reread">
-          <p class="small-note">브리티는 건드리지 않고, 이미 받아 둔 쪽지와 대화만 다시 읽습니다. 평소에는 누를 일이 없습니다.</p>
+          <p class="small-note" id="fetch-reread-help">브리티는 건드리지 않고, 이미 받아 둔 쪽지와 대화만 다시 읽습니다. 평소에는 누를 일이 없습니다.</p>
           <div class="ai-actions">
             <button type="button" class="button text-button small" id="refresh">받아 둔 자료 다시 읽기</button>
             <p class="small-note" id="refresh-status" role="status"></p>
@@ -435,7 +442,8 @@
 
       <fieldset class="settings-section" id="range-settings" data-settings-tab="fetch">
         <legend>지난 쪽지 불러오기</legend>
-        <p class="small-note section-note">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 불러오는 동안 브리티의 쪽지 목록이 움직입니다. 기간이 길면 ‘먼저 몇 건인지 보기’로 건수를 미리 볼 수 있습니다(꼭 하지 않아도 됩니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
+        <p class="small-note section-note" id="range-brity-help">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 불러오는 동안 브리티의 쪽지 목록이 움직입니다. 기간이 길면 ‘먼저 몇 건인지 보기’로 건수를 미리 볼 수 있습니다(꼭 하지 않아도 됩니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
+        <p class="small-note section-note" id="range-goe-help" hidden>GOE 메신저 수신함에서 기간 안의 쪽지를 불러옵니다. 정렬이 <b>‘읽지 않은 쪽지 먼저’</b>이면 읽은 옛 쪽지에 닿지 못할 수 있습니다. 읽은 쪽지도 가져오려면 날짜순으로 바꿔 주세요. 안 읽은 쪽지는 열면서 읽음 처리됩니다. 보낸 지 7일 이내인 쪽지의 첨부를 내려받습니다.</p>
         <div class="form-grid">
           <label class="field span-2">시작일<input type="date" id="range-from" min="2000-01-01" max="9999-12-31"></label>
           <label class="field span-2">끝일<input type="date" id="range-to" min="2000-01-01" max="9999-12-31"></label>
@@ -482,7 +490,7 @@
 
       <fieldset class="settings-section" id="downloads-settings" data-settings-tab="fetch">
         <legend>첨부 저장 폴더</legend>
-        <p class="small-note section-note">새로 받은 쪽지의 첨부를 여기에 복사합니다.</p>
+        <p class="small-note section-note" id="downloads-help">새로 받은 쪽지의 첨부를 여기에 복사합니다.</p>
         <p class="folder-path" id="downloads-folder"></p>
         <div class="ai-actions">
           <button type="button" class="button" id="downloads-choose">폴더 고르기</button>
@@ -494,7 +502,7 @@
 
       <fieldset class="settings-section" id="backup-settings" data-settings-tab="about">
         <legend>백업</legend>
-        <p class="small-note section-note">업무·설정·정리 기준·대화방 기록과 받은 쪽지·첨부를 ZIP 하나로 저장합니다. 쪽지 원문(동료 이름·학생 관련 내용)이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. AI 키는 넣지 않으므로 다른 PC에서 되돌리면 AI를 다시 연결합니다.</p>
+        <p class="small-note section-note">업무·설정·정리 기준<span id="backup-chat-copy">·대화방 기록</span>과 받은 쪽지·첨부를 ZIP 하나로 저장합니다. 쪽지 원문(동료 이름·학생 관련 내용)이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. AI 키는 넣지 않으므로 다른 PC에서 되돌리면 AI를 다시 연결합니다.</p>
         <div class="ai-actions">
           <button type="button" class="button" id="backup-create">백업 만들기</button>
           <button type="button" class="button text-button small" id="backup-restore">백업에서 되돌리기</button>

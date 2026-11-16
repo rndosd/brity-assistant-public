@@ -141,6 +141,8 @@ const taskModel = (() => {
   // "이영덕 외 48" → 49, "홍길동" → 1, 알 수 없으면 null.
   function recipientCount(value) {
     if (typeof value !== 'string' || !value.trim()) return null;
+    const goe = value.trim().match(/^수신자\s*\(\s*부서\s*:\s*\d+\s*,\s*수신인\s*:\s*(\d+)\s*\)/u);
+    if (goe) return Number(goe[1]) || null;
     const more = value.match(/외\s*(\d+)\s*명?/);
     if (more) return Number(more[1]) + 1;
     return value.split(/[,;]/).map(part => part.trim()).filter(Boolean).length || null;

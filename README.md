@@ -9,6 +9,8 @@
 
 ### ⬇️ [최신 판 내려받기 (Releases)](https://github.com/rndosd/brity-assistant-public/releases/latest)
 
+GOE 메신저용 **GOE 메신저 캘린더**는 [rndosd/goe-messenger-calendar 릴리스](https://github.com/rndosd/goe-messenger-calendar/releases/latest)에서 따로 받습니다.
+
 위 링크에서 **`brity-messenger-calendar-windows-x64-<판>.zip`** 을 받으세요. 이 페이지 위쪽의 초록색 **Code → Download ZIP** 이나 **Source code** 는 프로그램 소스라서 실행 파일이 들어 있지 않습니다.
 
 1. 받은 ZIP을 문서처럼 쓰기 가능한 폴더에 **전체 압축 풀기**합니다. ZIP을 연 채로 안의 파일을 바로 실행하면 켜지지 않습니다.

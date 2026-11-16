@@ -523,6 +523,63 @@ test('새 쪽지 첨부는 다운로드 폴더에 바로 복사하고 기존 파
   assert.equal((await upgraded.attachment(oldTask.id, 0)).path, legacyCopy);
 });
 
+test('GOE에서 이미 다운로드한 동일한 첨부를 그대로 쓰고 내용이 다르면 사본을 만든다', async (t) => {
+  const { root, inboxDir, notes, makeStore } = await setup(t);
+  const downloadsDir = path.join(root, 'Downloads');
+  await fs.mkdir(downloadsDir);
+  const store = await makeStore({ downloadsDir });
+  await store.refresh();
+  const files = [
+    { id: noteId, name: '같은 파일.txt', original: '수집한 내용', expected: '같은 파일.txt' },
+    { id: otherId, name: '바뀐 파일.txt', original: '새로 바뀐 내용', expected: '바뀐 파일 (2).txt' }
+  ];
+  for (const { id, name, original } of files) {
+    const source = path.join(inboxDir, 'files', id, name);
+    const originalPath = path.join(downloadsDir, name);
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, '수집한 내용');
+    await fs.writeFile(originalPath, original);
+    await writeNote(notes, note(id, { source: 'goe', saved: [{ name, path: source, originalPath }] }));
+    const collected = new Date(Date.now() + 2_000);
+    await fs.utimes(path.join(notes, id + '.json'), collected, collected);
+  }
+  await store.refresh();
+  for (const { id, expected } of files) {
+    const task = store.snapshot().tasks.find(item => item.noteId === id);
+    assert.equal((await store.attachment(task.id, 0)).path, path.join(downloadsDir, expected));
+  }
+  assert.deepEqual((await fs.readdir(downloadsDir)).sort(), ['같은 파일.txt', '바뀐 파일 (2).txt', '바뀐 파일.txt']);
+});
+
+test('GOE 첨부만 다시 읽으면 실제 파일 이름을 표시하고 저장된 분류를 보존한다', async (t) => {
+  const { inboxDir, notes, dataDir, makeStore } = await setup(t);
+  const now = new Date();
+  const datetime = new Date(+now - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16).replace('T', ' ');
+  const id = 'goe_202611101101_12345678';
+  const source = note(id, { source: 'goe', datetime, attachCount: 1, attachStatus: 'folder-not-configured', imported: 'range' });
+  await writeNote(notes, source);
+  const store = await makeStore();
+  await store.refresh();
+  const [task] = store.snapshot().tasks;
+  await store.refine(task.id, async () => ({ type: '알아 둘 것', title: '분류한 시험 쪽지', dates: [], summary: '저장된 정리' }));
+  const before = await fs.readFile(path.join(dataDir, 'tasks.json'), 'utf8');
+  const missing = await store.detail(task.id);
+  assert.deepEqual(missing.note.goeAttachments, { count: 1, status: 'folder-not-configured', canRetry: true });
+  assert.deepEqual(missing.note.attachments, []);
+
+  const name = '실제로 저장한 이름.pdf';
+  const file = path.join(inboxDir, 'files', id, name);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, '첨부');
+  await writeNote(notes, { ...source, attachStatus: 'saved', saved: [{ name, path: file }] });
+  await store.refresh();
+  const resolved = await store.detail(task.id);
+  assert.equal(resolved.note.attachments[0].name, name);
+  assert.equal(resolved.note.attachments[0].available, true);
+  assert.deepEqual(resolved.note.goeAttachments, { count: 1, status: 'saved', canRetry: false });
+  assert.equal(await fs.readFile(path.join(dataDir, 'tasks.json'), 'utf8'), before);
+});
+
 test('자동 분류는 초기 쪽지를 보내지 않고, 새로 모은 검증된 쪽지만 대기열에 넣는다', async (t) => {
   const { makeStore, notes } = await setup(t);
   await writeNote(notes, note(noteId));
@@ -643,6 +700,8 @@ test('자동 분류는 개인정보 검사로 막지 않고 보낸다(2026-11-11
   await store.setAutomatic(true);
   await store.refresh();
   await writeNote(notes, note(otherId, { body: '학부모 연락처 010-1234-5678 확인 부탁드립니다.' }));
+  const collected = new Date(Date.now() + 2_000);
+  await fs.utimes(path.join(notes, otherId + '.json'), collected, collected);
   await store.refresh();
   let sent = 0;
   for (let id; (id = store.nextAutomatic());) {

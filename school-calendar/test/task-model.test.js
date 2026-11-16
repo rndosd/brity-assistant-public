@@ -4,6 +4,14 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const model = require('../renderer/task-model');
 
+test('메신저별 수신자 표시에서 실제 인원수를 읽는다', () => {
+  assert.equal(model.recipientCount('수신자 (부서 : 3, 수신인 : 48)'), 48);
+  assert.equal(model.recipientCount('수신자(부서:0,수신인:1)'), 1);
+  assert.equal(model.recipientCount('수신자(부서:2,수신인:0)'), null);
+  assert.equal(model.recipientCount('가상 교사 외 48명'), 49);
+  assert.equal(model.recipientCount('가상 교사, 가상 담당자'), 2);
+});
+
 test('기간 날짜는 시작일·끝일을 갖고, AI가 끝일을 틀리게 주면 시작일 하루(그날)로 남긴다', () => {
   const ai = model.fromResult({
     type: '할 일', title: '독서 주간', summary: '',

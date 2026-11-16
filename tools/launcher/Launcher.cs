@@ -8,13 +8,17 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("브리티 메신저 캘린더")]
-[assembly: AssemblyProduct("브리티 메신저 캘린더")]
-[assembly: AssemblyDescription("브리티 메신저 캘린더 실행기")]
+[assembly: AssemblyTitle(Launcher.Title)]
+[assembly: AssemblyProduct(Launcher.Title)]
+[assembly: AssemblyDescription(Launcher.Title + " 실행기")]
 
 static class Launcher
 {
-    const string Title = "브리티 메신저 캘린더";
+#if GOE
+    internal const string Title = "GOE 메신저 캘린더";
+#else
+    internal const string Title = "브리티 메신저 캘린더";
+#endif
 #if SAMPLE
     const string Arguments = "--demo";
 #else

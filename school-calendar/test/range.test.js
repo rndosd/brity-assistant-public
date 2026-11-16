@@ -9,6 +9,7 @@ const { CalendarStore } = require('../store');
 
 const qaRoot = path.join(__dirname, '..', '.qa');
 const listDate = path.join(__dirname, '..', '..', 'collector', 'list-date.ps1');
+const goeCollector = path.join(__dirname, '..', '..', 'collector', 'goe', 'collect-goe.ps1');
 
 test('브리티 쪽지 목록의 날짜(월·일, 시각, 연도 포함)를 읽고 연도는 오늘보다 늦지 않게 정한다', { skip: process.platform !== 'win32' }, () => {
   const cases = [
@@ -24,6 +25,72 @@ test('브리티 쪽지 목록의 날짜(월·일, 시각, 연도 포함)를 읽�
     cases.map(([text]) => `[string](Get-ListDate '${text.replace(/'/g, "''")}' $today)`).join('; ');
   const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${script}`], { encoding: 'utf8' });
   assert.deepEqual(out.split(/\r?\n/).slice(0, cases.length), cases.map(([, expected]) => expected));
+});
+
+test('GOE 저장 폴더(다운로드 등)에서 쪽지에 적힌 첨부만 골라 저장하고 원본과 다른 파일은 그대로 둔다', { skip: process.platform !== 'win32' }, async (t) => {
+  await fs.mkdir(qaRoot, { recursive: true });
+  const root = await fs.mkdtemp(path.join(await fs.realpath(qaRoot), 'goe-attachment-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+    "$names = 'Get-PhysicalDirectory','Download-State','Test-SameDownloadFile','Test-FromInternet','Test-AttachmentPrefix','Select-Attachments','Get-DownloadBatch','Get-EditDistance','Test-SimilarName','Find-ExistingAttachments','Save-DownloadBatch','Write-Note','Get-SavedAttachmentCount'",
+    "$parseErrors = $null",
+    "$ast = [Management.Automation.Language.Parser]::ParseFile($env:GOE_COLLECTOR_TEST, [ref]$null, [ref]$parseErrors)",
+    "if ($parseErrors) { throw $parseErrors[0].Message }",
+    "$native = $ast.Find({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Add-Type' -and $n.Extent.Text.Contains('namespace GoeWin')}, $true)",
+    ". ([scriptblock]::Create($native.Extent.Text))",
+    "foreach ($fn in $ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in $names}, $true)) { . ([scriptblock]::Create($fn.Extent.Text)) }",
+    "function Goe-IsForeground { $false }",
+    "$inbox = Join-Path $env:GOE_TEST_ROOT 'inbox'",
+    "$notesDir = [IO.Directory]::CreateDirectory((Join-Path $inbox 'notes')).FullName",
+    "$directory = [IO.Directory]::CreateDirectory((Join-Path $env:GOE_TEST_ROOT 'Downloads')).FullName",
+    "$userFile = Join-Path $directory 'manual.pdf'",
+    "[IO.File]::WriteAllText($userFile, 'manual')",
+    "$before = Download-State $directory",
+    "$download = Join-Path $directory '받은 파일.pdf'",
+    "$partial = Join-Path $directory 'unfinished.part'",
+    "[IO.File]::WriteAllText($download, 'live attachment')",
+    "[IO.File]::WriteAllText($partial, 'partial')",
+    "$current = Download-State $directory",
+    "$waiting = (Get-DownloadBatch $before $current $current 1 @()).status",
+    "[IO.File]::Delete($partial)",
+    "$current = Download-State $directory",
+    "$unstable = (Get-DownloadBatch $before $current @{} 1 @('받은 파일.pdf')).status",
+    "[IO.File]::WriteAllText((Join-Path $directory 'web.zip'), 'browser'); Set-Content -LiteralPath (Join-Path $directory 'web.zip') -Stream Zone.Identifier 'ZoneId=3'",
+    "$current = Download-State $directory",
+    "$changed = (Get-DownloadBatch $before $current $current 1 @()).status",
+    "$files = (Get-DownloadBatch $before $current $current 1 @('받은 파일.pdf')).files",
+    "$existingState = @{}; foreach ($k in $current.Keys) { $existingState[$k] = $current[$k] }",
+    "$skipped = @(Find-ExistingAttachments $existingState @([pscustomobject]@{ name='받은 파일.pdf'; size=15; tolerance=1025 }) @()).Name",
+    "$batch = @{ before=$before; directory=$directory; files=$files }",
+    "$id = 'goe_202611121259_aabbcc00'",
+    "$note = [pscustomobject]@{ id=$id; source='goe'; body='existing body'; imported='range'; files=@('wrong OCR.pdf'); saved=@(); attachCount=2; attachStatus='failed' }",
+    "$notePath = Join-Path $notesDir ($id + '.json')",
+    "$retryResult = Save-DownloadBatch $batch $note $notePath $true",
+    "$actualFolder = Join-Path (Join-Path $inbox 'files') $id",
+    "$rollback = @{ status=$retryResult.status; download=[IO.File]::Exists($download); savedFiles=@(Get-ChildItem -LiteralPath $actualFolder -File).Count }",
+    "$existing = Join-Path $actualFolder '받은 파일.pdf'",
+    "[IO.File]::WriteAllText($existing, 'earlier attachment')",
+    "Write-Note $note $notePath",
+    "$saved = Save-DownloadBatch $batch $note $notePath $true",
+    "$read = Get-Content -LiteralPath $notePath -Raw -Encoding UTF8 | ConvertFrom-Json",
+    "$outcome = @{ status=$saved.status; name=$read.saved[0].name; body=$read.body; imported=$read.imported; attachmentStatus=$read.attachStatus; linked=(Get-SavedAttachmentCount $read); bytes=[IO.File]::ReadAllText($read.saved[0].path); earlier=[IO.File]::ReadAllText($existing); manual=[IO.File]::ReadAllText($userFile); download=[IO.File]::Exists($download); original=($read.saved[0].originalPath -eq $download) }",
+    "[pscustomobject]@{ waiting=$waiting; unstable=$unstable; changed=$changed; skipped=$skipped; rollback=$rollback; outcome=$outcome } | ConvertTo-Json -Depth 4 -Compress"
+  ].join('\n');
+  const command = Buffer.from(script, 'utf16le').toString('base64');
+  const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
+    encoding: 'utf8', env: { ...process.env, GOE_COLLECTOR_TEST: goeCollector, GOE_TEST_ROOT: root }
+  });
+  assert.deepEqual(JSON.parse(output), {
+    waiting: 'waiting', unstable: 'waiting', changed: 'waiting', skipped: '받은 파일.pdf',
+    rollback: { status: 'review', download: true, savedFiles: 0 },
+    outcome: {
+      status: 'saved', name: '받은 파일.pdf', body: 'existing body', imported: 'range', attachmentStatus: 'saved',
+      linked: 1, bytes: 'live attachment', earlier: 'earlier attachment', manual: 'manual', download: true, original: true
+    }
+  });
 });
 
 test('기간으로 불러온 쪽지는 첨부를 복사하지 않고 묻기 전에는 분류하지 않으며, 분류 뒤 지난 까지는 끝낸 것으로 둔다', async (t) => {

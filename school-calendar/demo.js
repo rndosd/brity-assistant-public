@@ -6,7 +6,8 @@ const { randomUUID, createHash } = require('node:crypto');
 
 const today = new Date();
 const month = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-const root = path.join(__dirname, '.demo', month);
+const goeEdition = process.env.SCHOOL_CALENDAR_GOE === '1';
+const root = path.join(__dirname, '.demo', goeEdition ? 'goe' : '', month);
 const dataDir = path.join(root, 'data');
 const inboxDir = path.join(root, 'inbox');
 
@@ -133,7 +134,7 @@ async function seedDemoDuplicates(tasksFile) {
 async function seedDemo() {
   const tasksFile = path.join(dataDir, 'tasks.json');
   if (await fs.stat(tasksFile).catch(error => { if (error.code !== 'ENOENT') throw error; })) {
-    await seedDemoChats(tasksFile);
+    if (!goeEdition) await seedDemoChats(tasksFile);
     await seedDemoSpans(tasksFile);
     return seedDemoDuplicates(tasksFile);
   }
@@ -165,7 +166,7 @@ async function seedDemo() {
   } finally {
     await fs.unlink(staging).catch(() => {});
   }
-  await seedDemoChats(tasksFile);
+  if (!goeEdition) await seedDemoChats(tasksFile);
   await seedDemoSpans(tasksFile);
   await seedDemoDuplicates(tasksFile);
 }

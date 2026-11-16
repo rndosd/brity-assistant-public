@@ -9,7 +9,7 @@ const { CalendarStore, CalendarError } = require('./store');
 const { apiProviders, refineWithProvider, classifierSample, cleanReplyBody } = require('./ai-provider');
 const claudeCli = require('./claude-cli');
 const codexCli = require('./codex-cli');
-const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply } = require('./collector-link');
+const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, retryGoeAttachments } = require('./collector-link');
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
 const updater = require('./updater');
@@ -17,12 +17,17 @@ const feedback = require('./feedback');
 const CHANGES = require('./CHANGES.json');
 const { spawn } = require('node:child_process');
 
+const goeEdition = process.env.SCHOOL_CALENDAR_GOE === '1';
+const messenger = goeEdition
+  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, supportsReply: false }
+  : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, supportsReply: true };
+const launcherName = goeEdition ? 'GOE Messenger Calendar.exe' : 'Brity Messenger Calendar.exe';
 const view = path.join(__dirname, 'renderer', 'index.html');
 const demo = process.argv.includes('--demo') ? require('./demo') : null;
-const dataDir = demo?.dataDir || path.resolve(process.env.SCHOOL_CALENDAR_DATA_DIR || path.join(__dirname, 'data'));
-// 수집기는 저장소의 collector 폴더 하나만 쓴다(배포 ZIP도 같은 구성).
-const defaultInbox = process.env.SCHOOL_CALENDAR_DEFAULT_INBOX_DIR || path.join(__dirname, '..', 'collector', 'inbox');
-const scriptsDir = path.dirname(defaultInbox);
+const dataDir = demo?.dataDir || path.resolve(process.env.SCHOOL_CALENDAR_DATA_DIR || path.join(__dirname, goeEdition ? 'data-goe' : 'data'));
+const sourceCollector = goeEdition ? path.join('collector', 'goe') : 'collector';
+const defaultInbox = process.env.SCHOOL_CALENDAR_DEFAULT_INBOX_DIR || path.join(__dirname, '..', sourceCollector, 'inbox');
+if (goeEdition) app.setName(messenger.appName);
 const profile = path.join(dataDir, 'profile');
 fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
@@ -39,7 +44,7 @@ let brityReplyRun;
 let pausingCollector = false;
 let collector = { status: 'idle', managed: false };
 let collectorCheckedAt = null;
-let activity = null;      // 'notes' | 'chats': 지금 브리티에서 읽는 중인 것(머리줄 진행 표시)
+let activity = null;
 let lastImported = null;  // 마지막 쪽지 확인에서 새로 받은 건수
 let chatRun = null;
 let lastChatCollection = null;
@@ -53,10 +58,12 @@ let unverifiedSince = 0;
 const lifetime = new AbortController();
 
 // 업데이트(7단계): 배포 ZIP(portable-entry.cjs가 SCHOOL_CALENDAR_PORTABLE_ROOT를 넣음)에서만 켠다.
-const UPDATE_REPO = 'rndosd/brity-assistant-public';
+// GOE판은 릴리스를 따로 둔다(2026-11-16 사용자 “goe판 저장소를 따로 만들자”): 두 판이 같은 '최신 릴리스'를 보면 한쪽만 올릴 때 다른 쪽 업데이트 확인이 깨진다.
+const releases = goeEdition
+  ? 'https://github.com/rndosd/goe-messenger-calendar/releases'
+  : 'https://github.com/rndosd/brity-assistant-public/releases';
 const portableRoot = process.env.SCHOOL_CALENDAR_PORTABLE_ROOT ? path.resolve(process.env.SCHOOL_CALENDAR_PORTABLE_ROOT) : null;
-const manifestUrl = process.env.SCHOOL_CALENDAR_UPDATE_URL || `https://github.com/${UPDATE_REPO}/releases/latest/download/update.json`;
-const releasePage = `https://github.com/${UPDATE_REPO}/releases/latest`;
+const manifestUrl = process.env.SCHOOL_CALENDAR_UPDATE_URL || `${releases}/latest/download/${goeEdition ? 'update-goe.json' : 'update.json'}`;
 const updatesEnabled = !demo && !!portableRoot;
 let update = { status: 'idle' };
 let updateRun = null;
@@ -72,9 +79,15 @@ function userDownloads() {
   }
 }
 
+const downloadsDir = userDownloads();
+const collectorOptions = {
+  scriptsDir: path.dirname(defaultInbox),
+  goe: goeEdition,
+  attachmentFolder: goeEdition && downloadsDir ? path.join(downloadsDir, 'GOE 첨부') : undefined
+};
 const store = new CalendarStore({
   dataDir, inboxDir: demo?.inboxDir || defaultInbox, inboxOverride: demo?.inboxDir || process.env.SCHOOL_CALENDAR_INBOX_DIR,
-  downloadsDir: userDownloads(),
+  downloadsDir,
   ruleSeed: path.join(__dirname, 'rules-seed.md'),
   automaticDefault: !demo && process.env.SCHOOL_CALENDAR_AUTOMATIC !== '0',
   // 새로 설치하면 AI 연결 전이다. 연결 시험이 성공하면 자동 분류가 켜진다.
@@ -83,7 +96,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, appVersion: app.getVersion(), shortcutAvailable: !!portableRoot && fs.existsSync(path.join(portableRoot, 'Brity Messenger Calendar.exe')), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -99,7 +112,7 @@ function checkUpdate(manual = false) {
     const previous = update;
     if (manual) { update = { ...update, status: 'checking', error: null }; publish(); }
     try {
-      const result = await updater.checkForUpdate({ manifestUrl, current: app.getVersion(), electron: process.versions.electron, signal: lifetime.signal });
+      const result = await updater.checkForUpdate({ manifestUrl, goe: goeEdition, current: app.getVersion(), electron: process.versions.electron, signal: lifetime.signal });
       update = result.status === 'latest' ? { status: 'latest', version: app.getVersion(), checkedAt: Date.now() }
         : { status: result.status, version: result.version, changes: result.changes, checkedAt: Date.now(), manifest: result };
     } catch (error) {
@@ -123,7 +136,7 @@ async function applyUpdate() {
   publish();
   let staging;
   try {
-    staging = await updater.downloadPatch({ manifestUrl, update: manifest, stagingRoot: path.join(portableRoot, 'update-staging'), signal: lifetime.signal });
+    staging = await updater.downloadPatch({ manifestUrl, goe: goeEdition, update: manifest, stagingRoot: path.join(portableRoot, 'update-staging'), signal: lifetime.signal });
   } catch {
     update = { ...update, status: 'available', error: '새 판을 받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 눌러 주세요.' };
     publish();
@@ -165,7 +178,7 @@ function savedApiKey(connection) {
 }
 
 // 일반판과 소스 실행에서는 기존 팩트챗 연결만 유지한다.
-const seoryongEdition = process.env.SCHOOL_CALENDAR_SEORYONG === '1';
+const seoryongEdition = !goeEdition && process.env.SCHOOL_CALENDAR_SEORYONG === '1';
 const factchatGuideUrl = URL.canParse(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE)
   ? new URL(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE) : null;
 const factchatGuideAvailable = seoryongEdition && factchatGuideUrl?.protocol === 'https:' &&
@@ -240,11 +253,13 @@ async function autoRefine() {
 async function refresh(options) {
   await store.refresh(options);
   // 샘플도 data/chats의 가상 대화로 후보함을 보여 준다(브리티 수집은 하지 않음).
-  try {
-    await store.refreshChat();
-    chatRefreshFailed = false;
-  } catch {
-    chatRefreshFailed = true;
+  if (messenger.supportsChats) {
+    try {
+      await store.refreshChat();
+      chatRefreshFailed = false;
+    } catch {
+      chatRefreshFailed = true;
+    }
   }
   publish();
   void autoRefine();
@@ -266,7 +281,7 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
           collector = { status: 'connecting', managed: false };
           publish();
         }
-        collector = await inspectCollector({ scriptsDir, signal: lifetime.signal });
+        collector = await inspectCollector({ ...collectorOptions, signal: lifetime.signal });
         if (closing || pausingCollector) return snapshot();
         if (collector.status !== 'ready' || !collector.inboxDir) return firstImport ? snapshot() : await refresh();
         if (firstImport) {
@@ -283,7 +298,7 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
         // 머리줄에 "브리티에서 쪽지 확인 중"을 보인다. 돌려주는 snapshot에 남지 않게 수집이 끝나면 바로 지운다.
         activity = 'notes';
         publish();
-        try { collector = await collectOnce({ scriptsDir, force, signal: lifetime.signal }); }
+        try { collector = await collectOnce({ ...collectorOptions, force, signal: lifetime.signal }); }
         finally { activity = null; }
         if (collector.status === 'ready') lastImported = Number.isSafeInteger(collector.imported) ? collector.imported : 0;
         if (collector.status === 'ready' && collector.inboxDir && collector.inboxDir !== store.inboxDir) {
@@ -325,18 +340,19 @@ function rangeDays(from, to) {
 
 function rangeReady() {
   if (demo || store.inboxOverride) throw new CalendarError('샘플에서는 지난 쪽지를 불러올 수 없습니다.');
-  if (!store.settings.collectorConnected || !collector.managed) throw new CalendarError('머리줄에서 브리티를 먼저 연결해 주세요.');
-  if (collectorRun || chatRun || brityReplyRun || rangeImport?.running) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  if (!store.settings.collectorConnected || !collector.managed) throw new CalendarError(`머리줄에서 ${messenger.name}를 먼저 연결해 주세요.`);
+  if (collectorRun || chatRun || brityReplyRun || rangeImport?.running) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
 }
 
 async function previewRange(from, to) {
   const days = rangeDays(from, to);
   rangeReady();
-  const run = collectRange({ preview: true, scriptsDir, signal: lifetime.signal, ...days });
+  const run = collectRange({ preview: true, ...collectorOptions, signal: lifetime.signal, ...days });
   collectorRun = run.then(() => snapshot());
   try {
     const result = await run;
-    if (result.status !== 'ready') throw new CalendarError('브리티 쪽지 목록을 읽지 못했습니다. 브리티 창을 한 번 열어 둔 뒤 다시 눌러 주세요.');
+    if (result.status === 'in-use' && goeEdition) throw new CalendarError('GOE 메신저를 쓰는 중입니다. 캘린더 창에서 다시 눌러 주세요.');
+    if (result.status !== 'ready') throw new CalendarError(`${messenger.name} 쪽지 목록을 읽지 못했습니다. ${messenger.name} 창을 한 번 열어 둔 뒤 다시 눌러 주세요.`);
     return { visible: result.visible, matched: result.matched, fresh: result.fresh, unknown: result.unknown, oldest: result.oldest };
   } finally {
     collectorRun = null;
@@ -352,12 +368,12 @@ async function importRange(from, to) {
     let failed = false;
     // 한 번에 20건씩 연다. 확인하지 못한 쪽지가 남아 계속 돌지 않도록 횟수를 묶는다.
     for (let round = 0; round < 10 && !closing && !rangeImport.stopping; round++) {
-      const result = await collectRange({ scriptsDir, signal: lifetime.signal, ...days });
-      if (result.status !== 'ready') { failed = true; break; }
+      const result = await collectRange({ ...collectorOptions, signal: lifetime.signal, ...days });
       rangeImport.done += result.imported;
-      rangeImport.total = Math.max(rangeImport.total, rangeImport.done + result.remaining);
+      rangeImport.total = Math.max(rangeImport.total, rangeImport.done + (result.remaining ?? 0));
       await store.refresh();
       publish();
+      if (result.status !== 'ready') { failed = true; break; }
       if (!result.remaining || !result.opened) break;
     }
     return failed;
@@ -381,8 +397,8 @@ function notifyInUse() {
   if (inUseNotified || !Notification.isSupported()) return;
   inUseNotified = true;
   const note = new Notification({
-    title: '브리티 메신저 캘린더', icon: path.join(__dirname, 'assets', 'app.png'),
-    body: '브리티를 쓰는 중이라 새 쪽지를 가져오지 않았습니다. 이 알림을 누르면 지금 가져옵니다.'
+    title: messenger.appName, icon: path.join(__dirname, 'assets', 'app.png'),
+    body: `${messenger.name}를 쓰는 중이라 새 쪽지를 가져오지 않았습니다. 이 알림을 누르면 지금 가져옵니다.`
   });
   note.on('click', () => {
     if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.focus(); }
@@ -392,7 +408,7 @@ function notifyInUse() {
 }
 
 function chatOptions() {
-  return { scriptsDir, chatDirectory: path.join(dataDir, 'chats'), signal: lifetime.signal };
+  return { ...collectorOptions, chatDirectory: path.join(dataDir, 'chats'), signal: lifetime.signal };
 }
 
 function chatBusy() {
@@ -451,7 +467,7 @@ function selectedChatCollection(rooms) {
 
 async function loadLastChatCollection() {
   lastChatCollection = null;
-  if (demo || store.inboxOverride) return;
+  if (!messenger.supportsChats || demo || store.inboxOverride) return;
   try {
     const record = JSON.parse(await fs.promises.readFile(path.join(dataDir, 'chats', 'status.json'), 'utf8'));
     const checkedAt = Date.parse(record.checkedAt);
@@ -464,6 +480,7 @@ async function loadLastChatCollection() {
 }
 
 async function loadChatRooms() {
+  if (!messenger.supportsChats) throw new CalendarError('이 판에서는 대화방을 가져올 수 없습니다.');
   if (demo) return { roomChoices: demo.listChatRooms(), needsReview: 0 };
   if (store.inboxOverride) throw new CalendarError('이 실행 환경에서는 브리티 대화방을 읽을 수 없습니다.');
   if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
@@ -507,6 +524,7 @@ async function readChats(roomKeys, manual = false) {
 // 설정의 대화방 "지금 가져오기". 자동이 꺼져 있어도 저장한 방을 한 번 읽는다.
 // 브리티가 최소화돼 있지 않은 것 같은 사정은 오류로 던지지 않고 마지막 확인 기록에 남겨 화면이 보여 준다.
 async function collectChatsNow() {
+  if (!messenger.supportsChats) throw new CalendarError('이 판에서는 대화방을 가져올 수 없습니다.');
   if (demo || store.inboxOverride) throw new CalendarError('샘플에서는 대화방을 가져올 수 없습니다.');
   const roomKeys = store.chatRooms().map(room => room.key);
   if (!roomKeys.length) throw new CalendarError('가져올 대화방을 먼저 골라 저장해 주세요.');
@@ -529,7 +547,7 @@ function scheduleAutoRefresh() {
 function scheduleChatRefresh() {
   clearInterval(chatTimer);
   chatTimer = null;
-  if (demo || store.inboxOverride || store.settings.collectorFirstImportPending) return;
+  if (!messenger.supportsChats || demo || store.inboxOverride || store.settings.collectorFirstImportPending) return;
   const chats = store.autoRefreshValue('chats');
   if (chats.enabled && store.chatRooms().length) {
     chatTimer = setInterval(() => void pollChats().catch(() => {}), chats.minutes * 60_000);
@@ -569,15 +587,56 @@ function changed(task) {
   return task;
 }
 
+async function retryNoteAttachments(id) {
+  if (!goeEdition || demo || closing || pausingCollector || store.inboxOverride) {
+    throw new CalendarError('현재는 GOE 첨부를 다시 받을 수 없습니다.');
+  }
+  if (collectorRun || chatRun || brityReplyRun || ['downloading', 'installing'].includes(update.status)) {
+    throw new CalendarError('GOE 메신저 또는 캘린더에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  }
+  const note = store.notes.get(store.getTask(id).noteId);
+  if (store.inbox.status !== 'ready' || !note?.goeAttachments || note.verified !== true) {
+    throw new CalendarError('캘린더에서 원문이 확인된 GOE 쪽지의 첨부를 다시 받을 수 있습니다.');
+  }
+  if (!store.settings.collectorConnected) throw new CalendarError('GOE 메신저를 먼저 연결해 주세요.');
+  const work = (async () => {
+    const [active, managed] = await Promise.all([
+      fs.promises.realpath(store.inboxDir),
+      fs.promises.realpath(defaultInbox)
+    ]).catch(() => []);
+    if (!active || !managed || active.toLowerCase() !== managed.toLowerCase()) {
+      throw new CalendarError('현재 캘린더의 GOE 수집 폴더를 확인하지 못했습니다.');
+    }
+    const result = await retryGoeAttachments(note.id, { ...collectorOptions, signal: lifetime.signal });
+    if (result.status === 'in-use' || result.status === 'conflict') {
+      throw new CalendarError('GOE 메신저를 처리 중입니다. 잠시 뒤 캘린더에서 다시 눌러 주세요.');
+    }
+    if (result.status === 'offline') throw new CalendarError('GOE 메신저를 열고 로그인한 뒤 다시 눌러 주세요.');
+    if (result.status !== 'ready') throw new CalendarError('GOE 쪽지 목록을 확인하지 못했습니다. GOE 창을 한 번 연 뒤 다시 시도해 주세요.');
+    await store.refresh();
+    return { attachStatus: result.attachStatus, attached: result.attached };
+  })();
+  collectorRun = work.then(() => snapshot(), () => snapshot());
+  activity = 'attachments';
+  publish();
+  try {
+    return await work;
+  } finally {
+    collectorRun = null;
+    activity = null;
+    publish();
+  }
+}
+
 async function replyInBrity(id) {
-  if (demo || closing) throw new CalendarError('현재는 브리티 답장창을 열 수 없습니다.');
+  if (!messenger.supportsReply || demo || closing) throw new CalendarError(`현재는 ${messenger.name} 답장창을 열 수 없습니다.`);
   const task = store.getTask(id);
   const note = store.notes.get(task.noteId);
   if (note?.verified !== true || store.inbox.status !== 'ready') {
     throw new CalendarError('캘린더에서 원문이 확인된 쪽지의 답장창을 열 수 있습니다.');
   }
   if (collectorRun || chatRun || brityReplyRun) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
-  brityReplyRun = openBrityReply(note, { scriptsDir });
+  brityReplyRun = openBrityReply(note, collectorOptions);
   try {
     const result = await brityReplyRun;
     if (result === 'opened' || result === 'opened-background') return { foreground: result === 'opened' };
@@ -613,6 +672,7 @@ function bindHandlers() {
     return changed(snapshot());
   });
   bind('brity-reply', replyInBrity);
+  bind('goe-attachment-retry', retryNoteAttachments);
   bind('create', async input => changed(await store.create(input)));
   bind('update', async (id, input) => changed(await store.update(id, input)));
   bind('reference-seen', async id => changed(await store.markReferenceSeen(id)));
@@ -754,6 +814,7 @@ function bindHandlers() {
   bind('chats-collect-now', collectChatsNow);
   bind('chat-rooms-list', loadChatRooms);
   bind('chat-rooms-save', rooms => {
+    if (!messenger.supportsChats) throw new CalendarError('이 판에서는 대화방을 가져올 수 없습니다.');
     if (chatBusy()) throw new CalendarError('브리티에서 처리 중입니다. 잠시 뒤 다시 저장해 주세요.');
     return runChatOperation(async () => {
       await store.setChatRooms(rooms);
@@ -793,7 +854,7 @@ function bindHandlers() {
   // 7단계: 백업 만들기·되돌리기, 정리 기준 새 판 고르기.
   bind('backup-create', async () => {
     const { canceled, filePath } = await dialog.showSaveDialog(window, {
-      title: '백업 저장', defaultPath: path.join(app.getPath('documents'), `BrityMessengerCalendar-backup-${new Date().toISOString().slice(0, 10)}.zip`),
+      title: '백업 저장', defaultPath: path.join(app.getPath('documents'), `${path.parse(launcherName).name.replaceAll(' ', '')}-backup-${new Date().toISOString().slice(0, 10)}.zip`),
       filters: [{ name: '백업 ZIP', extensions: ['zip'] }]
     });
     if (canceled || !filePath) return { saved: false };
@@ -839,18 +900,19 @@ function bindHandlers() {
   });
   // 바탕 화면 바로 가기: 배포 폴더의 실행기(아이콘 있음)를 가리킨다.
   bind('shortcut-create', async () => {
-    const launcher = portableRoot && path.join(portableRoot, 'Brity Messenger Calendar.exe');
-    if (!launcher || !fs.existsSync(launcher)) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 바로 가기를 만들 수 있습니다.');
-    const link = path.join(app.getPath('desktop'), '브리티 메신저 캘린더.lnk');
+    if (!launcherPath || !fs.existsSync(launcherPath)) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 바로 가기를 만들 수 있습니다.');
+    const link = path.join(app.getPath('desktop'), `${messenger.appName}.lnk`);
     const ok = shell.writeShortcutLink(link, fs.existsSync(link) ? 'replace' : 'create', {
-      target: launcher, cwd: portableRoot, icon: launcher, iconIndex: 0, description: '브리티 메신저 캘린더'
+      target: launcherPath, cwd: portableRoot, icon: launcherPath, iconIndex: 0, description: messenger.appName
     });
     if (!ok) throw new CalendarError('바로 가기를 만들지 못했습니다.');
     return { link };
   });
   bind('update-check', () => checkUpdate(true));
   bind('update-apply', applyUpdate);
-  bind('update-page', () => shell.openExternal(releasePage));
+  bind('update-page', () => shell.openExternal(goeEdition && update.version
+    ? `${releases}/download/v${update.version}/goe-messenger-calendar-windows-x64-${update.version}.zip`
+    : `${releases}/latest`));
   bind('whats-new-dismiss', () => { whatsNew = null; return snapshot(); });
   bind('changes', () => ({ version: app.getVersion(), changes: updater.changesBetween(CHANGES, null, app.getVersion()).slice(0, 5) }));
   bind('rules-resolve', async choice => changed(await store.resolveRules(choice)));
@@ -878,7 +940,7 @@ function bindHandlers() {
 
 function createWindow() {
   window = new BrowserWindow({
-    title: '브리티 메신저 캘린더', width: 1320, height: 960, minWidth: 440, minHeight: 560,
+    title: messenger.appName, width: 1320, height: 960, minWidth: 440, minHeight: 560,
     backgroundColor: '#f2f3ee',
     icon: path.join(__dirname, 'assets', 'app.ico'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false }
@@ -894,11 +956,11 @@ function createWindow() {
 // 샘플과 소스 실행에서는 쓰지 않는다. 폴더를 옮기면 예전 자리를 가리키므로 설정에서 다시 켜야 한다.
 const AI_LABELS = { none: 'AI 없음', codex: 'Codex', claude: 'Claude Code', openai: 'OpenAI', anthropic: 'Claude API', factchat: '팩트챗' };
 function feedbackInfo() {
-  return [app.getVersion(), seoryongEdition ? '서룡판' : '일반판', `Windows ${os.release()}`, AI_LABELS[store.aiProvider] ?? store.aiProvider, demo ? '샘플' : null].filter(Boolean).join(' · ');
+  return [app.getVersion(), goeEdition ? 'GOE판' : seoryongEdition ? '서룡판' : '일반판', `Windows ${os.release()}`, AI_LABELS[store.aiProvider] ?? store.aiProvider, demo ? '샘플' : null].filter(Boolean).join(' · ');
 }
 let feedbackSentAt = 0;
 
-const launcherPath = portableRoot ? path.join(portableRoot, 'Brity Messenger Calendar.exe') : null;
+const launcherPath = portableRoot ? path.join(portableRoot, launcherName) : null;
 function loginStartAvailable() {
   return !demo && process.platform === 'win32' && !!launcherPath && fs.existsSync(launcherPath);
 }
@@ -909,7 +971,7 @@ function loginStartState() {
 }
 
 // 작업 표시줄에서 캘린더 아이콘으로 묶이게 한다.
-if (process.platform === 'win32') app.setAppUserModelId('kr.rndosd.school-calendar');
+if (process.platform === 'win32') app.setAppUserModelId(goeEdition ? 'kr.rndosd.goe-calendar' : 'kr.rndosd.school-calendar');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

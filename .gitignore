@@ -3,6 +3,7 @@
 outputs/
 **/inbox/
 **/data/
+**/data-goe/
 **/calendar-data/
 *.zip
 *.xlsx

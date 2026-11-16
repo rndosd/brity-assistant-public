@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
-const { constants } = require('node:fs');
+const { constants, createReadStream } = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
 const backup = require('./backup');
@@ -16,6 +16,8 @@ const NOTE_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/i;
 const TASK_ID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const BATCH_ID = /^[a-f0-9]{64}$/;
 const SAFE_DOCUMENTS = new Set(['.hwp', '.hwpx', '.pdf', '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp']);
+const GOE_ATTACHMENT_STATES = new Set(['none', 'not-requested', 'saved', 'partial', 'failed', 'expired', 'folder-not-configured', 'review']);
+const GOE_ATTACHMENT_AGE = 7 * 24 * 60 * 60 * 1000;
 const LEGACY_DOWNLOAD_FOLDER = '브리티 첨부';
 // 분류 실패: 잠깐 생긴 오류(시간 초과·서버·형식)는 1분 뒤 다음 자동 분류 때 한 번 더 보낸다.
 const REFINE_ATTEMPTS = 2;
@@ -234,12 +236,27 @@ function fileName(name) {
 
 function readAttachments(note) {
   const saved = Array.isArray(note.saved) ? note.saved : [];
-  const attachments = saved.filter(item => item && typeof item.name === 'string').map(item => ({ name: item.name, path: string(item.path) }));
+  const attachments = saved.filter(item => item && typeof item.name === 'string').map(item => ({
+    name: item.name, path: string(item.path),
+    ...(note.source === 'goe' && typeof item.originalPath === 'string' ? { originalPath: item.originalPath } : {})
+  }));
   const names = Array.isArray(note.files) ? note.files : typeof note.files === 'string' ? [note.files] : [];
   for (const name of names) {
     if (typeof name === 'string' && !attachments.some(item => item.name === name)) attachments.push({ name, path: '' });
   }
   return attachments;
+}
+
+function readGoeAttachments(note, attachments) {
+  const count = Number.isSafeInteger(note.attachCount) && note.attachCount >= 0 ? note.attachCount : attachments.length;
+  const status = GOE_ATTACHMENT_STATES.has(note.attachStatus) ? note.attachStatus : count ? 'not-requested' : 'none';
+  return { count, status };
+}
+
+async function fileDigest(file) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 function newTask(noteId, title, dates = [], autoPending = false) {
@@ -621,7 +638,7 @@ class CalendarStore {
       noteState: task.noteId ? (note ? (note.verified === false ? 'unverified' : 'available') : 'missing') : chatSource ? 'chat' : 'manual',
       sender: note?.sender || '',
       datetime: note?.datetime || chatSource?.observedAt || '',
-      attachmentCount: note?.attachments.length || 0,
+      attachmentCount: note?.goeAttachments?.count || note?.attachments.length || 0,
       recipients: model.recipientCount(note?.recipients),
       refining: this.refining.has(task.id),
       // AI 분류 차례를 기다리는 쪽지(목록의 "분류 대기", 머리줄의 남은 건수)
@@ -853,10 +870,12 @@ class CalendarStore {
           const location = await realDescendant(notesDir, path.join(notesDir, file.name), 'file');
           const raw = await readJson(location.real);
           if (raw?.id !== id || typeof raw.title !== 'string' || typeof raw.body !== 'string') throw new Error('Invalid note');
+          const attachments = readAttachments(raw);
           const note = {
             id, title: raw.title, sender: string(raw.sender), datetime: string(raw.datetime),
-            body: raw.body, verified: typeof raw.verified === 'boolean' ? raw.verified : null, attachments: readAttachments(raw),
-            recipients: string(raw.recipients)
+            body: raw.body, verified: typeof raw.verified === 'boolean' ? raw.verified : null, attachments,
+            recipients: string(raw.recipients),
+            ...(raw.source === 'goe' && { goeAttachments: readGoeAttachments(raw, attachments) })
           };
           notes.set(id, note);
           if (!seen.has(id)) {
@@ -1199,6 +1218,17 @@ class CalendarStore {
         }
       }
       const parsed = path.parse(source);
+      if (attachment.originalPath && path.isAbsolute(attachment.originalPath) && fileName(path.basename(attachment.originalPath))) {
+        const original = await realDescendant(folder, attachment.originalPath, 'file').catch(() => null);
+        if (original && path.relative(folder, original.real) === path.basename(attachment.originalPath)) {
+          const same = await Promise.all([fileDigest(source), fileDigest(original.real)])
+            .then(([left, right]) => left === right, () => false);
+          if (same) {
+            downloaded.push({ source: attachment.path, name: path.basename(original.real), atRoot: true, folder });
+            continue;
+          }
+        }
+      }
       for (let index = 1; index <= 100; index++) {
         const name = index === 1 ? parsed.base : `${parsed.name} (${index})${parsed.ext}`;
         try {
@@ -1249,7 +1279,16 @@ class CalendarStore {
       const location = await this.displayAttachmentPath(task, note, item);
       return { index, name: item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
     }));
-    return { task: this.taskView(this.getTask(id)), note: { ...note, attachments } };
+    const view = { ...note, attachments };
+    if (note.goeAttachments) {
+      const { count, status } = note.goeAttachments;
+      const sentAt = Date.parse(note.datetime.replace(' ', 'T'));
+      const available = attachments.filter(item => item.available).length;
+      const expired = status === 'expired' || (Number.isFinite(sentAt) && Date.now() - sentAt > GOE_ATTACHMENT_AGE);
+      const hasMissing = available < count || (!count && ['review', 'failed', 'folder-not-configured', 'partial'].includes(status));
+      view.goeAttachments = { count, status: expired && hasMissing ? 'expired' : status, canRetry: note.verified === true && !expired && hasMissing };
+    }
+    return { task: this.taskView(this.getTask(id)), note: view };
   }
 
   async attachment(id, index) {

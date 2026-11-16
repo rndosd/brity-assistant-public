@@ -13,10 +13,11 @@ const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '�
 const aiNames = { claude: 'Claude Code CLI · Haiku', codex: 'Codex CLI', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
 const state = {
   snapshot: { tasks: [], messages: [], inbox: { status: 'loading', pending: 0 } },
+  messenger: { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, supportsReply: true },
   month: new Date(), dayKey: '', selected: null, detailToken: 0, detail: null,
   spanColors: new Map(), expandedForwarded: new Set(), selectedChat: null, forwardedDraft: null,
   chatLoaded: false, readingSelection: false, dirty: false, revision: null, saving: false,
-  taskViews: new Map()
+  taskViews: new Map(), attachmentRetry: null
 };
 const markingOpened = new Set();
 let noticeTimer;
@@ -960,7 +961,7 @@ function renderReviewQueue(unread, notes) {
     ? [intro, ...sections]
     : [element('p', 'empty-row', '확인하거나 분류할 항목이 없습니다.')]));
   const keys = new Set([...batches.keys()].map(id => `chat:${id}`));
-  $('candidate-count-label').textContent = notes.length ? rooms.size ? '대기' : '쪽지' : '방';
+  $('candidate-count-label').textContent = !state.messenger.supportsChats ? '쪽지' : notes.length ? rooms.size ? '대기' : '쪽지' : '방';
   $('candidate-count-detail').textContent = breakdown;
   $('candidate-count').parentElement.title = breakdown;
   updateTab('candidate', notes.length + rooms.size);
@@ -1081,7 +1082,8 @@ function renderLists() {
   // 처음 쓰는 사람: 브리티를 아직 연결하지 않았으면 오류 대신 할 일을 알려 준다.
   const notConnectedYet = !!state.snapshot.collectorAvailable && !state.snapshot.collectorConnected;
   const aiMissing = aiNotConnected();
-  $('inbox-note').textContent = status === 'unavailable' && notConnectedYet ? (aiMissing ? '' : '브리티에 로그인한 뒤 위의 ‘브리티 연결’을 누르면 쪽지를 가져옵니다.')
+  const { name } = state.messenger;
+  $('inbox-note').textContent = status === 'unavailable' && notConnectedYet ? (aiMissing ? '' : `${name}에 로그인한 뒤 위의 ‘${name} 연결’을 누르면 쪽지를 가져옵니다.`)
     : status === 'unavailable' ? '쪽지 수집 폴더를 읽지 못했습니다. 연결 상태를 확인해 주세요.'
     : status === 'loading' ? '쪽지를 확인하고 있습니다.' : pending ? `아직 읽지 못한 쪽지 ${pending}건은 다음에 다시 확인합니다.` : '';
   // AI를 아직 연결하지 않았으면 정리하려면 무엇을 해야 하는지 알려 준다(샘플 제외).
@@ -1280,7 +1282,7 @@ function enableForm() {
   $('pin').hidden = task?.type !== '할 일' || type !== '할 일' || !!task?.candidate;
   $('pin').disabled = state.saving || state.dirty;
   $('pin').setAttribute('aria-pressed', String(task?.pinned === true));
-  $('brity-reply').hidden = state.demo || state.detail?.note?.verified !== true;
+  $('brity-reply').hidden = !state.messenger.supportsReply || state.demo || state.detail?.note?.verified !== true;
   $('save').disabled = !state.dirty || state.saving;
   $('save').hidden = !state.dirty || !!task?.candidate;
   $('reference-seen').hidden = task?.type !== '알아 둘 것' || task.referenceSeen;
@@ -1528,7 +1530,6 @@ function renderDetail(detail, reset = false) {
   const failure = task.refined === 'failed' && !task.refining
     ? `마지막 다듬기에 실패했습니다${task.refineFailure?.message ? `: ${task.refineFailure.message}` : '.'}` : '';
   setMessage('refine-note', [failure, hint].filter(Boolean).join(' '));
-  $('attachments-section').hidden = !note?.attachments.length;
   $('original-section').hidden = !task.noteId;
   $('work-section').hidden = !!task.chatSource;
   renderNote(note, reset);
@@ -1536,13 +1537,34 @@ function renderDetail(detail, reset = false) {
     task.forwardedSource, detail.forwardedBatch ?? batch);
   renderCandidateTargets(task, detail.roomTasks);
   renderSameWork(task);
-  renderAttachments(task.id, note?.attachments || []);
+  renderAttachments(task.id, note);
   enableForm();
 }
 
-function renderAttachments(id, attachments) {
+const attachmentFolderHelp = '첨부는 GOE 메신저에 설정된 저장 폴더로 받고, 그 파일은 그대로 둡니다.';
+const goeAttachmentMessages = {
+  'already-saved': '첨부가 이미 저장되어 있습니다.',
+  'folder-not-configured': 'GOE 메신저의 첨부 저장 폴더를 읽지 못했습니다. GOE 환경설정 창이 열려 있으면 닫고 다시 시도해 주세요.',
+  review: '첨부를 확인하지 못했습니다. GOE 메신저의 저장 폴더에서 파일을 열거나 다시 시도해 주세요.',
+  failed: '첨부를 받지 못했습니다. GOE 메신저를 확인한 뒤 다시 시도해 주세요.',
+  expired: '보낸 지 7일이 지난 첨부는 GOE 메신저에서 받을 수 없습니다.',
+  'not-found': 'GOE 메신저 수신함에서 이 쪽지를 찾지 못했습니다.',
+  none: 'GOE 메신저에서 받을 수 있는 첨부를 찾지 못했습니다.',
+  partial: '일부 첨부만 저장됐습니다.'
+};
+
+function renderAttachments(id, note) {
+  const attachments = note?.attachments || [];
+  const goe = note?.goeAttachments;
+  const count = goe?.count || attachments.length;
+  const current = state.attachmentRetry?.id === id ? state.attachmentRetry : null;
   const first = attachments.find(item => item.available);
-  $('attachment-count').textContent = attachments.length;
+  $('attachments-section').hidden = !count && !attachments.length && !goe?.canRetry;
+  $('attachment-count').textContent = count;
+  const retry = $('goe-attachment-retry');
+  retry.hidden = !goe?.canRetry;
+  retry.disabled = !!state.attachmentRetry?.pending;
+  retry.textContent = current?.pending ? '첨부 받는 중…' : '첨부만 다시 받기';
   $('attachment-folder').hidden = !first;
   $('attachment-folder').onclick = first ? () => openAttachment(id, first.index, true) : null;
   const rows = attachments.map(item => {
@@ -1557,8 +1579,36 @@ function renderAttachments(id, attachments) {
     }
     return row;
   });
-  $('attachments').replaceChildren(...(rows.length ? rows : [element('li', 'small-note', '첨부가 없습니다.')]));
+  $('attachments').replaceChildren(...rows);
+  $('attachments').hidden = !rows.length;
+  const message = current?.message ?? (goe ? goeAttachmentMessages[goe.status] : '') ?? '';
+  const error = current?.error ?? ['review', 'failed'].includes(goe?.status);
+  const status = $('attachment-status');
+  if (status.textContent !== message || status.classList.contains('error') !== error) {
+    setMessage('attachment-status', message, error);
+  }
 }
+
+$('goe-attachment-retry').addEventListener('click', async () => {
+  const { selected: id, detail } = state;
+  if (!id || detail?.task.id !== id || !detail.note?.goeAttachments?.canRetry || state.attachmentRetry?.pending) return;
+  const retry = { id, pending: true, message: 'GOE 메신저에서 첨부를 받고 있습니다.', error: false };
+  state.attachmentRetry = retry;
+  renderAttachments(id, detail.note);
+  try {
+    const result = await api.retryGoeAttachments(id);
+    retry.error = !['saved', 'already-saved'].includes(result.attachStatus);
+    retry.message = result.message || (result.attachStatus === 'saved' ? `첨부 ${result.attached}개를 받았습니다.`
+      : goeAttachmentMessages[result.attachStatus] || goeAttachmentMessages.failed);
+  } catch (error) {
+    retry.error = true;
+    retry.message = error.message;
+  } finally {
+    retry.pending = false;
+    if (state.selected === id) await refreshDetail();
+    if (state.detail?.task.id === state.selected) renderAttachments(state.selected, state.detail.note);
+  }
+});
 
 async function openAttachment(id, index, reveal) {
   try {
@@ -1615,6 +1665,7 @@ let lastFocus;
 
 function openDetail(taskId, chatId, focusKey) {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return false;
+  if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.selected = taskId;
   state.selectedChat = chatId;
   state.forwardedDraft = null;
@@ -1755,6 +1806,7 @@ async function selectChat(id, focusKey, { forwarded = false } = {}) {
 
 function closeDetail() {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return;
+  if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.detailToken++;
   state.selected = null;
   state.selectedChat = null;
@@ -1780,6 +1832,23 @@ function closeDetail() {
   restoreFocus(lastFocus);
 }
 
+function renderMessenger() {
+  const { name, appName, supportsChats } = state.messenger;
+  const goe = name === 'GOE 메신저';
+  document.title = state.demo ? `${appName} · 샘플` : appName;
+  $('app-name').textContent = appName;
+  $('demo-badge').hidden = !state.demo;
+  $('collector-bar').setAttribute('aria-label', `${name} 연결`);
+  $('note-recipient-limited').textContent = `· 전체 명단은 ${name}에서 확인`;
+  $('fetch-legend').textContent = `${name}에서 가져오기`;
+  $('fetch-reread-help').textContent = `${name}는 건드리지 않고, 이미 받아 둔 쪽지${supportsChats ? '와 대화' : ''}만 다시 읽습니다. 평소에는 누를 일이 없습니다.`;
+  $('chat-fetch').hidden = $('chat-candidate-legend').hidden = $('backup-chat-copy').hidden = !supportsChats;
+  $('range-brity-help').hidden = goe;
+  $('range-goe-help').hidden = !goe;
+  $('downloads-help').textContent = goe ? `${attachmentFolderHelp} 아래 폴더에는 새 쪽지 첨부의 사본을 저장합니다.` : '새로 받은 쪽지의 첨부를 여기에 복사합니다.';
+  $('first-import-retry').textContent = `${name} 연결 다시 확인`;
+}
+
 function sync(snapshot) {
   // 새 대화방 후보가 생기면 한 번 알린다(처음 열 때와 되살린 후보는 알리지 않음).
   const seen = state.seenCandidates;
@@ -1787,9 +1856,9 @@ function sync(snapshot) {
   state.seenCandidates = new Set([...(seen || []), ...snapshot.tasks.filter(task => task.candidate).map(task => task.id)]);
   if (seen && fresh.length) setTimeout(() => notice(`대화방 후보 ${fresh.length}개가 분류할 것에 들어왔습니다.`), 0);
   state.snapshot = snapshot;
+  state.messenger = snapshot.messenger ?? state.messenger;
   state.demo = snapshot.demo ?? state.demo;
-  if (state.demo) document.title = '브리티 메신저 캘린더 · 샘플';
-  $('demo-badge').hidden = !state.demo;
+  renderMessenger();
   $('automatic').disabled = !!state.demo || snapshot.aiProvider === 'none' || !!state.savingAutomatic || !!state.testingAi;
   $('automatic').checked = snapshot.automatic;
   renderAiConnected();
@@ -1805,13 +1874,14 @@ function sync(snapshot) {
 // 설정 "브리티에서 가져오기"의 쪽지 줄: 지금 가져오기 버튼과 마지막 확인.
 function renderNotesFetch() {
   const { collector, collectorAvailable, collectorConnected, collectorFirstImportPending } = state.snapshot;
+  const { name } = state.messenger;
   const linked = !!collectorAvailable && !!collectorConnected && !collectorFirstImportPending;
   const button = $('notes-collect-now');
   button.textContent = state.connectingCollector ? '가져오는 중…' : '지금 가져오기';
   button.disabled = !linked || !!state.connectingCollector || collector?.status === 'connecting' || !!state.rangeBusy;
-  const status = state.snapshot.demo ? '' : !linked ? '위쪽 머리줄에서 브리티를 먼저 연결해 주세요.'
-    : state.connectingCollector ? '브리티에서 쪽지를 확인하는 중…'
-      : collector?.status === 'in-use' ? '브리티를 쓰는 중이라 가져오지 않았습니다. 지금 가져오기를 누르면 확인한 뒤 가져옵니다.'
+  const status = state.snapshot.demo ? '' : !linked ? `위쪽 머리줄에서 ${name}를 먼저 연결해 주세요.`
+    : state.connectingCollector ? `${name}에서 쪽지를 확인하는 중…`
+      : collector?.status === 'in-use' ? `${name}를 쓰는 중이라 가져오지 않았습니다. 지금 가져오기를 누르면 확인한 뒤 가져옵니다.`
         : collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
   if ($('notes-collection-status').textContent !== status) setMessage('notes-collection-status', status);
 }
@@ -1822,7 +1892,8 @@ function activityText() {
   if (snap.rangeImport?.running) {
     return '지난 쪽지 불러오는 중…';
   }
-  if (state.connectingCollector || snap.activity === 'notes') return '브리티에서 쪽지 확인 중…';
+  if (state.connectingCollector || snap.activity === 'notes') return `${state.messenger.name}에서 쪽지 확인 중…`;
+  if (snap.activity === 'attachments') return 'GOE 메신저에서 첨부 확인 중…';
   if (snap.activity === 'chats') return '브리티에서 대화방 읽는 중…';
   if (snap.activity === 'chat-deciding') return '대화방 새 글에서 후보 찾는 중…';
   const waiting = snap.aiProvider === 'none' ? 0 : snap.tasks.filter(task => task.refining || task.queued).length;
@@ -1835,6 +1906,7 @@ function activityText() {
 function renderCollector() {
   renderNotesFetch();
   const { collector, collectorAvailable, collectorConnected, collectorFirstImportPending } = state.snapshot;
+  const { name, fullName } = state.messenger;
   $('collector-bar').hidden = !collectorAvailable;
   if (!collectorAvailable) return;
   const status = collector?.status || 'idle';
@@ -1842,18 +1914,18 @@ function renderCollector() {
   const checked = collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
   const schedule = collectorFirstImportPending ? '첫 가져오기 설정 중' : auto?.enabled ? `${minutesLabel(auto.minutes)}마다 자동으로 가져옴` : '자동 꺼짐 · 누를 때만 가져옴';
   const messages = {
-    idle: '브리티에 로그인한 뒤 연결하세요. 가져온 쪽지는 브리티에서 읽음 처리됩니다.',
-    connecting: '브리티의 쪽지 목록을 확인하고 있습니다.',
+    idle: `${name}에 로그인한 뒤 연결하세요. 가져온 쪽지는 ${name}에서 읽음 처리됩니다.`,
+    connecting: `${name}의 쪽지 목록을 확인하고 있습니다.`,
     ready: collector?.managed ? [schedule, checked, checked && collector.imported != null ? (collector.imported ? `새 쪽지 ${collector.imported}건 받음` : '새 쪽지 없음') : ''].filter(Boolean).join(' · ')
-      : '이미 실행 중인 브리티 수집기의 결과를 읽습니다.',
-    'in-use': '브리티를 쓰는 중이라 이번에는 쪽지를 가져오지 않았습니다. 쪽지 가져오기를 누르면 확인한 뒤 가져옵니다.',
+      : `이미 실행 중인 ${name} 수집기의 결과를 읽습니다.`,
+    'in-use': `${name}를 쓰는 중이라 이번에는 쪽지를 가져오지 않았습니다. 쪽지 가져오기를 누르면 확인한 뒤 가져옵니다.`,
     offline: collectorConnected && auto?.enabled && !collectorFirstImportPending
-      ? '브리티 메신저가 닫혀 있습니다. 다시 열고 로그인하면 자동으로 연결합니다.'
-      : '브리티 메신저를 열고 로그인한 뒤 연결해 주세요.',
+      ? `${fullName}가 닫혀 있습니다. 다시 열고 로그인하면 자동으로 연결합니다.`
+      : `${fullName}를 열고 로그인한 뒤 연결해 주세요.`,
     // 실제 시험: 브리티 메뉴(오른쪽 클릭 메뉴 등)가 열려 있을 때도 이렇게 된다.
     unverified: collectorConnected && auto?.enabled && !collectorFirstImportPending
-      ? '브리티 쪽지 화면을 읽지 못했습니다. 브리티 창에 열린 메뉴가 있으면 Esc로 닫아 주세요. 창이 보이면 자동으로 다시 연결합니다.'
-      : '브리티 쪽지 화면을 읽지 못했습니다. 로그인돼 있는지 보고, 열린 메뉴가 있으면 Esc로 닫은 뒤 다시 연결해 주세요.',
+      ? `${name} 쪽지 화면을 읽지 못했습니다. ${name} 창에 열린 메뉴가 있으면 Esc로 닫아 주세요. 창이 보이면 자동으로 다시 연결합니다.`
+      : `${name} 쪽지 화면을 읽지 못했습니다. 로그인돼 있는지 보고, 열린 메뉴가 있으면 Esc로 닫은 뒤 다시 연결해 주세요.`,
     conflict: '수집기를 자동으로 연결할 수 없습니다. 현재 설정된 저장 폴더에서만 쪽지를 읽습니다.',
     unavailable: '쪽지 수집기를 연결하지 못했습니다. ZIP 전체를 푼 폴더에서 앱을 다시 열어 주세요.',
   };
@@ -1861,21 +1933,21 @@ function renderCollector() {
   // 처음 시작: 브리티를 아직 연결하지 않았으면 1단계 AI 연결 → 2단계 브리티 연결 순서로 보인다.
   const setup = !collectorConnected && !running;
   const aiFirst = setup && aiNotConnected();
-  $('collector-title').textContent = running ? '브리티 연결됨' : aiFirst ? '1단계 · AI 연결' : setup && !state.demo ? '2단계 · 브리티 연결' : '브리티 쪽지 연결';
+  $('collector-title').textContent = running ? `${name} 연결됨` : aiFirst ? '1단계 · AI 연결' : setup && !state.demo ? `2단계 · ${name} 연결` : `${name} 쪽지 연결`;
   $('collector-ai').hidden = !aiFirst;
   $('start-guide').hidden = !setup;
   $('collector-connect').classList.toggle('text-button', aiFirst);
   $('collector-connect').classList.toggle('small', aiFirst);
   // 연결된 동안에는 지금 하는 일(읽는 중·분류 중)을 먼저 보이고, 한가할 때 주기와 마지막 결과를 보인다.
   const doing = running || state.connectingCollector ? activityText() : '';
-  const aiFirstText = '쪽지에서 날짜와 할 일을 뽑으려면 AI가 필요합니다. AI를 연결한 뒤 브리티를 연결하세요.';
+  const aiFirstText = `쪽지에서 날짜와 할 일을 뽑으려면 AI가 필요합니다. AI를 연결한 뒤 ${name}를 연결하세요.`;
   // 2단계: 1단계(AI)가 끝났다는 것을 먼저 보인다.
   const aiDone = setup && !aiNotConnected() && !state.demo ? `✓ AI 연결됨(${aiNames[state.snapshot.aiProvider] || 'AI'}) · ` : '';
   $('collector-status').textContent = doing || (aiFirst && (status === 'idle' || status === 'offline') ? aiFirstText : '') || aiDone + (messages[status] || messages.unavailable);
   $('collector-status').classList.toggle('busy', !!doing);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
   $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
-    : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : aiFirst ? 'AI 없이 브리티 연결' : '브리티 연결';
+    : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : aiFirst ? `AI 없이 ${name} 연결` : `${name} 연결`;
   $('collector-connect').disabled = !!state.connectingCollector || status === 'connecting' || !!state.rangeBusy;
 }
 
@@ -2056,8 +2128,9 @@ async function collectNow() {
     return;
   }
   await changeCollector(async () => {
+    const { name } = state.messenger;
     let next = await api.collectNow(false);
-    if (next.collector?.status === 'in-use' && window.confirm('브리티를 쓰는 중입니다. 지금 쪽지를 가져올까요?\n가져오는 동안 브리티 화면이 잠깐 쪽지 목록으로 바뀔 수 있습니다.')) {
+    if (next.collector?.status === 'in-use' && window.confirm(`${name}를 쓰는 중입니다. 지금 쪽지를 가져올까요?\n가져오는 동안 ${name} 화면이 잠깐 쪽지 목록으로 바뀔 수 있습니다.`)) {
       next = await api.collectNow(true);
     }
     return next;
@@ -2325,7 +2398,7 @@ $('update-apply').addEventListener('click', () => void startUpdate());
 $('shortcut-create').addEventListener('click', async () => {
   try {
     await api.createShortcut();
-    $('shortcut-status').textContent = '바탕 화면에 "브리티 메신저 캘린더" 바로 가기를 만들었습니다.';
+    $('shortcut-status').textContent = `바탕 화면에 "${state.messenger.appName}" 바로 가기를 만들었습니다.`;
   } catch (error) {
     $('shortcut-status').textContent = error.message;
   }
@@ -2376,14 +2449,15 @@ rangeSettings.before(rangeHome);
 function renderFirstImport() {
   if (!firstImportDialog.open) return;
   const { collector, collectorConnected, collectorFirstImportPending, autoRefresh, rangeImport } = state.snapshot;
+  const { name } = state.messenger;
   const connecting = !!state.firstImportConnecting;
   const saving = !!state.firstImportSaving;
   const ready = collectorConnected && collectorFirstImportPending && collector?.status === 'ready';
   const busy = connecting || saving || !!state.rangeBusy || !!rangeImport?.running;
-  const message = state.firstImportError || (connecting ? '브리티 쪽지 목록에 연결하고 있습니다.'
+  const message = state.firstImportError || (connecting ? `${name} 쪽지 목록에 연결하고 있습니다.`
     : ready && !collector.managed ? '다른 수집기가 실행 중이라 이 창에서 기간을 정해 가져올 수 없습니다.'
       : ready ? '기간을 고르고 ‘불러오기’를 누르세요. 기간이 길면 먼저 몇 건인지 볼 수 있습니다.'
-        : '브리티에 로그인하고 창을 띄운 뒤 연결을 다시 확인해 주세요.');
+        : `${name}에 로그인하고 창을 띄운 뒤 연결을 다시 확인해 주세요.`);
   setMessage('first-import-connection', message, !!state.firstImportError);
   $('first-import-ai').hidden = !aiNotConnected();
   $('first-import-retry').hidden = ready || connecting;
@@ -2463,6 +2537,7 @@ $('first-import-finish').addEventListener('click', async () => {
 
 function renderRange() {
   const snap = state.snapshot;
+  const { name } = state.messenger;
   const first = firstImportDialog.open;
   const available = !!snap.collectorAvailable && !!snap.collectorConnected &&
     (!first || (snap.collector?.status === 'ready' && snap.collector.managed && !state.firstImportConnecting));
@@ -2478,9 +2553,9 @@ function renderRange() {
   $('range-status').classList.toggle('busy', running || !!state.rangeCounting);
   if (running) {
     setMessage('range-status', snap.rangeImport.stopping ? '지금 여는 쪽지들을 마치고 멈춥니다…'
-      : '브리티에서 쪽지를 하나씩 열어 불러오는 중입니다. 쪽지가 많으면 몇 분 걸립니다. 끝날 때까지 브리티 창은 건드리지 마세요.');
+      : `${name}에서 쪽지를 하나씩 열어 불러오는 중입니다. 쪽지가 많으면 몇 분 걸립니다. 끝날 때까지 ${name} 창은 건드리지 마세요.`);
   } else if (!available && !first && !state.rangeMessage) {
-    setMessage('range-status', snap.demo ? '샘플에서는 불러올 수 없습니다.' : '머리줄에서 브리티를 먼저 연결해 주세요.');
+    setMessage('range-status', snap.demo ? '샘플에서는 불러올 수 없습니다.' : `머리줄에서 ${name}를 먼저 연결해 주세요.`);
   }
   // 불러온 뒤 AI로 분류할지: 몇 건인지 센 뒤에 건수만 보인다. 비용은 알리지 않는다(2026-11-12 사용자).
   const fresh = state.rangePreview?.fresh || 0;
@@ -2510,29 +2585,31 @@ async function rangeAction(run) {
 $('range-from').addEventListener('change', () => { state.rangePreview = null; renderRange(); });
 $('range-to').addEventListener('change', () => { state.rangePreview = null; renderRange(); });
 $('range-preview').addEventListener('click', () => void rangeAction(async () => {
+  const { name } = state.messenger;
   state.rangeMessage = true;
   state.rangeCounting = true;
-  setMessage('range-status', '브리티 쪽지 목록을 내려 가며 세고 있습니다(쪽지는 열지 않습니다).');
+  setMessage('range-status', `${name} 쪽지 목록을 내려 가며 세고 있습니다(쪽지는 열지 않습니다).`);
   renderRange();
   let preview;
   try { preview = await api.previewRange(...rangeInput()); }
   finally { state.rangeCounting = false; }
   state.rangePreview = preview;
   const already = preview.matched - preview.fresh;
-  setMessage('range-status', `브리티 목록에서 살펴본 쪽지 ${preview.visible}건 가운데 이 기간 ${preview.matched}건${already ? `(이미 받은 ${already}건 빼면 ${preview.fresh}건)` : ''}을 불러올 수 있습니다.` +
+  setMessage('range-status', `${name} 목록에서 살펴본 쪽지 ${preview.visible}건 가운데 이 기간 ${preview.matched}건${already ? `(이미 받은 ${already}건 빼면 ${preview.fresh}건)` : ''}을 불러올 수 있습니다.` +
     (preview.oldest ? ` 목록에서 가장 오래된 날은 ${preview.oldest}입니다.` : '') + (preview.unknown ? ` 날짜를 못 읽은 ${preview.unknown}건은 뺐습니다.` : ''));
 }));
 $('range-import').addEventListener('click', () => void rangeAction(async () => {
+  const { name } = state.messenger;
   const count = state.rangePreview?.fresh || 0;
   // 확인은 시작 전에 한 번만 한다. AI 분류 여부는 버튼 위 체크 칸에 미리 보이고, 끝난 뒤에는 다시 묻지 않는다.
   const classify = state.snapshot.aiProvider !== 'none' && $('range-auto-classify').checked;
   const ai = classify ? '\n불러온 뒤 AI로 분류합니다.' : '';
-  if (!window.confirm(`${count ? `쪽지 ${count}건을` : '이 기간 쪽지를'} 브리티에서 열어 불러옵니다. 안 읽은 쪽지는 읽음 처리됩니다. 불러오는 동안 브리티 화면이 쪽지 목록으로 바뀝니다.${ai}\n계속할까요?`)) return;
+  if (!window.confirm(`${count ? `쪽지 ${count}건을` : '이 기간 쪽지를'} ${name}에서 열어 불러옵니다. 안 읽은 쪽지는 읽음 처리됩니다. 불러오는 동안 ${name} 화면이 쪽지 목록으로 바뀝니다.${ai}\n계속할까요?`)) return;
   state.rangeMessage = true;
   const result = await api.importRange(...rangeInput());
   if (firstImportDialog.open && result.imported) state.firstImportImported = true;
   state.rangePreview = null;
-  setMessage('range-status', `${result.imported}건을 불러왔습니다.${result.stopped ? ' 중간에 멈췄습니다.' : ''}${result.failed ? ' 브리티 목록을 읽지 못해 끝까지 불러오지 못했습니다.' : ''}`, result.failed);
+  setMessage('range-status', `${result.imported}건을 불러왔습니다.${result.stopped ? ' 중간에 멈췄습니다.' : ''}${result.failed ? ` ${name} 목록을 읽지 못해 끝까지 불러오지 못했습니다.` : ''}`, result.failed);
   if (result.pending && classify) {
     const queued = await api.classifyRange();
     setMessage('range-status', `${result.imported}건을 불러왔고 ${queued}건을 분류하고 있습니다.`);
@@ -2555,7 +2632,7 @@ function renderBackup() {
   $('shortcut-row').hidden = !state.snapshot.shortcutAvailable;
   $('login-start-row').hidden = !state.snapshot.loginStart?.available;
   if (!state.loginStartBusy) $('login-start').checked = state.snapshot.loginStart?.enabled === true;
-  $('app-version').textContent = state.snapshot.appVersion ? `브리티 메신저 캘린더 ${state.snapshot.appVersion}판` : '';
+  $('app-version').textContent = state.snapshot.appVersion ? `${state.messenger.appName} ${state.snapshot.appVersion}판` : '';
 }
 
 async function backupAction(run) {
@@ -2862,7 +2939,7 @@ $('ai-connect').addEventListener('click', async () => {
     renderAiConnected();
     const backlog = state.snapshot.backlogPending || 0;
     setMessage('ai-status', provider === 'none' ? 'AI 연결을 껐습니다.'
-      : `${aiNames[provider]} 연결 시험을 통과했습니다. 앞으로 오는 쪽지는 자동으로 정리합니다.${backlog ? ` 이미 가져온 쪽지 ${backlog}건은 목록 위 ‘AI로 정리’를 누르면 정리합니다.` : state.snapshot.collectorConnected ? '' : ' 이제 설정을 닫고 위쪽 ‘브리티 연결’을 누르세요.'}`);
+      : `${aiNames[provider]} 연결 시험을 통과했습니다. 앞으로 오는 쪽지는 자동으로 정리합니다.${backlog ? ` 이미 가져온 쪽지 ${backlog}건은 목록 위 ‘AI로 정리’를 누르면 정리합니다.` : state.snapshot.collectorConnected ? '' : ` 이제 설정을 닫고 위쪽 ‘${state.messenger.name} 연결’을 누르세요.`}`);
   } catch (error) {
     // 이미 연결된 방식을 다시 시험하다 실패하면 맨 위 상태 줄도 실패로 바꾼다.
     if (provider !== 'none' && provider === state.snapshot.aiProvider) state.aiCheckFailed = provider;
@@ -3179,7 +3256,7 @@ $('reference-seen').addEventListener('click', async () => {
 });
 $('brity-reply').addEventListener('click', async () => {
   const id = state.selected;
-  if (!id || state.detail?.note?.verified !== true) return;
+  if (!state.messenger.supportsReply || !id || state.detail?.note?.verified !== true) return;
   $('brity-reply').disabled = true;
   setMessage('detail-message', '브리티에서 쪽지를 찾고 있습니다.');
   try {

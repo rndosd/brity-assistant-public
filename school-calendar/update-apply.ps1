@@ -11,7 +11,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
-$title = '브리티 메신저 캘린더 업데이트'
+$title = if ([IO.File]::Exists((Join-Path $Staging 'goe.patch'))) { 'GOE 메신저 캘린더 업데이트' } else { '브리티 메신저 캘린더 업데이트' }
 $log = Join-Path $Staging 'update-log.txt'
 function Write-Log([string]$message) { Add-Content -LiteralPath $log -Value ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $message) -Encoding UTF8 }
 function Say([string]$message, [string]$icon = 'Information') {
@@ -86,7 +86,7 @@ function Get-RuntimePayload([string]$zip, [string]$destination) {
 
 function Restore-UpdateFiles([object[]]$changes, [string]$backup) {
   foreach ($change in $changes) {
-    if ($change.path -notmatch '^(?:runtime/|collector/(?:collect-notes\.ps1|list-date\.ps1|watch\.ps1|labels\.json)$)' -or
+    if ($change.path -notmatch '^(?:runtime/|collector/(?:collect-notes\.ps1|collect-goe\.ps1|list-date\.ps1|watch\.ps1|labels\.json)$)' -or
         $change.path -match '(?:^|/)(?:data|calendar-data|inbox|\.demo|\.qa)(?:/|$)' -or $change.existed -isnot [bool]) {
       throw '업데이트 복구 기록을 확인하지 못했습니다.'
     }
@@ -130,7 +130,7 @@ function Install-RuntimeUpdate([string]$files, [string]$zip) {
       if ($_.FullName -ne $zip -and $name -ne 'package.json') { $payload["runtime/resources/app/$name"] = $_.FullName }
     }
     $collectorFiles = Join-Path $files 'collector'
-    foreach ($name in 'collect-notes.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json') {
+    foreach ($name in 'collect-notes.ps1', 'collect-goe.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json') {
       $source = Join-Path $collectorFiles $name
       if ([IO.File]::Exists($source)) { $payload["collector/$name"] = $source }
     }
@@ -183,6 +183,7 @@ function Install-RuntimeUpdate([string]$files, [string]$zip) {
 $mutex = New-Object System.Threading.Mutex($false, 'Local\SchoolCalendarUpdate')
 $locked = $false
 $recoveryPending = $false
+$editionMismatch = $false
 
 try {
   try { $locked = $mutex.WaitOne(120000) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
@@ -203,11 +204,17 @@ try {
   if (-not $Root) {
     if ($Quiet) { throw '캘린더 폴더를 찾지 못했습니다.' }
     $picker = New-Object System.Windows.Forms.FolderBrowserDialog
-    $picker.Description = '브리티 메신저 캘린더를 푼 폴더(runtime 폴더가 들어 있는 곳)를 골라 주세요.'
+    $picker.Description = '메신저 캘린더를 푼 폴더(runtime 폴더가 들어 있는 곳)를 골라 주세요.'
     if ($picker.ShowDialog() -ne 'OK' -or -not (Test-CalendarRoot $picker.SelectedPath)) { throw '캘린더 폴더를 찾지 못했습니다. runtime 폴더가 들어 있는 폴더를 골라 주세요.' }
     $Root = $picker.SelectedPath
   }
   $Root = (Resolve-Path -LiteralPath $Root).Path
+  $goe = [IO.File]::Exists((Join-Path $Root 'goe.edition'))
+  if ($goe -ne [IO.File]::Exists((Join-Path $Staging 'goe.patch'))) {
+    $editionMismatch = $true
+    throw '이 캘린더와 패치의 메신저 종류가 다릅니다. 같은 종류의 패치를 사용해 주세요.'
+  }
+  $launcherName = if ($goe) { 'GOE Messenger Calendar.exe' } else { 'Brity Messenger Calendar.exe' }
   Write-Log "root=$Root staging=$Staging"
 
   # 앱이 꺼질 때까지 기다린다.
@@ -217,7 +224,7 @@ try {
   while ($true) {
     $running = @(Get-Process -Name electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $runtimeDir 'electron.exe') })
     if (-not $running.Count) { break }
-    if ($WaitPid -le 0) { throw '브리티 메신저 캘린더가 켜져 있습니다. 캘린더를 닫은 뒤 update.cmd 를 다시 실행해 주세요.' }
+    if ($WaitPid -le 0) { throw '메신저 캘린더가 켜져 있습니다. 캘린더를 닫은 뒤 update.cmd 를 다시 실행해 주세요.' }
     if ((Get-Date) -gt $deadline) { throw '캘린더가 꺼지지 않아 업데이트하지 못했습니다. 캘린더를 닫고 다시 시도해 주세요.' }
     Start-Sleep -Milliseconds 500
   }
@@ -249,7 +256,7 @@ try {
   Remove-Item -LiteralPath (Join-Path $Root 'update-staging\pending.txt') -Force -ErrorAction SilentlyContinue
 
   if (-not $NoRestart) {
-    $launcher = Join-Path $Root 'Brity Messenger Calendar.exe'
+    $launcher = Join-Path $Root $launcherName
     if (Test-Path -LiteralPath $launcher) { Start-Process -FilePath $launcher -WorkingDirectory $Root }
     else {
       $startArgs = if (Test-Path -LiteralPath (Join-Path $Root 'no-sandbox.txt')) { @('--brity', '--no-sandbox') } else { @('--brity') }
@@ -261,11 +268,12 @@ try {
 } catch {
   try { Write-Log "failed: $($_.Exception.Message)" } catch {}
   # 실패해도 같은 패치를 되풀이하지 않는다(앱 폴더는 원래대로 되돌렸다).
-  if ($locked -and $Root -and !$recoveryPending) { Remove-Item -LiteralPath (Join-Path $Root 'update-staging\pending.txt') -Force -ErrorAction SilentlyContinue }
+  if ($locked -and $Root -and !$recoveryPending -and !$editionMismatch) { Remove-Item -LiteralPath (Join-Path $Root 'update-staging\pending.txt') -Force -ErrorAction SilentlyContinue }
   Say "업데이트하지 못했습니다.`n$($_.Exception.Message)" 'Warning'
-  if ($locked -and !$recoveryPending -and $WaitPid -gt 0 -and -not $NoRestart -and (Test-CalendarRoot $Root)) {
+  if ($locked -and !$recoveryPending -and !$editionMismatch -and $WaitPid -gt 0 -and -not $NoRestart -and (Test-CalendarRoot $Root)) {
     # 실행기가 있으면 실행기로 켠다(Windows 26H2 꺼짐 문제 때 샌드박스 없이 다시 켜는 일을 실행기가 맡는다).
-    $launcher = Join-Path $Root 'Brity Messenger Calendar.exe'
+    $launcherName = if ([IO.File]::Exists((Join-Path $Root 'goe.edition'))) { 'GOE Messenger Calendar.exe' } else { 'Brity Messenger Calendar.exe' }
+    $launcher = Join-Path $Root $launcherName
     if (Test-Path -LiteralPath $launcher) { Start-Process -FilePath $launcher -WorkingDirectory $Root }
     else {
       $startArgs = if (Test-Path -LiteralPath (Join-Path $Root 'no-sandbox.txt')) { @('--brity', '--no-sandbox') } else { @('--brity') }

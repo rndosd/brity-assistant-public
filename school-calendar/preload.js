@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('calendar', {
   setShowPeriods: enabled => invoke('calendar:periods', enabled),
   openRules: () => invoke('calendar:rules'),
   openAttachment: (id, index, reveal) => invoke('calendar:attachment', id, index, reveal),
+  retryGoeAttachments: id => invoke('calendar:goe-attachment-retry', id),
   copyWorkPrompt: id => invoke('calendar:copy-work', id),
   onChange: callback => {
     const listener = (_event, snapshot) => callback(snapshot);

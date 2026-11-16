@@ -9,6 +9,7 @@ const { createHash } = require('node:crypto');
 const { readZip } = require('./backup');
 
 const PATCH_ROOT = 'School-Calendar-Patch/';
+const GOE_PATCH_MARKER = 'goe.patch';
 const MAX_PATCH = 200 * 1024 * 1024;
 const MAX_MANIFEST = 256 * 1024;
 
@@ -46,10 +47,11 @@ async function fetchLimited(url, { fetchImpl = fetch, limit, signal }) {
   return buffer;
 }
 
-function readManifest(buffer) {
+function readManifest(buffer, goe = false) {
   const manifest = JSON.parse(buffer.toString('utf8').replace(/^﻿/, ''));
   if (!manifest || !parseVersion(manifest.version) || typeof manifest.file !== 'string' || !/^[A-Za-z0-9._-]+\.zip$/.test(manifest.file) ||
       typeof manifest.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(manifest.sha256)) throw new Error('Invalid update manifest');
+  if (goe ? manifest.edition !== 'goe' : manifest.edition !== undefined) throw new Error('Unexpected update edition');
   return {
     version: manifest.version.replace(/^v/, ''), file: manifest.file, sha256: manifest.sha256,
     electron: typeof manifest.electron === 'string' ? manifest.electron : null,
@@ -58,8 +60,8 @@ function readManifest(buffer) {
 }
 
 // 결과 status: latest(최신), available(버튼으로 업데이트), full(Electron 판이 달라 전체 ZIP을 새로 받아야 함).
-async function checkForUpdate({ manifestUrl, current, electron, fetchImpl, signal }) {
-  const manifest = readManifest(await fetchLimited(manifestUrl, { fetchImpl, limit: MAX_MANIFEST, signal }));
+async function checkForUpdate({ manifestUrl, current, electron, fetchImpl, signal, goe = false }) {
+  const manifest = readManifest(await fetchLimited(manifestUrl, { fetchImpl, limit: MAX_MANIFEST, signal }), goe);
   if (compareVersions(manifest.version, current) <= 0) return { status: 'latest', version: manifest.version };
   const changes = manifest.changes.filter(entry => compareVersions(entry.version, current) > 0);
   if (manifest.electron && electron && manifest.electron !== electron) return { status: 'full', ...manifest, changes };
@@ -71,27 +73,28 @@ function assetUrl(manifestUrl, file) {
 }
 
 // 패치 ZIP 안에서 앱 폴더와 수집기 스크립트만 꺼낸다. 받은 쪽지(inbox)나 자료 폴더는 들어 있으면 거절한다.
-function patchEntries(entries) {
+function patchEntries(entries, goe = false) {
   const files = [];
   for (const entry of entries) {
     if (!entry.name.startsWith(PATCH_ROOT)) throw new Error('Unexpected patch entry');
     const name = entry.name.slice(PATCH_ROOT.length);
-    const ok = name === 'update-apply.ps1' || name === 'update.cmd' || name === 'update.json' || name === '읽어 보기.txt' ||
+    const ok = name === 'update-apply.ps1' || name === 'update.cmd' || name === 'update.json' || name === '읽어 보기.txt' || name === GOE_PATCH_MARKER ||
       name.startsWith('files/runtime/resources/app/') ||
       (/^files\/collector\/[^/]+$/.test(name) && /\.(ps1|json)$/i.test(name));
     if (!ok) throw new Error(`Unexpected patch entry: ${name}`);
     files.push({ name, data: entry.data });
   }
+  if (files.some(file => file.name === GOE_PATCH_MARKER) !== goe) throw new Error('Unexpected patch edition');
   if (!files.some(file => file.name === 'files/runtime/resources/app/main.js') || !files.some(file => file.name === 'update-apply.ps1')) {
     throw new Error('Incomplete patch');
   }
   return files;
 }
 
-async function downloadPatch({ manifestUrl, update, stagingRoot, fetchImpl, signal }) {
+async function downloadPatch({ manifestUrl, update, stagingRoot, fetchImpl, signal, goe = false }) {
   const buffer = await fetchLimited(assetUrl(manifestUrl, update.file), { fetchImpl, limit: MAX_PATCH, signal });
   if (createHash('sha256').update(buffer).digest('hex') !== update.sha256) throw new Error('Checksum mismatch');
-  const files = patchEntries(readZip(buffer));
+  const files = patchEntries(readZip(buffer), goe);
   const staging = path.join(stagingRoot, update.version);
   await fs.rm(staging, { recursive: true, force: true });
   for (const file of files) {
