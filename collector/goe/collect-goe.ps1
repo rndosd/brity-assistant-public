@@ -244,12 +244,27 @@ $mainEl = $AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object { $_.
 if (-not $mainEl) { $result.status = 'offline'; Publish-Result 'main-window-not-found'; return }
 $main = [IntPtr]$mainEl.Current.NativeWindowHandle
 
-$H = @{}
-foreach ($e in $mainEl.FindAll($TS::Descendants, $TRUE_COND)) {
-    $c = $e.Current
-    if ($c.ClassName -eq 'Button' -and $c.Name -in @($L.noteTab, $L.inboxButton, $L.sentButton) -and -not $H[$c.Name]) { $H[$c.Name] = [IntPtr]$c.NativeWindowHandle }
-    if ($c.ClassName -eq 'UltariListScrollView' -and -not $H.list) { $H.list = [IntPtr]$c.NativeWindowHandle }
-    if ($c.ClassName -eq 'UListScrollBar' -and -not $H.scroll) { $H.scroll = [IntPtr]$c.NativeWindowHandle }
+function Find-MainControls {
+    $found = @{}
+    foreach ($e in $mainEl.FindAll($TS::Descendants, $TRUE_COND)) {
+        $c = $e.Current
+        if ($c.ClassName -eq 'Button' -and $c.Name -in @($L.noteTab, $L.inboxButton, $L.sentButton) -and -not $found[$c.Name]) { $found[$c.Name] = [IntPtr]$c.NativeWindowHandle }
+        if ($c.ClassName -eq 'UltariListScrollView' -and -not $found.list) { $found.list = [IntPtr]$c.NativeWindowHandle }
+        if ($c.ClassName -eq 'UListScrollBar' -and -not $found.scroll) { $found.scroll = [IntPtr]$c.NativeWindowHandle }
+    }
+    $found
+}
+$H = Find-MainControls
+# GOE left on another tab (chats, contacts) hides the inbox/sent buttons and the note list (2026-11-16: most
+# replies failed this way). Switch to the note tab, unless the teacher is working in GOE right now.
+if ($H[$L.noteTab] -and -not ($H[$L.inboxButton] -and $H[$L.sentButton] -and $H.list -and $H.scroll)) {
+    $fgPid = 0
+    [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
+    if ($Force -or $fgPid -ne $proc.Id) {
+        [void][GoeWin.W]::SendMessage([IntPtr]$H[$L.noteTab], 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        $t0 = Get-Date
+        do { Start-Sleep -Milliseconds 300; $H = Find-MainControls } while (-not ($H[$L.inboxButton] -and $H.list) -and ((Get-Date) - $t0).TotalSeconds -lt 3)
+    }
 }
 foreach ($k in @($L.noteTab, $L.inboxButton, $L.sentButton, 'list', 'scroll')) {
     if (-not $H[$k]) { $result.status = 'error'; Publish-Result "control-not-found:$k"; return }
@@ -276,6 +291,19 @@ function Get-NoteWindow {
     $AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object { $_.Current.ClassName -eq $L.childClass -and $_.Current.Name -eq $L.noteWindow } | Select-Object -First 1
 }
 $keepNote = $false
+function Format-Body([string]$Text) { ($Text -replace '\s+', ' ').Trim() }
+# A list row that may be the saved note: same day, within a minute, and a sender that differs by at most
+# a couple of letters (all OCR). The caller confirms with the exact body.
+function Test-SameNoteRow($Row, $Note) {
+    try {
+        $a = [datetime]::ParseExact($Row.datetime, 'yyyy-MM-dd HH:mm', $calendar)
+        $b = [datetime]::ParseExact($Note.datetime, 'yyyy-MM-dd HH:mm', $calendar)
+    } catch { return $false }
+    if ($a.Date -ne $b.Date -or [Math]::Abs(($a - $b).TotalMinutes) -gt 1) { return $false }
+    $x = ([string]$Row.sender -replace '\s+', ''); $y = ([string]$Note.sender -replace '\s+', '')
+    if (!$x -or !$y) { return $true }
+    (Get-EditDistance $x $y) -le 2
+}
 # Press the reply button in an open note window and bring the new reply window to the front.
 function Open-GoeReply($NoteEl, $Elements) {
     $button = $Elements | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.replyButton } | Select-Object -First 1
@@ -857,8 +885,10 @@ try {
             # GOE can sort unread notes as a group before read notes, so an old row does not end the date range.
             if (($since -and $day -lt $since) -or ($To -and $day -gt $To)) { continue }
             if ($retryNote) {
-                if ($r.datetime -ne $retryNote.datetime -or $r.unread -or
-                    ($r.sender -replace '\s+', '') -cne ($retryNote.sender -replace '\s+', '')) { continue }
+                # The list is read by OCR, so the same row can come back with a letter or a minute different
+                # from the first import ("teacher" read one syllable off, 2026-11-16: reply mostly "not found").
+                # Pick rows loosely here; the note body (read exactly) decides below.
+                if ($r.unread -or !(Test-SameNoteRow $r $retryNote)) { continue }
             } elseif ((-not $r.unread -and -not $IncludeRead) -or ($AttachOnly -and -not $r.attach)) { continue }
             $result.matched++
             if (!$retryNote -and $IncludeRead -and (Known-Row $r $key)) { continue }
@@ -947,14 +977,17 @@ try {
                 recipients = $recLine; files = $fileNames; saved = @(); body = $body
                 ocr = [pscustomobject]@{ sentLine = $sentLine; attachLine = $attLine; listTitle = $r.titleOcr }
             }
-            if ($Reply -and $retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
+            # the saved note is found by its exact body (the id also hashes the OCR'd sender, which can differ)
+            $sameNote = $retryNote -and $note.verified -and ((Format-Body $body) -ceq (Format-Body $retryNote.body))
+            if ($sameNote) { $id = $RetryId; $notePath = Join-Path $notesDir ($id + '.json') }
+            if ($Reply -and $sameNote) {
                 # leave the note (and the reply window) open for the teacher
                 $result.reply = Open-GoeReply $n $els
                 $keepNote = $true
                 $stop = $true
             } elseif ($Reply -and $retryNote) {
                 # another note with the same time and sender: keep looking
-            } elseif ($retryNote -and $id -ceq $RetryId -and $note.verified -and $body -ceq $retryNote.body) {
+            } elseif ($sameNote) {
                 $result.attached = Get-SavedAttachmentCount $retryNote
                 if ($expired) {
                     $result.attachStatus = 'expired'

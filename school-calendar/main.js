@@ -648,7 +648,8 @@ async function replyInGoe(note) {
     const messages = {
       'in-use': 'GOE 메신저에 열린 쪽지 창이 있거나 쓰는 중이라 열지 않았습니다. 쪽지 창을 닫은 뒤 다시 눌러 주세요.',
       offline: 'GOE 메신저에 로그인한 뒤 다시 눌러 주세요.',
-      conflict: 'GOE 메신저에서 쪽지를 가져오는 중입니다. 잠시 뒤 다시 눌러 주세요.'
+      conflict: 'GOE 메신저에서 쪽지를 가져오는 중입니다. 잠시 뒤 다시 눌러 주세요.',
+      unverified: 'GOE 메신저 쪽지함 화면을 읽지 못했습니다. GOE 메신저 창에 열린 메뉴나 설정 창이 있으면 닫고 다시 눌러 주세요.'
     };
     throw new CalendarError(messages[result.status] || 'GOE 메신저 쪽지함에서 이 쪽지를 찾지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.');
   } finally {
