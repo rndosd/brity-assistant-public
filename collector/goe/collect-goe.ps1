@@ -923,6 +923,9 @@ try {
             $sentDt = Parse-SentTime $sentLine
             $dtCheck = if (-not $sentDt) { 'note-time-unread' } elseif ($sentDt -eq $r.datetime) { 'match' } else { 'mismatch' }
             if ($sentDt -and [datetime]::ParseExact($sentDt, 'yyyy-MM-dd HH:mm', $calendar) -lt $attachmentCutoff) { $expired = $true }
+            # GOE keeps the attachment header after its storage period ends, but the file list is empty and the
+            # header has no count (seen on 11/11 notes, 2026-11-16): nothing can be downloaded any more.
+            if ($attachHeader -and $attCount -eq 0 -and $fileNames.Count -eq 0) { $expired = $true }
             $attachStatus = if (!$hasAttachments) { 'none' } elseif ($expired) { 'expired' } else { 'not-requested' }
             $note = [pscustomobject]@{
                 id = $id; source = 'goe'; verified = [bool]($body -and $r.datetime -and $title)
