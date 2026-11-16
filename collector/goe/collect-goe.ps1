@@ -371,11 +371,20 @@ function Get-GoeAttachmentFolder([string]$Expected) {
     try { Get-PhysicalDirectory (Read-DownloadDir) } catch {}
 }
 
+# Files directly in the GOE folder, plus files in the per-note folders GOE makes when a note has several
+# attachments ("<sender id>_<yyyyMMddHHmmss>0009", seen 2026-11-16). Keyed by path relative to the folder;
+# Name stays the bare file name for matching.
 function Download-State([string]$Directory) {
     $state = @{}
-    foreach ($file in Get-ChildItem -LiteralPath $Directory -Force -File) {
-        $state[$file.Name] = [pscustomobject]@{
-            Name = $file.Name; FullName = $file.FullName; Extension = $file.Extension; Length = $file.Length
+    $items = @(Get-ChildItem -LiteralPath $Directory -Force -File | ForEach-Object { @{ key = $_.Name; file = $_ } })
+    foreach ($sub in Get-ChildItem -LiteralPath $Directory -Force -Directory | Where-Object {
+        $_.Name -match '^[A-Za-z0-9._-]+_\d{18}$' -and !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }) {
+        $items += @(Get-ChildItem -LiteralPath $sub.FullName -Force -File | ForEach-Object { @{ key = $sub.Name + '\' + $_.Name; file = $_ } })
+    }
+    foreach ($item in $items) {
+        $file = $item.file
+        $state[$item.key] = [pscustomobject]@{
+            Key = $item.key; Name = $file.Name; FullName = $file.FullName; Extension = $file.Extension; Length = $file.Length
             Attributes = $file.Attributes; LastWriteTimeUtc = $file.LastWriteTimeUtc; CreationTimeUtc = $file.CreationTimeUtc
         }
     }
@@ -423,7 +432,7 @@ function Test-AttachmentPrefix([string]$Label, [string]$FileName, [double]$Error
 function Select-Attachments($Candidates, [string[]]$Names) {
     $picked = [ordered]@{}
     foreach ($label in $Names) {
-        $pool = @($Candidates | Where-Object { !$picked.Contains($_.Name) })
+        $pool = @($Candidates | Where-Object { !$picked.Contains($_.Key) })
         $expected = $label -replace '\s+', ''
         if ($expected.EndsWith('...')) {
             $found = @($pool | Where-Object { Test-AttachmentPrefix $expected $_.Name })
@@ -437,14 +446,14 @@ function Select-Attachments($Candidates, [string[]]$Names) {
             }
         }
         if ($found.Count -gt 1) { $found = @($found | Where-Object { !(Test-FromInternet $_) }) }
-        if ($found.Count -eq 1) { $picked[$found[0].Name] = $found[0] }
+        if ($found.Count -eq 1) { $picked[$found[0].Key] = $found[0] }
     }
     @($picked.Values)
 }
 
 # The GOE folder may be a busy one such as Downloads, so files the note does not name are ignored.
 function Get-DownloadBatch($Before, $After, $Previous, [int]$Count, [string[]]$Names) {
-    $changed = @($After.Values | Where-Object { !(Test-SameDownloadFile $Before[$_.Name] $_) })
+    $changed = @($After.Values | Where-Object { !(Test-SameDownloadFile $Before[$_.Key] $_) })
     $partial = @($changed | Where-Object { $_.Extension -in '.tmp', '.part', '.partial', '.crdownload', '.download' })
     $candidates = @($changed | Where-Object {
         $_ -notin $partial -and $_.Length -gt 0 -and !($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
@@ -455,7 +464,7 @@ function Get-DownloadBatch($Before, $After, $Previous, [int]$Count, [string[]]$N
         $plain = @($candidates | Where-Object { !(Test-FromInternet $_) })
         if ($plain.Count -eq $Count -and $changed.Count -eq $Count) { $files = $plain }
     }
-    if ($Count -gt 0 -and $files.Count -eq $Count -and !($files | Where-Object { !(Test-SameDownloadFile $_ $Previous[$_.Name]) })) {
+    if ($Count -gt 0 -and $files.Count -eq $Count -and !($files | Where-Object { !(Test-SameDownloadFile $_ $Previous[$_.Key]) })) {
         return @{ status = 'complete'; files = $files }
     }
     @{ status = 'waiting'; files = @(); activity = $changed.Count -gt 0 }
@@ -548,13 +557,13 @@ function Find-ExistingAttachments($State, $Sizes, [string[]]$Taken) {
     $picked = [ordered]@{}
     foreach ($entry in $Sizes) {
         $found = @($State.Values | Where-Object {
-            $_.Name -notin $Taken -and !$picked.Contains($_.Name) -and $_.Length -gt 0 -and
+            $_.Key -notin $Taken -and !$picked.Contains($_.Key) -and $_.Length -gt 0 -and
             !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
             [Math]::Abs($_.Length - $entry.size) -le $entry.tolerance -and (Test-SimilarName $entry.name $_.Name)
         })
         if ($found.Count -gt 1) { $found = @($found | Where-Object { !(Test-FromInternet $_) }) }
         if ($found.Count -ne 1) { return @() }
-        $picked[$found[0].Name] = $found[0]
+        $picked[$found[0].Key] = $found[0]
     }
     @($picked.Values)
 }
@@ -605,12 +614,12 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
     if ($Sizes.Count -eq $Count) {
         # some or all attachments were skipped because a file of that name was already there
         $changed = @($current.Values | Where-Object {
-            !(Test-SameDownloadFile $before[$_.Name] $_) -and $_.Length -gt 0 -and
+            !(Test-SameDownloadFile $before[$_.Key] $_) -and $_.Length -gt 0 -and
             $_.Extension -notin '.tmp', '.part', '.partial', '.crdownload', '.download'
         })
-        $new = @(Select-Attachments $changed $Names | Where-Object { Test-SameDownloadFile $_ $previous[$_.Name] })
+        $new = @(Select-Attachments $changed $Names | Where-Object { Test-SameDownloadFile $_ $previous[$_.Key] })
         $rest = @($Sizes | Where-Object { $entry = $_; !($new | Where-Object { Test-SimilarName $entry.name $_.Name }) })
-        $old = @(Find-ExistingAttachments $current $rest @($changed | ForEach-Object Name))
+        $old = @(Find-ExistingAttachments $current $rest @($changed | ForEach-Object Key))
         if ($rest.Count -and $new.Count + $old.Count -eq $Count) {
             return @{ status = 'complete'; files = @($new) + @($old); directory = $Directory }
         }
