@@ -1298,8 +1298,12 @@ function enableForm() {
   $('brity-reply').hidden = !state.messenger.supportsReply || state.demo || state.detail?.note?.verified !== true;
   $('save').disabled = !state.dirty || state.saving;
   $('save').hidden = !state.dirty || !!task?.candidate;
-  $('reference-seen').hidden = task?.type !== '알아 둘 것' || task.referenceSeen;
-  $('reference-seen').disabled = state.dirty || state.saving;
+  // 다 봄(2026-11-17 사용자 "다봄을 끝냄 쪽으로"): 끝냄과 같은 자리·모양. 본 뒤에는 눌린 모양으로 남는다(되돌리기는 없음).
+  const seen = task?.referenceSeen === true;
+  $('reference-seen').hidden = task?.type !== '알아 둘 것' || !!task.candidate;
+  $('reference-seen').disabled = seen || state.dirty || state.saving;
+  $('reference-seen').classList.toggle('marked', seen);
+  $('reference-seen').title = seen ? '끝낸 것에 있습니다' : '다 봤으면 끝낸 것으로 옮깁니다';
   // 끝냄으로 표시: 남은 □를 한 번에 끝낸다. □가 없으면 숨긴다.
   const list = task && !task.candidate ? boxes(task) : [];
   const completed = !!task && finished(task);
@@ -1567,6 +1571,16 @@ const goeAttachmentMessages = {
   partial: '일부 첨부만 저장됐습니다.'
 };
 
+// 줄일 때도 확장자(.hwpx·.pdf)는 남긴다: 앞부분만 …으로 줄인다.
+function attachmentName(className, name) {
+  const node = element('span', className);
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : '';
+  node.append(element('span', 'attachment-base', ext ? name.slice(0, dot) : name));
+  if (ext) node.append(element('span', 'attachment-ext', ext));
+  return node;
+}
+
 function renderAttachments(id, note) {
   const attachments = note?.attachments || [];
   const goe = note?.goeAttachments;
@@ -1583,10 +1597,16 @@ function renderAttachments(id, note) {
   $('attachment-folder').onclick = first ? () => openAttachment(id, first.index, true) : null;
   const rows = attachments.map(item => {
     const row = element('li', 'attachment-item');
-    if (!item.available) row.append(element('span', 'attachment-name', item.name), element('span', 'small-note', '저장 파일 없음'));
-    else {
-      const open = button('button text-button small', item.name);
-      open.title = item.direct ? '첨부 열기' : '폴더에서 보기';
+    // 이름은 한 줄로 줄이고 마우스를 올리면 전체 이름을 보인다(2026-11-17 사용자 "미관상").
+    if (!item.available) {
+      const name = attachmentName('attachment-name', item.name);
+      name.title = item.name;
+      row.append(name, element('span', 'small-note', '저장 파일 없음'));
+    } else {
+      const open = button('button text-button small');
+      open.append(attachmentName('attachment-label', item.name));
+      open.title = `${item.name}
+${item.direct ? '누르면 첨부를 엽니다' : '누르면 폴더에서 보여 줍니다'}`;
       open.addEventListener('click', () => openAttachment(id, item.index, false));
       row.append(open);
       if (!item.direct) row.append(element('span', 'small-note', '폴더에서 보기'));

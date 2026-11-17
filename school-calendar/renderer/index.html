@@ -132,6 +132,7 @@
           <button type="button" class="button small task-mark" id="important" hidden aria-pressed="false" title="중요 표시 · 목록에서 위에 두고 달력에서 굵게 표시합니다"><span class="box" aria-hidden="true"></span>중요</button>
           <button type="button" class="button small task-mark" id="pin" hidden aria-pressed="false" title="목록의 상시 묶음에 띄웁니다"><span class="box" aria-hidden="true"></span>상시</button>
           <button type="button" class="button small task-mark" id="done" hidden><span class="box" aria-hidden="true"></span><span id="done-label">끝냄</span></button>
+          <button type="button" class="button small task-mark" id="reference-seen" hidden title="다 봤으면 끝낸 것으로 옮깁니다"><span class="box" aria-hidden="true"></span>다 봄</button>
         </div>
         <span class="badge" id="source-badge"></span><span class="badge warning" id="verify-badge" hidden>확인 필요</span>
       </div>
@@ -236,7 +237,6 @@
             <button type="button" class="button text-button" id="candidate-discard" hidden>버리기</button>
             <button type="button" class="button text-button" id="candidate-restore" hidden>후보로 되살리기</button>
             <button type="button" class="button primary" id="candidate-accept" hidden>올리기</button>
-            <button type="button" class="button text-button" id="reference-seen" hidden>다 봄</button>
             <button type="submit" class="button primary" id="save" disabled>변경 저장</button>
           </div>
         </form>

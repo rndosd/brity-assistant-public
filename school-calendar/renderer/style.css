@@ -306,10 +306,13 @@ button:disabled { cursor: default; opacity: .5; }
 .summary { font-size: 14.5px; line-height: 1.75; color: var(--ink); word-break: keep-all; margin-bottom: 6px; }
 .attachment-list { border-top: 1px solid var(--rule); }
 .attachment-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--rule); min-width: 0; }
-.attachment-item .text-button { font-size: 14px; white-space: normal; text-align: left; justify-content: start; overflow-wrap: anywhere; word-break: keep-all; text-decoration: none; padding-left: 0; color: var(--ink); }
+.attachment-item .text-button { flex: 1 1 auto; min-width: 0; font-size: 14px; text-align: left; justify-content: start; text-decoration: none; padding-left: 0; color: var(--ink); }
+.attachment-label, .attachment-name { display: flex; min-width: 0; white-space: nowrap; }
+.attachment-base { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.attachment-ext { flex: none; }
 .attachment-item .text-button:hover { text-decoration: underline; background: none; }
 .attachment-item .small-note { flex: none; }
-.attachment-name { font-size: 14px; overflow-wrap: anywhere; color: var(--ink-2); }
+.attachment-name { flex: 1 1 auto; font-size: 14px; color: var(--ink-2); }
 #attachment-status { margin-top: 6px; }
 #attachment-status.error { color: var(--red); }
 .note-reading h3 { margin-bottom: 8px; }
