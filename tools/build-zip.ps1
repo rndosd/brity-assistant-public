@@ -97,7 +97,7 @@ function Copy-AppCode([string]$appOut) {
   Copy-Item (Join-Path $app 'renderer') $appOut -Recurse
   # 앱 아이콘만(2026-11-17: 폴더째 복사해 앱과 무관한 홍보 이미지 5.6MB가 0.5.3에 섞였다).
   New-Item -ItemType Directory -Force (Join-Path $appOut 'assets') | Out-Null
-  Copy-Item (Join-Path $app 'assetsapp.*') (Join-Path $appOut 'assets')
+  foreach ($icon in 'app.ico','app.png','app.svg') { Copy-Item (Join-Path (Join-Path $app 'assets') $icon) (Join-Path $appOut 'assets') -ErrorAction Stop }
   Set-Content (Join-Path $appOut 'package.json') ('{"name":"school-calendar-portable","version":"' + $version + '","main":"portable-entry.cjs","private":true}') -Encoding ascii
 @'
 'use strict';
