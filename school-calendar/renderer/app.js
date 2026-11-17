@@ -2015,6 +2015,14 @@ function renderCollector() {
     conflict: '수집기를 자동으로 연결할 수 없습니다. 현재 설정된 저장 폴더에서만 쪽지를 읽습니다.',
     unavailable: '쪽지 수집기를 연결하지 못했습니다. ZIP 전체를 푼 폴더에서 앱을 다시 열어 주세요.',
   };
+  // GOE판: 켜져 있는데 못 찾은 까닭을 그대로 보인다(2026-11-17 “메신저가 켜져있어도 못찾았단 거야”).
+  const goeWhy = {
+    'main-window-not-found': `${fullName}는 켜져 있지만 메인 창을 찾지 못했습니다(까닭: GOE 창 찾기 실패). GOE 판이 다를 수 있으니 이 문구를 알려 주세요.`,
+    'control-not-found': `${fullName} 창은 찾았지만 쪽지함 단추를 읽지 못했습니다(까닭: 쪽지함 읽기 실패). GOE를 관리자 권한으로 켰다면 보통으로 다시 켜 주세요.`,
+    'no-korean-ocr': `이 PC에 한국어 글자 인식(OCR)이 없어 쪽지를 읽지 못합니다. Windows 설정 › 시간 및 언어 › 언어 › 한국어 › 언어 옵션에서 ‘광학 문자 인식’을 설치해 주세요.`,
+    'script-error': `${name} 수집기가 실행 중 멈췄습니다(까닭: 수집기 오류). 앱을 다시 열고, 그래도 같으면 이 문구를 알려 주세요.`
+  }[collector?.goeReason];
+  if (goeWhy) for (const key of ['offline', 'unverified', 'unavailable']) messages[key] = goeWhy;
   const running = status === 'ready' || status === 'in-use';
   // 처음 시작: 브리티를 아직 연결하지 않았으면 1단계 AI 연결 → 2단계 브리티 연결 순서로 보인다.
   const setup = !collectorConnected && !running;

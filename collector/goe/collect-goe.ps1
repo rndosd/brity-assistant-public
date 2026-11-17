@@ -31,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     status = 'ok'; visible = 0; matched = 0; fresh = 0; unknown = 0
-    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''
+    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''; reason = ''
 }
 
 function Publish-Result([string]$Reason) {
@@ -162,7 +162,7 @@ $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
     $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
 function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(); $t.Result }
 $ocr = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('ko'))
-if (-not $ocr) { $result.status = 'error'; Publish-Result 'no-korean-ocr'; return }
+if (-not $ocr) { $result.status = 'error'; $result.reason = 'no-korean-ocr'; Publish-Result 'no-korean-ocr'; return }
 
 function Get-Rect($h) { $r = New-Object GoeWin.W+R; [void][GoeWin.W]::GetWindowRect([IntPtr]$h, [ref]$r); $r }
 
@@ -237,11 +237,23 @@ function Clean-Sender([string]$s) {
 
 # ---------- GOE windows ----------
 $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
-$proc = Get-Process -Name $L.processName -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session | Select-Object -First 1
-if (-not $proc) { $result.status = 'offline'; Publish-Result 'goe-not-running'; return }
+# Find GOE by its main window class, not by the first process with the GOE name (2026-11-17: on another PC GOE
+# was running and logged in but was not found; GOE can run more than one process under the same name, and the
+# exe name can differ between GOE builds).
+$proc = $null; $mainEl = $null
+$classCond = New-Object System.Windows.Automation.PropertyCondition($AE::ClassNameProperty, $L.mainClass)
+foreach ($el in $AE::RootElement.FindAll($TS::Children, $classCond)) {
+    $p = Get-Process -Id $el.Current.ProcessId -ErrorAction SilentlyContinue
+    if (-not $p -or $p.SessionId -ne $session) { continue }
+    $proc = $p; $mainEl = $el
+    if ([GoeWin.W]::IsWindowVisible([IntPtr]$el.Current.NativeWindowHandle)) { break }
+}
+if (-not $mainEl) {
+    $result.status = 'offline'
+    $result.reason = if (Get-Process -Name $L.processName -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session) { 'main-window-not-found' } else { 'goe-not-running' }
+    Publish-Result $result.reason; return
+}
 $pidCond = New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, $proc.Id)
-$mainEl = $AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object { $_.Current.ClassName -eq $L.mainClass } | Select-Object -First 1
-if (-not $mainEl) { $result.status = 'offline'; Publish-Result 'main-window-not-found'; return }
 $main = [IntPtr]$mainEl.Current.NativeWindowHandle
 
 function Find-MainControls {
@@ -267,7 +279,7 @@ if ($H[$L.noteTab] -and -not ($H[$L.inboxButton] -and $H[$L.sentButton] -and $H.
     }
 }
 foreach ($k in @($L.noteTab, $L.inboxButton, $L.sentButton, 'list', 'scroll')) {
-    if (-not $H[$k]) { $result.status = 'error'; Publish-Result "control-not-found:$k"; return }
+    if (-not $H[$k]) { $result.status = 'error'; $result.reason = 'control-not-found'; Publish-Result "control-not-found:$k"; return }
 }
 if ($Inspect) {
     [IO.Directory]::CreateDirectory((Join-Path $Inbox 'notes')) | Out-Null

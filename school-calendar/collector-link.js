@@ -21,6 +21,8 @@ function roomHolds(value) {
     .map(({ key, reason }) => ({ key, reason }));
 }
 
+// GOE판이 GOE를 못 찾거나 못 읽은 까닭(collect-goe.ps1·collector-link-goe.ps1, 2026-11-17 다른 PC에서 켜져 있어도 "로그인"만 보임)
+const GOE_REASONS = new Set(['goe-not-running', 'main-window-not-found', 'control-not-found', 'no-korean-ocr', 'script-error']);
 const REASONS = new Set(['not-running', 'tray', 'menu-open', 'not-minimized', 'in-use', 'screen']);
 
 function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '', goe = false, attachmentFolder, noteId } = {}) {
@@ -60,7 +62,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
     // 답장: 옛 쪽지는 목록을 내려 가며 찾는다.
     if (reply) options.timeout = 90_000;
     const child = execFile(powershell, args, options, (error, stdout) => {
-      if (error) return resolve(unavailable);
+      if (error) return resolve(goe ? { ...unavailable, goeReason: 'script-error' } : unavailable);
       try {
         const result = JSON.parse(stdout);
         if (!statuses.has(result.status) || (result.inboxDir !== null && !path.isAbsolute(result.inboxDir))) return resolve(unavailable);
@@ -76,6 +78,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
         }
         if (reply) value.reply = GOE_REPLY_RESULTS.has(result.reply) ? result.reply : 'not-found';
         // GOE판이 건너뛴 이유: 쪽지 창이 열려 있음(note-open) / GOE 창을 쓰는 중(in-goe)
+        if (goe && GOE_REASONS.has(result.reason)) value.goeReason = result.reason;
         if (goe && (result.busyReason === 'note-open' || result.busyReason === 'in-goe')) value.busyReason = result.busyReason;
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {

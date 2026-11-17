@@ -87,8 +87,11 @@ try {
     }
     if ($Mode -eq 'Reply' -and $collected) { $result.reply = $collected.reply }
     if ($collected -and $collected.busyReason) { $result.busyReason = $collected.busyReason }
+    # why GOE was not found or read (2026-11-17: on another PC every failure looked like "log in")
+    if ($collected -and $collected.reason) { $result.reason = [string]$collected.reason }
 } catch {
     $result.status = 'unavailable'
+    $result.reason = 'script-error'
 } finally {
     if ($locked) { $mutex.ReleaseMutex() }
     if ($mutex) { $mutex.Dispose() }
