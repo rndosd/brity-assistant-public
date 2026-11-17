@@ -62,7 +62,14 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
     // 답장: 옛 쪽지는 목록을 내려 가며 찾는다.
     if (reply) options.timeout = 90_000;
     const child = execFile(powershell, args, options, (error, stdout) => {
-      if (error) return resolve(goe ? { ...unavailable, goeReason: 'script-error' } : unavailable);
+      if (error) {
+        if (!goe) return resolve(unavailable);
+        const failed = { ...unavailable, goeReason: 'script-error' };
+        // GOE판: 끊긴 수집기(시간 초과 등)가 트레이의 GOE 창을 화면 밖·작업 표시줄 없이 둔 채 남길 수 있다.
+        // 점검(Inspect)이 goe-parked.json을 보고 원래 자리·트레이로 되돌리므로 곧바로 한 번 돌린다(2026-11-17 “응 그렇게하자”).
+        if (mode === 'Inspect') return resolve(failed);
+        return void runCollector('Inspect', { scriptsDir, goe: true }).then(() => resolve(failed), () => resolve(failed));
+      }
       try {
         const result = JSON.parse(stdout);
         if (!statuses.has(result.status) || (result.inboxDir !== null && !path.isAbsolute(result.inboxDir))) return resolve(unavailable);

@@ -176,6 +176,14 @@ function Read-Window($h, [int]$k = 3) {
     $big = New-Object System.Drawing.Bitmap ($w * $k), ($hh * $k)
     $g2 = [System.Drawing.Graphics]::FromImage($big); $g2.InterpolationMode = 'HighQualityBicubic'
     $g2.DrawImage($bmp, 0, 0, $w * $k, $hh * $k); $g2.Dispose()
+    $res = Ocr-Big $big
+    $lines = @($res.Lines | ForEach-Object {
+        $b = @($_.Words)[0].BoundingRect
+        [pscustomobject]@{ x = [int]($b.X / $k); y = [int]($b.Y / $k); t = $_.Text } } | Sort-Object y, x)
+    @{ bmp = $bmp; lines = $lines }
+}
+# OCR a (scaled) bitmap and dispose it
+function Ocr-Big($big) {
     $png = Join-Path ([IO.Path]::GetTempPath()) ('goe-collector-' + [guid]::NewGuid().ToString() + '.png')
     try {
         try { $big.Save($png) } finally { $big.Dispose() }
@@ -186,10 +194,20 @@ function Read-Window($h, [int]$k = 3) {
         $res = Await ($ocr.RecognizeAsync($sb)) ([Windows.Media.Ocr.OcrResult])
         $s.Dispose()
     } finally { Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue }
-    $lines = @($res.Lines | ForEach-Object {
-        $b = @($_.Words)[0].BoundingRect
-        [pscustomobject]@{ x = [int]($b.X / $k); y = [int]($b.Y / $k); t = $_.Text } } | Sort-Object y, x)
-    @{ bmp = $bmp; lines = $lines }
+    $res
+}
+# Read one list row's time cell again on its own (about 20 ms): only for a row whose time was not read or does
+# not fit the list order, so a normal run costs nothing extra (2026-11-17 "too slow is not ok").
+function Read-TimeCell($bmp, [int]$x0, [int]$x1, [int]$y, [int]$h) {
+    $x0 = [Math]::Max(0, $x0); $x1 = [Math]::Min($bmp.Width, $x1); $y0 = [Math]::Max(0, $y - [int]($h / 4))
+    $w = $x1 - $x0; $hh = [Math]::Min($h, $bmp.Height - $y0)
+    if ($w -lt 20 -or $hh -lt 8) { return $null }
+    $k = 4
+    $big = New-Object System.Drawing.Bitmap ($w * $k), ($hh * $k)
+    $g = [System.Drawing.Graphics]::FromImage($big); $g.InterpolationMode = 'HighQualityBicubic'
+    $g.DrawImage($bmp, (New-Object System.Drawing.Rectangle 0, 0, ($w * $k), ($hh * $k)), (New-Object System.Drawing.Rectangle $x0, $y0, $w, $hh), 'Pixel'); $g.Dispose()
+    $text = (@((Ocr-Big $big).Lines | ForEach-Object { $_.Text }) -join ' ')
+    if (Parse-ListTime $text) { $text }
 }
 
 function Count-Yellow($bmp, $x0, $x1, $y0, $y1) {
@@ -248,6 +266,30 @@ foreach ($el in $AE::RootElement.FindAll($TS::Children, $classCond)) {
     $proc = $p; $mainEl = $el
     if ([GoeWin.W]::IsWindowVisible([IntPtr]$el.Current.NativeWindowHandle)) { break }
 }
+# A main window hidden in the tray is not a UI Automation child of the desktop (2026-11-17: GOE closed to the
+# tray read as "not found"). EnumWindows still lists it; FindWindowEx did not find GOE's window on this PC.
+if (-not $mainEl) {
+    Add-Type -TypeDefinition @'
+using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices;
+namespace GoeWin { public static class Top {
+  delegate bool Cb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  public static List<IntPtr> ByClass(string cls) {
+    var r = new List<IntPtr>();
+    EnumWindows((h, l) => { var c = new StringBuilder(256); GetClassName(h, c, 256); if (c.ToString() == cls) r.Add(h); return true; }, IntPtr.Zero);
+    return r;
+  }
+}}
+'@
+    foreach ($hw in [GoeWin.Top]::ByClass($L.mainClass)) {
+        $wp = [uint32]0; [void][GoeWin.W]::GetWindowThreadProcessId($hw, [ref]$wp)
+        $p = Get-Process -Id $wp -ErrorAction SilentlyContinue
+        if (-not $p -or $p.SessionId -ne $session) { continue }
+        try { $el = $AE::FromHandle($hw) } catch { continue }
+        if ($el) { $proc = $p; $mainEl = $el; break }
+    }
+}
 if (-not $mainEl) {
     $result.status = 'offline'
     $result.reason = if (Get-Process -Name $L.processName -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session) { 'main-window-not-found' } else { 'goe-not-running' }
@@ -255,6 +297,77 @@ if (-not $mainEl) {
 }
 $pidCond = New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, $proc.Id)
 $main = [IntPtr]$mainEl.Current.NativeWindowHandle
+
+# A hidden (tray) window exposes no controls to UI Automation. The connection check stops here; a real run
+# shows it without activating it before looking for the buttons, and Hide-Main / Restore-Main put it back.
+# A run cut off while GOE was parked (see below) left it shown right of all screens: put it back where it was,
+# hidden again unless the teacher has it in front, before anything else looks at it.
+$parkFile = Join-Path $Inbox 'goe-parked.json'
+function Use-StyleApi {
+    if (-not ('GoeWin.Style' -as [type])) {
+        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; namespace GoeWin { public static class Style { [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i); [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v); } }'
+    }
+}
+if (Test-Path -LiteralPath $parkFile) {
+    try {
+        $saved = Get-Content -LiteralPath $parkFile -Raw | ConvertFrom-Json
+        Add-Type -AssemblyName System.Windows.Forms
+        $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen; $r = Get-Rect $main
+        $fgPid = [uint32]0
+        [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
+        $off = $r.L -ge $vs.Right -or $r.Rt -le $vs.Left -or $r.T -ge $vs.Bottom -or $r.B -le $vs.Top
+        if ($off -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
+        if ($null -ne $saved.Ex) { Use-StyleApi; [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$saved.Ex) }
+        if ($off) { [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, [int]$saved.L, [int]$saved.T, 0, 0, 0x15) }
+    } catch { }
+    Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
+}
+$wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVisible($main)
+# While a tray window is read it is parked right of all screens, so the teacher does not see GOE pop up on
+# every automatic run (2026-11-17). PrintWindow and UI Automation still read it there. Its place is written to
+# goe-parked.json first: if a run is cut off, the next run (any mode) moves it back before anything else.
+$parked = $null
+function Unpark {
+    if (-not $script:parked) { return }
+    $fgPid = [uint32]0
+    [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
+    # hide first so it does not flash at its own place; the teacher may have opened it from the tray meanwhile
+    if ($fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
+    [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$script:parked.Ex)
+    [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $script:parked.L, $script:parked.T, 0, 0, 0x15)
+    Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
+    $script:parked = $null
+}
+if ($wasHidden -and $Inspect) {
+    [IO.Directory]::CreateDirectory((Join-Path $Inbox 'notes')) | Out-Null
+    Publish-Result 'available'
+    return
+}
+function Hide-Main {
+    $fgPid = [uint32]0
+    [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
+    if ($script:parked) { Unpark }
+    elseif ($wasHidden -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
+}
+if ($wasHidden) {
+    $r = Get-Rect $main
+    Use-StyleApi
+    $ex = [GoeWin.Style]::GetWindowLong($main, -20)
+    [IO.Directory]::CreateDirectory($Inbox) | Out-Null
+    $parked = [pscustomobject]@{ L = $r.L; T = $r.T; Ex = $ex }
+    $parked | ConvertTo-Json -Compress | Set-Content -LiteralPath $parkFile -Encoding ascii
+    # WS_EX_TOOLWINDOW on, WS_EX_APPWINDOW off while it is out: a tool window gets no taskbar button, so the
+    # taskbar does not flash a GOE icon on every run (2026-11-17, "that would be a problem"). Put back by Unpark.
+    [void][GoeWin.Style]::SetWindowLong($main, -20, (($ex -bor 0x80) -band (-bnot 0x40000)))
+    Add-Type -AssemblyName System.Windows.Forms
+    $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    # SWP_SHOWWINDOW|NOACTIVATE|NOZORDER|NOSIZE: ShowWindow(SW_SHOWNOACTIVATE) on the tray window left GOE in
+    # front once (2026-11-17), so the run stopped as "user is in GOE" and the window stayed out.
+    [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $vs.Right + 200, $vs.Top, 0, 0, 0x55)
+    $t0 = Get-Date
+    while (-not [GoeWin.W]::IsWindowVisible($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
+    Start-Sleep -Milliseconds 400
+}
 
 function Find-MainControls {
     $found = @{}
@@ -279,7 +392,7 @@ if ($H[$L.noteTab] -and -not ($H[$L.inboxButton] -and $H[$L.sentButton] -and $H.
     }
 }
 foreach ($k in @($L.noteTab, $L.inboxButton, $L.sentButton, 'list', 'scroll')) {
-    if (-not $H[$k]) { $result.status = 'error'; $result.reason = 'control-not-found'; Publish-Result "control-not-found:$k"; return }
+    if (-not $H[$k]) { Hide-Main; $result.status = 'error'; $result.reason = 'control-not-found'; Publish-Result "control-not-found:$k"; return }
 }
 if ($Inspect) {
     [IO.Directory]::CreateDirectory((Join-Path $Inbox 'notes')) | Out-Null
@@ -349,6 +462,7 @@ if ((-not $Force -and (Goe-IsForeground)) -or (Get-NoteWindow)) {
     # tell the calendar why: an open note window blocks even a forced run
     $result.busyReason = if (Get-NoteWindow) { 'note-open' } else { 'in-goe' }
     $result.status = 'busy'
+    Hide-Main
     Publish-Result 'user-is-in-goe'
     return
 }
@@ -813,8 +927,7 @@ function Write-Note($Note, [string]$Target, [bool]$Replace = $false) {
     }
 }
 
-# show the main window without activating it (put back at the end)
-$wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVisible($main)
+# show the main window without activating it (put back at the end; $wasMin/$wasHidden are taken where GOE is found)
 $widenedFrom = $null
 function Restore-Main {
     if ($widenedFrom) {
@@ -822,6 +935,7 @@ function Restore-Main {
         [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $o.L, $o.T, $o.Rt - $o.L, $o.B - $o.T, 0x14)
         $script:widenedFrom = $null
     }
+    if ($script:parked) { Unpark; return }
     if (Goe-IsForeground) { return }
     if ($wasHidden) { [void][GoeWin.W]::ShowWindow($main, 0) } elseif ($wasMin) { [void][GoeWin.W]::ShowWindow($main, 7) }
 }
@@ -857,6 +971,28 @@ function Read-Rows {
     }
     $script:rowScale = $k
     function S([double]$v) { [int][Math]::Round($v * $k) }
+    # A row whose time OCR failed was dropped from the list altogether (its note never came in). Rows sit one
+    # pitch apart: read the time cell alone at each empty slot between, above and below the rows found.
+    $rowPitch = 70 * $k
+    $colX = 0; $cellH = S 24
+    if ($timeLines.Count) {
+        $colX = [int](@($timeLines | ForEach-Object { $_.x } | Sort-Object)[[int][Math]::Floor($timeLines.Count / 2)])
+        $filled = [Collections.Generic.List[object]]::new()
+        $slots = [Collections.Generic.List[int]]::new()
+        if ($timeLines[0].y - $rowPitch -ge $listTop + 5) { $slots.Add([int]($timeLines[0].y - $rowPitch)) }
+        for ($i = 1; $i -lt $timeLines.Count; $i++) {
+            $n = [int][Math]::Round(($timeLines[$i].y - $timeLines[$i - 1].y) / $rowPitch)
+            for ($j = 1; $j -lt $n -and $j -lt 4; $j++) { $slots.Add([int]($timeLines[$i - 1].y + $rowPitch * $j)) }
+        }
+        $lastY = $timeLines[$timeLines.Count - 1].y + $rowPitch
+        if ($lastY -lt $listBottom - 50) { $slots.Add([int]$lastY) }
+        foreach ($y in $slots) {
+            $text = Read-TimeCell $bmp ($colX - (S 10)) ($listRight - (S 4)) $y $cellH
+            if ($text) { $filled.Add([pscustomobject]@{ x = $colX; y = $y; t = $text }) }
+        }
+        if ($filled.Count) { $timeLines = @(@($timeLines) + @($filled) | Sort-Object y) }
+    }
+    $rowYs = @($timeLines | ForEach-Object { $_.y })
     $rows = @(foreach ($t in $timeLines) {
         $dt = Parse-ListTime $t.t
         $top = $t.y - (S 16)
@@ -872,6 +1008,24 @@ function Read-Rows {
             clickY = $top + (S 35) - $listTop
         }
     })
+    # The inbox lists newest first. A time later than now, or out of order with both neighbours, is read
+    # again from its cell alone; the new reading is kept only when it fits between the neighbours.
+    if ($rows.Count -ge 2 -and $colX) {
+        $soon = (Get-Date).AddMinutes(2).ToString('yyyy-MM-dd HH:mm')
+        $down = 0; $up = 0
+        for ($i = 1; $i -lt $rows.Count; $i++) { if ($rows[$i].datetime -le $rows[$i - 1].datetime) { $down++ } else { $up++ } }
+        if ($down -gt $up) {
+            for ($i = 0; $i -lt $rows.Count; $i++) {
+                $dt = $rows[$i].datetime
+                $above = if ($i -gt 0) { $rows[$i - 1].datetime } else { $soon }
+                $below = if ($i -lt $rows.Count - 1) { $rows[$i + 1].datetime } else { '' }
+                if ($dt -le $above -and $dt -ge $below -and $dt -le $soon) { continue }
+                $text = Read-TimeCell $bmp ($colX - (S 10)) ($listRight - (S 4)) $rowYs[$i] $cellH
+                $new = if ($text) { Parse-ListTime $text }
+                if ($new -and $new -ne $dt -and $new -le $above -and $new -ge $below -and $new -le $soon) { $rows[$i].datetime = $new }
+            }
+        }
+    }
     $bmp.Dispose()
     @{ inbox = ($isInbox -and $bIn -lt $bSent - 30); rows = @($rows) }
 }
@@ -882,7 +1036,7 @@ $seenRows = [Collections.Generic.List[object]]::new()
 $opened = [Collections.Generic.List[object]]::new()
 $ownedNote = $null
 try {
-    if ($wasMin -or $wasHidden) {
+    if ($wasMin) {
         [void][GoeWin.W]::ShowWindow($main, 4)
         $t0 = Get-Date
         while ([GoeWin.W]::IsIconic($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
