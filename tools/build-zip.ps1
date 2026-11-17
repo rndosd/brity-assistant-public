@@ -7,7 +7,7 @@
 #       앱의 업데이트 버튼은 배포받는 PC에서 접근할 수 있는 update.json을 읽는다.
 param([switch]$Patch, [switch]$Seoryong, [string]$OutputDirectory, [string]$FactchatGuideUrl = $env:SCHOOL_CALENDAR_FACTCHAT_GUIDE, [string]$ElectronRuntimeZip, [switch]$Goe)
 $ErrorActionPreference = 'Stop'
-if ($Goe -and $Seoryong) { throw '-Goe와 -Seoryong은 따로 사용하세요.' }
+# -Goe -Seoryong을 함께 쓰면 GOE 서룡판 전체 ZIP(이름 끝 -seoryong)을 만든다. 패치는 두 판 공통이라 일반판·GOE판에서만 만든다.
 if ($ElectronRuntimeZip -and -not $Patch) { throw '-ElectronRuntimeZip은 -Patch와 함께 사용하세요.' }
 if ($Patch -and $Seoryong) {
   throw '공개 릴리스용 전체 ZIP과 공통 패치는 일반판에서 만듭니다. 서룡판 ZIP은 -Seoryong으로 따로 만드세요.'
@@ -34,7 +34,7 @@ $edition = if ($Seoryong) { 'Seoryong' } else { 'General' }
 $productSlug = if ($Goe) { 'goe-messenger-calendar' } else { 'brity-messenger-calendar' }
 $launcher = if ($Goe) { 'GOE Messenger Calendar' } else { 'Brity Messenger Calendar' }
 $packageFolder = $launcher.Replace(' ', '-')
-$fullName = "$productSlug-windows-x64-$version.zip"
+$fullName = "$productSlug-windows-x64-$version" + $(if ($Goe -and $Seoryong) { '-seoryong' } else { '' }) + '.zip'
 $out = Join-Path $outputRoot $(if ($Goe) { $fullName } else { "BrityMessengerCalendar-Windows-x64-$edition-" + (Get-Date -Format yyyyMMdd) + '.zip' })
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
@@ -108,7 +108,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', '..', '..');
 const editionMarker = path.join(root, 'seoryong.edition');
 const goe = fs.existsSync(path.join(root, 'goe.edition'));
-const seoryong = !goe && fs.existsSync(editionMarker);
+const seoryong = fs.existsSync(editionMarker);
 process.env.SCHOOL_CALENDAR_GOE = goe ? '1' : '0';
 process.env.SCHOOL_CALENDAR_SEORYONG = seoryong ? '1' : '0';
 process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE = seoryong ? fs.readFileSync(editionMarker, 'utf8').trim() : '';

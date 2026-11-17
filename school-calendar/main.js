@@ -180,7 +180,7 @@ function savedApiKey(connection) {
 }
 
 // 일반판과 소스 실행에서는 기존 팩트챗 연결만 유지한다.
-const seoryongEdition = !goeEdition && process.env.SCHOOL_CALENDAR_SEORYONG === '1';
+const seoryongEdition = process.env.SCHOOL_CALENDAR_SEORYONG === '1';  // GOE판과 함께 쓸 수 있다(GOE 서룡판)
 const factchatGuideUrl = URL.canParse(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE)
   ? new URL(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE) : null;
 const factchatGuideAvailable = seoryongEdition && factchatGuideUrl?.protocol === 'https:' &&
@@ -1035,7 +1035,7 @@ function createWindow() {
 // 샘플과 소스 실행에서는 쓰지 않는다. 폴더를 옮기면 예전 자리를 가리키므로 설정에서 다시 켜야 한다.
 const AI_LABELS = { none: 'AI 없음', codex: 'Codex', claude: 'Claude Code', openai: 'OpenAI', anthropic: 'Claude API', factchat: '팩트챗' };
 function feedbackInfo() {
-  return [app.getVersion(), goeEdition ? 'GOE판' : seoryongEdition ? '서룡판' : '일반판', `Windows ${os.release()}`, AI_LABELS[store.aiProvider] ?? store.aiProvider, demo ? '샘플' : null].filter(Boolean).join(' · ');
+  return [app.getVersion(), goeEdition ? (seoryongEdition ? 'GOE 서룡판' : 'GOE판') : seoryongEdition ? '서룡판' : '일반판', `Windows ${os.release()}`, AI_LABELS[store.aiProvider] ?? store.aiProvider, demo ? '샘플' : null].filter(Boolean).join(' · ');
 }
 let feedbackSentAt = 0;
 
