@@ -81,6 +81,23 @@ foreach ($day in @($From, $To)) {
 $since = if ($From) { $From } elseif (-not $range -and $SinceDays -gt 0) { (Get-Date).Date.AddDays(-$SinceDays).ToString('yyyy-MM-dd', $calendar) }
 if ($To -and $since -and $To -lt $since) { throw 'invalid-date-range' }
 
+# Notes the teacher already read in GOE before the calendar got to them (2026-11-17): a plain run remembers
+# the newest list time it saw on its last complete pass (tick-state.json), and next time also opens read rows
+# from that minute on that are not saved yet. With no remembered time (first connection) read rows are left
+# alone; "load past notes" brings old ones.
+$tickStatePath = Join-Path $Inbox 'tick-state.json'
+$watchRead = -not ($range -or $RetryId -or $IncludeRead -or $ListOnly -or $Inspect -or $AttachOnly)
+$readSince = $null
+if ($watchRead -and [IO.File]::Exists($tickStatePath)) {
+    try {
+        $remembered = (Get-Content -LiteralPath $tickStatePath -Raw -Encoding utf8 | ConvertFrom-Json).readSince
+        if ($remembered -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$') { $readSince = $remembered }
+    } catch {}
+}
+$newestRow = $null
+# OCR can misread a digit; a list time later than now would hide newer read notes, so it is not remembered
+$latestPlausible = (Get-Date).AddMinutes(5).ToString('yyyy-MM-dd HH:mm', $calendar)
+
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Runtime.WindowsRuntime
 $L = Get-Content (Join-Path $PSScriptRoot 'labels.json') -Raw -Encoding utf8 | ConvertFrom-Json
 if (-not $PSBoundParameters.ContainsKey('AttachmentFolder')) {
@@ -146,8 +163,39 @@ public static class W {
     while (true) { PT p; p.X = sx; p.Y = sy; ScreenToClient(h, ref p); IntPtr c = ChildWindowFromPointEx(h, p, 5); if (c == IntPtr.Zero || c == h) break; h = c; }
     PT q; q.X = sx; q.Y = sy; ScreenToClient(h, ref q); cx = q.X; cy = q.Y; return h;
   }
-}}
+}
+// Top-level windows by class, hidden ones too (a GOE window closed to the tray is not a UI Automation child).
+public static class Top {
+  delegate bool Cb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  public static System.Collections.Generic.List<IntPtr> ByClass(string cls) {
+    var r = new System.Collections.Generic.List<IntPtr>();
+    EnumWindows((h, l) => { var c = new StringBuilder(256); GetClassName(h, c, 256); if (c.ToString() == cls) r.Add(h); return true; }, IntPtr.Zero);
+    return r;
+  }
+}
+// Parking a tray or minimized GOE window off screen while it is read (kept in this one compiled block:
+// a second Add-Type cost about a second on every run, 2026-11-17).
+public static class Style {
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
+  [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v);
+  [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
+  [StructLayout(LayoutKind.Sequential)] struct WP { public int length, flags, showCmd, minX, minY, maxX, maxY, l, t, r, b; }
+  [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr h, ref WP p);
+  [DllImport("user32.dll")] static extern bool SetWindowPlacement(IntPtr h, ref WP p);
+  // all screens together: left, top, right, bottom
+  public static int[] Virtual() { int x = GetSystemMetrics(76), y = GetSystemMetrics(77); return new[] { x, y, x + GetSystemMetrics(78), y + GetSystemMetrics(79) }; }
+  // restored (normal) rectangle of a window, also while it is minimized
+  public static int[] GetNormal(IntPtr h) { var p = new WP(); p.length = Marshal.SizeOf(p); GetWindowPlacement(h, ref p); return new[] { p.l, p.t, p.r, p.b }; }
+  public static bool SetNormal(IntPtr h, int l, int t, int r, int b, int show) {
+    var p = new WP(); p.length = Marshal.SizeOf(p); GetWindowPlacement(h, ref p);
+    p.l = l; p.t = t; p.r = r; p.b = b; p.showCmd = show; p.flags = 0; return SetWindowPlacement(h, ref p);
+  }
+}
+}
 '@
+function Get-VirtualScreen { $v = [GoeWin.Style]::Virtual(); [pscustomobject]@{ Left = $v[0]; Top = $v[1]; Right = $v[2]; Bottom = $v[3] } }
 
 # Work in physical pixels. GOE is DPI aware but draws at fixed pixel sizes; a DPI-virtualized caller
 # (PowerShell is system aware) gets rects divided by the scale and PrintWindow then crops the window.
@@ -269,19 +317,6 @@ foreach ($el in $AE::RootElement.FindAll($TS::Children, $classCond)) {
 # A main window hidden in the tray is not a UI Automation child of the desktop (2026-11-17: GOE closed to the
 # tray read as "not found"). EnumWindows still lists it; FindWindowEx did not find GOE's window on this PC.
 if (-not $mainEl) {
-    Add-Type -TypeDefinition @'
-using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices;
-namespace GoeWin { public static class Top {
-  delegate bool Cb(IntPtr h, IntPtr l);
-  [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-  public static List<IntPtr> ByClass(string cls) {
-    var r = new List<IntPtr>();
-    EnumWindows((h, l) => { var c = new StringBuilder(256); GetClassName(h, c, 256); if (c.ToString() == cls) r.Add(h); return true; }, IntPtr.Zero);
-    return r;
-  }
-}}
-'@
     foreach ($hw in [GoeWin.Top]::ByClass($L.mainClass)) {
         $wp = [uint32]0; [void][GoeWin.W]::GetWindowThreadProcessId($hw, [ref]$wp)
         $p = Get-Process -Id $wp -ErrorAction SilentlyContinue
@@ -303,21 +338,24 @@ $main = [IntPtr]$mainEl.Current.NativeWindowHandle
 # A run cut off while GOE was parked (see below) left it shown right of all screens: put it back where it was,
 # hidden again unless the teacher has it in front, before anything else looks at it.
 $parkFile = Join-Path $Inbox 'goe-parked.json'
-function Use-StyleApi {
-    if (-not ('GoeWin.Style' -as [type])) {
-        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; namespace GoeWin { public static class Style { [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i); [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr h, int i, int v); } }'
-    }
-}
 if (Test-Path -LiteralPath $parkFile) {
     try {
         $saved = Get-Content -LiteralPath $parkFile -Raw | ConvertFrom-Json
-        Add-Type -AssemblyName System.Windows.Forms
-        $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen; $r = Get-Rect $main
+        $vs = Get-VirtualScreen; $r = Get-Rect $main
         $fgPid = [uint32]0
         [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
         $off = $r.L -ge $vs.Right -or $r.Rt -le $vs.Left -or $r.T -ge $vs.Bottom -or $r.B -le $vs.Top
-        if ($off -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
-        if ($null -ne $saved.Ex) { Use-StyleApi; [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$saved.Ex) }
+        if ($saved.Min) {
+            # parked from minimized: restore its place and minimize it again (left shown if the teacher has it in front)
+
+            $n = [GoeWin.Style]::GetNormal($main)
+            if ($n[0] -ge $vs.Right -or $n[2] -le $vs.Left -or $n[1] -ge $vs.Bottom -or $n[3] -le $vs.Top) {
+                [void][GoeWin.Style]::SetNormal($main, [int]$saved.L, [int]$saved.T, [int]$saved.R, [int]$saved.B, $(if ($fgPid -eq $proc.Id) { 1 } else { 7 }))
+            }
+            $off = $false
+        }
+        elseif ($off -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
+        if ($null -ne $saved.Ex) { [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$saved.Ex) }
         if ($off) { [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, [int]$saved.L, [int]$saved.T, 0, 0, 0x15) }
     } catch { }
     Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
@@ -331,6 +369,13 @@ function Unpark {
     if (-not $script:parked) { return }
     $fgPid = [uint32]0
     [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
+    if ($script:parked.Min) {
+        $p = $script:parked
+        [void][GoeWin.Style]::SetNormal($main, $p.L, $p.T, $p.R, $p.B, $(if ($fgPid -eq $proc.Id) { 1 } else { 7 }))
+        Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
+        $script:parked = $null
+        return
+    }
     # hide first so it does not flash at its own place; the teacher may have opened it from the tray meanwhile
     if ($fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
     [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$script:parked.Ex)
@@ -351,7 +396,7 @@ function Hide-Main {
 }
 if ($wasHidden) {
     $r = Get-Rect $main
-    Use-StyleApi
+
     $ex = [GoeWin.Style]::GetWindowLong($main, -20)
     [IO.Directory]::CreateDirectory($Inbox) | Out-Null
     $parked = [pscustomobject]@{ L = $r.L; T = $r.T; Ex = $ex }
@@ -359,8 +404,7 @@ if ($wasHidden) {
     # WS_EX_TOOLWINDOW on, WS_EX_APPWINDOW off while it is out: a tool window gets no taskbar button, so the
     # taskbar does not flash a GOE icon on every run (2026-11-17, "that would be a problem"). Put back by Unpark.
     [void][GoeWin.Style]::SetWindowLong($main, -20, (($ex -bor 0x80) -band (-bnot 0x40000)))
-    Add-Type -AssemblyName System.Windows.Forms
-    $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $vs = Get-VirtualScreen
     # SWP_SHOWWINDOW|NOACTIVATE|NOZORDER|NOSIZE: ShowWindow(SW_SHOWNOACTIVATE) on the tray window left GOE in
     # front once (2026-11-17), so the run stopped as "user is in GOE" and the window stayed out.
     [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $vs.Right + 200, $vs.Top, 0, 0, 0x55)
@@ -916,6 +960,33 @@ function Known-Row($Row, [string]$Key) {
     }
     $rowKeys[$Row.datetime].ContainsKey($Key)
 }
+# A read row is treated as saved when a saved note of that day is within a minute, has a close sender and a
+# close list title (all OCR); otherwise the same read note would be opened again on every run.
+$dayNotes = @{}
+function Known-RowLoose($Row) {
+    $day = $Row.datetime.Substring(0, 10) -replace '\D', ''
+    if (-not $dayNotes.ContainsKey($day)) {
+        $dayNotes[$day] = @(foreach ($file in Get-ChildItem -LiteralPath $notesDir -Filter "goe_${day}*.json" -File -ErrorAction SilentlyContinue) {
+            try { Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json } catch {}
+        })
+    }
+    $title = [string]$Row.titleOcr -replace '\s+', ''
+    foreach ($note in $dayNotes[$day]) {
+        if (-not (Test-SameNoteRow $Row $note)) { continue }
+        $saved = [string]$note.ocr.listTitle -replace '\s+', ''
+        if (!$title -or !$saved -or (Get-EditDistance $title $saved) -le [Math]::Max(2, [int]($saved.Length / 5))) { return $true }
+    }
+    return $false
+}
+# A read row whose list OCR came out a little different from the saved note: the exact body tells.
+function Test-SavedBody([string]$Datetime, [string]$Body) {
+    $stamp = $Datetime -replace '\D', ''
+    $wanted = Format-Body $Body
+    foreach ($file in Get-ChildItem -LiteralPath $notesDir -Filter "goe_${stamp}_*.json" -File -ErrorAction SilentlyContinue) {
+        try { if ((Format-Body (Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json).body) -ceq $wanted) { return $true } } catch {}
+    }
+    return $false
+}
 function Write-Note($Note, [string]$Target, [bool]$Replace = $false) {
     $temporary = $Target + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
     try {
@@ -1036,8 +1107,18 @@ $seenRows = [Collections.Generic.List[object]]::new()
 $opened = [Collections.Generic.List[object]]::new()
 $ownedNote = $null
 try {
-    if ($wasMin) {
-        [void][GoeWin.W]::ShowWindow($main, 4)
+    # (a window both hidden and minimized was already parked as a tray window above)
+    if ($wasMin -and -not $script:parked) {
+        # A minimized GOE showed on screen for the whole read (2026-11-17 case check). Restore it right of all
+        # screens instead (SetWindowPlacement, no activation; it keeps its taskbar button as a minimized window
+        # does) and minimize it back at its own place in Unpark. goe-parked.json covers a cut-off run.
+
+        $n = [GoeWin.Style]::GetNormal($main)
+        [IO.Directory]::CreateDirectory($Inbox) | Out-Null
+        $script:parked = [pscustomobject]@{ Min = $true; L = $n[0]; T = $n[1]; R = $n[2]; B = $n[3]; Ex = [GoeWin.Style]::GetWindowLong($main, -20) }
+        $script:parked | ConvertTo-Json -Compress | Set-Content -LiteralPath $parkFile -Encoding ascii
+        $vs = Get-VirtualScreen
+        [void][GoeWin.Style]::SetNormal($main, $vs.Right + 200, $vs.Top, $vs.Right + 200 + ($n[2] - $n[0]), $vs.Top + ($n[3] - $n[1]), 4)
         $t0 = Get-Date
         while ([GoeWin.W]::IsIconic($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
         Start-Sleep -Milliseconds 300
@@ -1080,6 +1161,8 @@ try {
             $result.visible++
             $day = $r.datetime.Substring(0, 10)
             if (-not $result.oldest -or $day -lt $result.oldest) { $result.oldest = $day }
+            if ($r.datetime -le $latestPlausible -and (-not $newestRow -or $r.datetime -gt $newestRow)) { $newestRow = $r.datetime }
+            $newRead = $readSince -and -not $r.unread -and $r.datetime -ge $readSince
             # GOE can sort unread notes as a group before read notes, so an old row does not end the date range.
             if (($since -and $day -lt $since) -or ($To -and $day -gt $To)) { continue }
             if ($retryNote) {
@@ -1087,9 +1170,10 @@ try {
                 # from the first import ("teacher" read one syllable off, 2026-11-16: reply mostly "not found").
                 # Pick rows loosely here; the note body (read exactly) decides below.
                 if ($r.unread -or !(Test-SameNoteRow $r $retryNote)) { continue }
-            } elseif ((-not $r.unread -and -not $IncludeRead) -or ($AttachOnly -and -not $r.attach)) { continue }
+            } elseif ((-not $r.unread -and -not $IncludeRead -and -not $newRead) -or ($AttachOnly -and -not $r.attach)) { continue }
             $result.matched++
-            if (!$retryNote -and $IncludeRead -and (Known-Row $r $key)) { continue }
+            if (!$retryNote -and ($IncludeRead -or $newRead) -and (Known-Row $r $key)) { continue }
+            if ($newRead -and (Known-RowLoose $r)) { continue }
             $result.fresh++
             if ($ListOnly) { continue }
             if ($result.opened -ge $Max) { $result.remaining++; $stop = $true; break }
@@ -1209,7 +1293,7 @@ try {
                     if ($savedBatch.status -eq 'saved') { $result.attached = @($savedBatch.note.saved).Count }
                 }
                 $stop = $true
-            } elseif (!$retryNote -and ![IO.File]::Exists($notePath)) {
+            } elseif (!$retryNote -and ![IO.File]::Exists($notePath) -and !($newRead -and (Test-SavedBody $r.datetime $body))) {
                 if ($RangeImport) { $note | Add-Member -NotePropertyName imported -NotePropertyValue 'range' }
                 if ($Download -and $hasAttachments -and !$expired) {
                     if (!$note.verified) { $note.attachStatus = 'review' }
@@ -1251,6 +1335,15 @@ try {
     }
 }
 
+# Remember the newest list time only after a pass that did not stop early (busy, error, -Max reached):
+# rows it skipped would sit below that time and never be looked at again.
+if ($watchRead -and $newestRow -and $result.status -eq 'ok' -and $result.remaining -eq 0 -and $result.unknown -eq 0 -and
+    (-not $readSince -or $newestRow -gt $readSince)) {
+    try {
+        [void][IO.Directory]::CreateDirectory($Inbox)
+        [IO.File]::WriteAllText($tickStatePath, ([pscustomobject]@{ readSince = $newestRow } | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+    } catch {}
+}
 if (-not $ResultObject -and (Test-Path -LiteralPath $Inbox)) {
     [pscustomobject]@{ collectedAt = (Get-Date).ToString('s'); list = $seenRows.ToArray(); opened = $opened.ToArray() } |
         ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $Inbox 'latest.json') -Encoding utf8

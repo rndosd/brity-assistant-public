@@ -69,7 +69,7 @@ function Assert-BrityMinimized {
     [uint32]$foregroundProcess = 0
     $foreground = [BrityChat.Window]::GetForegroundWindow()
     [void][BrityChat.Window]::GetWindowThreadProcessId($foreground, [ref]$foregroundProcess)
-    $minimized = [BrityChat.Window]::IsIconic($handle)
+    $minimized = [BrityChat.Window]::IsIconic($handle) -or -not [BrityChat.Window]::IsWindowVisible($handle)
     # 최소화돼 있을 때만 읽는다. 창이 보이는 상태(다른 창 뒤 포함)에서 단추를 누르면 브리티가 맨 앞으로 튀어나와
     # 선생님이 쓰던 창을 가린다(2026-11-12 실제 시험). Windows can still report the main handle as foreground after minimizing it.
     $brityWindowShown = $foregroundProcess -in $processes.Id -and
@@ -232,6 +232,14 @@ try {
     $windows = @($automation::RootElement.FindAll($scope::Children, $any) | Where-Object {
         $_.Current.ProcessId -in $processes.Id -and $_.Current.Name -ceq 'Brity Messenger'
     })
+    # 트레이(창을 닫음)의 브리티는 데스크톱 자식 목록에 없지만 숨은 채로 대화방이 읽힌다(2026-11-17 실제 시험: 방 목록 4개, 방 읽기,
+    # 창이 한 번도 안 보임). 최소화와 같이 다룬다.
+    if ($windows.Count -eq 0) {
+        if (-not ('BrityChat.Top' -as [type])) {
+            Add-Type -TypeDefinition 'using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices; namespace BrityChat { public static class Top { delegate bool Cb(IntPtr h, IntPtr l); [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l); [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n); public static List<IntPtr> Find(int[] pids, string title) { var r = new List<IntPtr>(); EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (Array.IndexOf(pids, (int)p) >= 0) { var s = new StringBuilder(256); GetWindowText(h, s, 256); if (s.ToString() == title) r.Add(h); } return true; }, IntPtr.Zero); return r; } } }'
+        }
+        $windows = @(foreach ($hw in [BrityChat.Top]::Find([int[]]$processes.Id, 'Brity Messenger')) { try { $automation::FromHandle($hw) } catch {} })
+    }
     # 창을 닫아 트레이에만 있으면 데스크톱 목록에 창이 없다.
     if ($windows.Count -eq 0) { $summary.status = 'unavailable'; $summary.reason = 'tray'; return $summary }
     if ($windows.Count -ne 1) { $summary.status = 'unavailable'; $summary.reason = 'screen'; return $summary }
@@ -241,13 +249,13 @@ try {
     $menuOpen = { -not (Find-BrityButton '대화 메뉴') -and -not (Find-BrityButton '쪽지 메뉴') -and
         $main.FindFirst($scope::Descendants, $property::new($automation::ControlTypeProperty, $control::Menu)) }
     if (& $menuOpen) { $summary.status = 'unavailable'; $summary.reason = 'menu-open'; return $summary }
-    if (-not [BrityChat.Window]::IsIconic($handle) -and $MinimizeFirst) {
+    if (-not [BrityChat.Window]::IsIconic($handle) -and [BrityChat.Window]::IsWindowVisible($handle) -and $MinimizeFirst) {
         # 6 = 최소화(다음 창이 앞으로). 7(초점을 안 옮기는 최소화)은 수집 뒤 최소화된 브리티가 초점을 쥐고 있었다(실제 시험).
         [void][BrityChat.Window2]::ShowWindow($handle, 6)
         foreach ($attempt in 1..10) { if ([BrityChat.Window]::IsIconic($handle)) { break }; Start-Sleep -Milliseconds 100 }
         if ([BrityChat.Window]::IsIconic($handle)) { $summary | Add-Member -Force -NotePropertyName minimizedBrity -NotePropertyValue $true; Start-Sleep -Milliseconds 400 }
     }
-    if (-not [BrityChat.Window]::IsIconic($handle)) { $summary.status = 'waiting'; $summary.reason = 'not-minimized'; return $summary }
+    if (-not [BrityChat.Window]::IsIconic($handle) -and [BrityChat.Window]::IsWindowVisible($handle)) { $summary.status = 'waiting'; $summary.reason = 'not-minimized'; return $summary }
     $route = Get-BrityRoute
     if ($route -cne '#/chat') {
         $menu = Find-BrityButton '대화 메뉴'

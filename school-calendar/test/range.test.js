@@ -133,6 +133,66 @@ test('GOE가 이미 있는 첨부를 건너뛰면 보이는 이름 하나로 같
   });
 });
 
+// 2026-11-17 사용자 “내가 수동으로 메신저에서 읽어버린건”: 자동 가져오기가 안 읽은 쪽지만 열어 먼저 읽은 쪽지를 놓쳤다.
+test('브리티 자동 가져오기는 받아 둔 가장 새 쪽지보다 위에 있는 쪽지를 읽음과 상관없이 고른다', { skip: process.platform !== 'win32' }, () => {
+  const collector = path.join(__dirname, '..', '..', 'collector', 'collect-notes.ps1');
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$ast = [Management.Automation.Language.Parser]::ParseFile($env:BRITY_COLLECTOR_TEST, [ref]$null, [ref]$null)",
+    "$fn = $ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Select-NewNotes'}, $true)",
+    ". ([scriptblock]::Create($fn.Extent.Text))",
+    "function Row($id, $unread) { [pscustomobject]@{ id = $id; unread = $unread } }",
+    "$list = @((Row 'n5' $false), (Row 'n4' $true), (Row 'n3' $false), (Row 'n2' $false), (Row 'n1' $true))",
+    "$ids = { param($rows) (@($rows) | ForEach-Object { $_.id }) -join ',' }",
+    "[pscustomobject]@{",
+    "  saved = & $ids (Select-NewNotes $list @('n3', 'n2') 20)",
+    "  first = & $ids (Select-NewNotes $list @() 20)",
+    "  one = & $ids (Select-NewNotes $list 'n3' 20)",
+    "  max = & $ids (Select-NewNotes $list @('n2') 2)",
+    "  offscreen = & $ids (Select-NewNotes $list @('n0') 20)",
+    "} | ConvertTo-Json -Compress"
+  ].join('\n');
+  const command = Buffer.from(script, 'utf16le').toString('base64');
+  const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
+    encoding: 'utf8', env: { ...process.env, BRITY_COLLECTOR_TEST: collector }
+  });
+  assert.deepEqual(JSON.parse(output), {
+    saved: 'n5,n4,n1', first: 'n4,n1', one: 'n5,n4,n1', max: 'n5,n4', offscreen: 'n5,n4,n3,n2,n1'
+  });
+});
+
+test('GOE 자동 가져오기는 먼저 읽은 쪽지가 받아 둔 쪽지인지 OCR이 조금 달라도 알아본다', { skip: process.platform !== 'win32' }, async (t) => {
+  await fs.mkdir(qaRoot, { recursive: true });
+  const root = await fs.mkdtemp(path.join(await fs.realpath(qaRoot), 'goe-read-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+    "$calendar = [Globalization.CultureInfo]::InvariantCulture",
+    "$names = 'Format-Body','Get-EditDistance','Test-SameNoteRow','Known-RowLoose','Test-SavedBody'",
+    "$ast = [Management.Automation.Language.Parser]::ParseFile($env:GOE_COLLECTOR_TEST, [ref]$null, [ref]$null)",
+    "foreach ($fn in $ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in $names}, $true)) { . ([scriptblock]::Create($fn.Extent.Text)) }",
+    "$notesDir = [IO.Directory]::CreateDirectory((Join-Path $env:GOE_TEST_ROOT 'notes')).FullName",
+    "$saved = [pscustomobject]@{ id = 'goe_202611171125_aaaa0000'; datetime = '2026-11-17 11:25'; sender = '가상 부장'; body = '가상 본문  입니다'; ocr = [pscustomobject]@{ listTitle = '가상 표창 계획 안내' } }",
+    "[IO.File]::WriteAllText((Join-Path $notesDir 'goe_202611171125_aaaa0000.json'), ($saved | ConvertTo-Json), [Text.UTF8Encoding]::new($false))",
+    "$dayNotes = @{}",
+    "function Row($dt, $sender, $title) { [pscustomobject]@{ datetime = $dt; sender = $sender; titleOcr = $title } }",
+    "[pscustomobject]@{",
+    "  same = Known-RowLoose (Row '2026-11-17 11:25' '가상 부장' '가상 표창 계획 안내')",
+    "  ocr = Known-RowLoose (Row '2026-11-17 11:26' '가상 부잠' '가상 표장 계획 안내')",
+    "  other = Known-RowLoose (Row '2026-11-17 11:25' '가상 부장' '전혀 다른 연수 신청 알림')",
+    "  later = Known-RowLoose (Row '2026-11-17 11:40' '가상 부장' '가상 표창 계획 안내')",
+    "  body = Test-SavedBody '2026-11-17 11:25' '가상 본문 입니다'",
+    "  newBody = Test-SavedBody '2026-11-17 11:25' '다른 본문'",
+    "} | ConvertTo-Json -Compress"
+  ].join('\n');
+  const command = Buffer.from(script, 'utf16le').toString('base64');
+  const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
+    encoding: 'utf8', env: { ...process.env, GOE_COLLECTOR_TEST: goeCollector, GOE_TEST_ROOT: root }
+  });
+  assert.deepEqual(JSON.parse(output), { same: true, ocr: true, other: false, later: false, body: true, newBody: false });
+});
+
 test('기간으로 불러온 쪽지는 첨부를 복사하지 않고 묻기 전에는 분류하지 않으며, 분류 뒤 지난 까지는 끝낸 것으로 둔다', async (t) => {
   await fs.mkdir(qaRoot, { recursive: true });
   const root = await fs.mkdtemp(path.join(await fs.realpath(qaRoot), 'range-test-'));

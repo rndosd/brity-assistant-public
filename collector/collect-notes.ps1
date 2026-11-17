@@ -405,6 +405,19 @@ function Save-Attachment($win, [string]$file, [string]$destDir) {
     return $null
 }
 
+# Unread notes, plus notes the teacher already read in Brity before the calendar got to them (2026-11-17):
+# a read row is new only when it sits above the newest saved note in the list (the list is newest first).
+# With nothing saved yet (first connection) read rows are left alone; "load past notes" brings old ones.
+function Select-NewNotes($Items, $Processed, [int]$Max) {
+    $Processed = @($Processed)
+    $newerThanSaved = $Processed.Count -gt 0
+    $picked = foreach ($it in $Items) {
+        if ($Processed -contains $it.id) { $newerThanSaved = $false; continue }
+        if ($it.unread -or $newerThanSaved) { $it }
+    }
+    @($picked | Select-Object -First $Max)
+}
+
 # ---- main ----
 if ($ShowNote) {
     [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
@@ -473,7 +486,7 @@ elseif ($From -or $To) {
     }
     $targets = @($fresh | Select-Object -First $Max)
 }
-elseif ($Open) { $targets = @($items | Where-Object { $_.unread -and ($processed -notcontains $_.id) } | Select-Object -First $Max) }
+elseif ($Open) { $targets = @(Select-NewNotes $items $processed $Max) }
 
 $opened = @()
 foreach ($t in $targets) {
