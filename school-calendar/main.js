@@ -69,7 +69,8 @@ const updatesEnabled = !demo && !!portableRoot;
 let update = { status: 'idle' };
 let updateRun = null;
 let whatsNew = null;
-const UPDATE_EVERY = 6 * 60 * 60 * 1000;
+// 켜 둔 앱이 새 판을 알아채는 간격(2026-11-17 사용자 "6시간 좀 길지 않나"). 릴리스 파일 하나(약 20KB)라 API 횟수 제한과 무관.
+const UPDATE_EVERY = 60 * 60 * 1000;
 
 function userDownloads() {
   if (demo || process.env.SCHOOL_CALENDAR_INBOX_DIR) return undefined;
