@@ -192,6 +192,62 @@ public static class Style {
     var p = new WP(); p.length = Marshal.SizeOf(p); GetWindowPlacement(h, ref p);
     p.l = l; p.t = t; p.r = r; p.b = b; p.showCmd = show; p.flags = 0; return SetWindowPlacement(h, ref p);
   }
+  [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
+  // DWMWA_TRANSITIONS_FORCEDISABLED: no restore/minimize animation while a minimized GOE is read off screen
+  public static void NoAnimation(IntPtr h, bool off) { int v = off ? 1 : 0; DwmSetWindowAttribute(h, 3, ref v, 4); }
+}
+// While a parked GOE is read, every GOE window that shows up on a screen is moved off screen within about 5 ms
+// (2026-11-17: the note window, the settings window GOE opens to tell its download folder, the download menu
+// and GOE's download progress window all appeared, and GOE itself moved a restored main window back to 0,0).
+// Each window's own place is kept so a window the collector closes can be put back first (GOE remembers it).
+public static class Keeper {
+  delegate bool Cb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out W.R r);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
+  static System.Threading.Thread thread;
+  static volatile bool running;
+  static int pid, left, top, right, bottom;
+  static readonly object gate = new object();
+  static readonly System.Collections.Generic.Dictionary<long, int[]> home = new System.Collections.Generic.Dictionary<long, int[]>();
+  public static int Moves;
+  public static void Start(int processId, int l, int t, int r, int b) {
+    Stop(); pid = processId; left = l; top = t; right = r; bottom = b; Moves = 0;
+    lock (gate) home.Clear();
+    running = true;
+    thread = new System.Threading.Thread(Loop) { IsBackground = true };
+    thread.Start();
+  }
+  public static void Stop() { running = false; if (thread != null) { thread.Join(1000); thread = null; } }
+  static void Loop() {
+    SetThreadDpiAwarenessContext((IntPtr)(-4));   // the same physical pixels as the collector
+    while (running) {
+      EnumWindows((h, l) => {
+        uint p; GetWindowThreadProcessId(h, out p);
+        if (p != pid || !IsWindowVisible(h) || IsIconic(h)) return true;
+        W.R x; GetWindowRect(h, out x);
+        if (x.L >= right || x.Rt <= left || x.T >= bottom || x.B <= top) return true;
+        lock (gate) { if (!home.ContainsKey((long)h)) home[(long)h] = new[] { x.L, x.T }; }
+        SetWindowPos(h, IntPtr.Zero, right + 200, top, 0, 0, 0x15);
+        Moves++;
+        return true;
+      }, IntPtr.Zero);
+      System.Threading.Thread.Sleep(5);
+    }
+  }
+  public static int[] Home(IntPtr h) { lock (gate) { int[] v; return home.TryGetValue((long)h, out v) ? v : null; } }
+  // hide a window the collector is about to close and put it back where GOE had it
+  public static void PutBack(IntPtr h) {
+    var v = Home(h); if (v == null) return;
+    lock (gate) home.Remove((long)h);
+    ShowWindow(h, 0);
+    SetWindowPos(h, IntPtr.Zero, v[0], v[1], 0, 0, 0x15);
+  }
 }
 }
 '@
@@ -347,7 +403,7 @@ if (Test-Path -LiteralPath $parkFile) {
         $off = $r.L -ge $vs.Right -or $r.Rt -le $vs.Left -or $r.T -ge $vs.Bottom -or $r.B -le $vs.Top
         if ($saved.Min) {
             # parked from minimized: restore its place and minimize it again (left shown if the teacher has it in front)
-
+            [GoeWin.Style]::NoAnimation($main, $false)
             $n = [GoeWin.Style]::GetNormal($main)
             if ($n[0] -ge $vs.Right -or $n[2] -le $vs.Left -or $n[1] -ge $vs.Bottom -or $n[3] -le $vs.Top) {
                 [void][GoeWin.Style]::SetNormal($main, [int]$saved.L, [int]$saved.T, [int]$saved.R, [int]$saved.B, $(if ($fgPid -eq $proc.Id) { 1 } else { 7 }))
@@ -357,6 +413,20 @@ if (Test-Path -LiteralPath $parkFile) {
         elseif ($off -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
         if ($null -ne $saved.Ex) { [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$saved.Ex) }
         if ($off) { [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, [int]$saved.L, [int]$saved.T, 0, 0, 0x15) }
+        # GOE windows the cut-off run opened and the keeper moved off screen (a note, the settings window):
+        # close them where the teacher can find GOE again. An open note window would otherwise block every
+        # later run as "a note window is open" while nobody can see it.
+        $closed = 0
+        foreach ($w in [GoeWin.Top]::ByClass($L.childClass)) {
+            $wp = [uint32]0; [void][GoeWin.W]::GetWindowThreadProcessId($w, [ref]$wp)
+            $wr = Get-Rect $w
+            if ($wp -ne $proc.Id -or -not [GoeWin.W]::IsWindowVisible($w) -or $wr.L -lt $vs.Right) { continue }
+            [void][GoeWin.W]::ShowWindow($w, 0)
+            [void][GoeWin.W]::SetWindowPos($w, [IntPtr]::Zero, $vs.Left + 100, $vs.Top + 100, 0, 0, 0x15)
+            [void][GoeWin.W]::PostMessage($w, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+            $closed++
+        }
+        if ($closed) { Start-Sleep -Milliseconds 500 }
     } catch { }
     Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
 }
@@ -367,11 +437,13 @@ $wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVis
 $parked = $null
 function Unpark {
     if (-not $script:parked) { return }
+    [GoeWin.Keeper]::Stop()
     $fgPid = [uint32]0
     [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
     if ($script:parked.Min) {
         $p = $script:parked
         [void][GoeWin.Style]::SetNormal($main, $p.L, $p.T, $p.R, $p.B, $(if ($fgPid -eq $proc.Id) { 1 } else { 7 }))
+        [GoeWin.Style]::NoAnimation($main, $false)
         Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
         $script:parked = $null
         return
@@ -405,6 +477,8 @@ if ($wasHidden) {
     # taskbar does not flash a GOE icon on every run (2026-11-17, "that would be a problem"). Put back by Unpark.
     [void][GoeWin.Style]::SetWindowLong($main, -20, (($ex -bor 0x80) -band (-bnot 0x40000)))
     $vs = Get-VirtualScreen
+    # Reply shows a note and the reply window to the teacher on purpose, so nothing is kept off screen then.
+    if (-not $Reply) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
     # SWP_SHOWWINDOW|NOACTIVATE|NOZORDER|NOSIZE: ShowWindow(SW_SHOWNOACTIVATE) on the tray window left GOE in
     # front once (2026-11-17), so the run stopped as "user is in GOE" and the window stayed out.
     [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $vs.Right + 200, $vs.Top, 0, 0, 0x55)
@@ -497,6 +571,8 @@ function Open-GoeReply($NoteEl, $Elements) {
 function Close-Note($n) {
     if (-not $n) { return }
     $handle = [IntPtr]$n.Current.NativeWindowHandle
+    # moved off screen by the keeper while GOE is parked: hide it and put it back before closing
+    [GoeWin.Keeper]::PutBack($handle)
     $b = $n.FindAll($TS::Descendants, $TRUE_COND) | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.closeButton } | Select-Object -Last 1
     if ($b) { Click $b.Current.NativeWindowHandle }
     $t0 = Get-Date; while ([GoeWin.W]::IsWindow($handle) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
@@ -541,6 +617,8 @@ function Read-DownloadDir {
         }
     } finally {
         $cancel = $sw.FindAll($TS::Descendants, $TRUE_COND) | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.cancelButton } | Select-Object -First 1
+        # moved off screen by the keeper while GOE is parked: hide it and put it back before Cancel
+        [GoeWin.Keeper]::PutBack([IntPtr]$sw.Current.NativeWindowHandle)
         if ($cancel) { Click $cancel.Current.NativeWindowHandle }
     }
     $dir
@@ -1112,12 +1190,15 @@ try {
         # A minimized GOE showed on screen for the whole read (2026-11-17 case check). Restore it right of all
         # screens instead (SetWindowPlacement, no activation; it keeps its taskbar button as a minimized window
         # does) and minimize it back at its own place in Unpark. goe-parked.json covers a cut-off run.
-
+        # GOE may move a window restored off screen back to 0,0 by itself (2026-11-17, within 50 ms): the keeper
+        # moves it out again, and the restore animation is turned off so nothing is drawn on the way.
         $n = [GoeWin.Style]::GetNormal($main)
         [IO.Directory]::CreateDirectory($Inbox) | Out-Null
         $script:parked = [pscustomobject]@{ Min = $true; L = $n[0]; T = $n[1]; R = $n[2]; B = $n[3]; Ex = [GoeWin.Style]::GetWindowLong($main, -20) }
         $script:parked | ConvertTo-Json -Compress | Set-Content -LiteralPath $parkFile -Encoding ascii
         $vs = Get-VirtualScreen
+        [GoeWin.Style]::NoAnimation($main, $true)
+        if (-not $Reply) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
         [void][GoeWin.Style]::SetNormal($main, $vs.Right + 200, $vs.Top, $vs.Right + 200 + ($n[2] - $n[0]), $vs.Top + ($n[3] - $n[1]), 4)
         $t0 = Get-Date
         while ([GoeWin.W]::IsIconic($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }

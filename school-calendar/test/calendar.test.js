@@ -40,6 +40,10 @@ const note = (id, overrides = {}) => ({
   verified: true, body: '<b>시험 원문</b>\n둘째 줄', saved: [], ...overrides,
 });
 const writeNote = (notes, row) => fs.writeFile(path.join(notes, `${row.id}.json`), '\uFEFF' + JSON.stringify(row));
+// \uC790\uB3D9 \uBD84\uB958\uB294 \uCABD\uC9C0 \uD30C\uC77C\uC758 \uB9CC\uB4E0 \uC2DC\uAC01(birthtime)\uC774 \uCF20 \uC2DC\uAC01(Date.now()) \uC774\uD6C4\uC77C \uB54C\uB9CC \uC0C8 \uCABD\uC9C0\uB85C \uBCF8\uB2E4. Windows\uB294 \uD30C\uC77C \uC2DC\uAC01\uC744
+// \uC57D 15ms\uB9C8\uB2E4 \uC6C0\uC9C1\uC774\uB294 \uC2DC\uACC4\uB85C \uC801\uC5B4, \uCF20 \uC9C1\uD6C4 \uC4F4 \uD30C\uC77C\uC774 \uCF20 \uC2DC\uAC01\uBCF4\uB2E4 \uC774\uB974\uAC8C \uCC0D\uD78C\uB2E4(2026-11-17 \uCE21\uC815: 300\uAC1C \uC911 221\uAC1C, \uCD5C\uB300 14ms).
+// \uADF8\uB798\uC11C \uC774 \uD14C\uC2A4\uD2B8\uB4E4\uC774 \uAC00\uB054 \uCABD\uC9C0\uB97C "\uCF1C\uAE30 \uC804\uBD80\uD130 \uC788\uB358 \uAC83"\uC73C\uB85C \uBCF4\uACE0 \uC2E4\uD328\uD588\uB2E4. \uC0C8 \uCABD\uC9C0\uB85C \uCCD0\uC57C \uD560 \uD30C\uC77C\uC740 \uD55C \uCE78 \uB118\uAC8C \uAE30\uB2E4\uB9B0 \uB4A4 \uC4F4\uB2E4.
+const pastBaseline = () => new Promise((resolve) => setTimeout(resolve, 40));
 
 test('숨긴 쪽지를 재실행 뒤 되돌려도 저장한 날짜와 마감 완료 상태가 남는다', async (t) => {
   const { makeStore, notes } = await setup(t);
@@ -630,6 +634,7 @@ test('자동 분류는 초기 쪽지를 보내지 않고, 새로 모은 검증�
   await store.refresh();
   assert.equal(store.nextAutomatic(), null);
   const unverifiedId = '0_202611100000000003_0';
+  await pastBaseline();
   await writeNote(notes, note(otherId));
   await writeNote(notes, note(unverifiedId, { verified: false }));
   await store.refresh();
@@ -653,6 +658,7 @@ test('자동 분류를 다시 켜도 꺼진 동안 모인 쪽지는 뒤늦게 �
   await writeNote(notes, note(noteId));
   await new Promise((resolve) => setTimeout(resolve, 10));
   await store.setAutomatic(true);
+  await pastBaseline();
   await writeNote(notes, note(otherId));
   await store.refresh();
   const queued = store.snapshot().tasks.find((task) => task.id === store.nextAutomatic());
@@ -741,9 +747,9 @@ test('자동 분류는 개인정보 검사로 막지 않고 보낸다(2026-11-11
   const store = await makeStore();
   await store.setAutomatic(true);
   await store.refresh();
+  // (전에는 utimes로 수정 시각을 2초 뒤로 옮겼지만 판단은 만든 시각으로 해서 효과가 없었다)
+  await pastBaseline();
   await writeNote(notes, note(otherId, { body: '학부모 연락처 010-1234-5678 확인 부탁드립니다.' }));
-  const collected = new Date(Date.now() + 2_000);
-  await fs.utimes(path.join(notes, otherId + '.json'), collected, collected);
   await store.refresh();
   let sent = 0;
   for (let id; (id = store.nextAutomatic());) {
@@ -1022,6 +1028,7 @@ test('분류 실패는 사유를 남겨 다시 정하게 하고, 잠깐 생긴 �
   const store = await makeStore();
   await store.setAutomatic(true);
   await store.refresh();
+  await pastBaseline();
   await writeNote(notes, note(noteId));
   await writeNote(notes, note(otherId));
   await store.refresh();
@@ -1039,6 +1046,7 @@ test('분류 실패는 사유를 남겨 다시 정하게 하고, 잠깐 생긴 �
 
   // 시간 초과: 실패로 남기고 사유를 저장한다. 1분이 지나면 한 번 더, 두 번째 실패 뒤에는 더 보내지 않는다.
   await store.setAutomatic(true);
+  await pastBaseline();
   await writeNote(notes, note('0_202611100000000005_0'));
   await store.refresh();
   const id = store.nextAutomatic();
@@ -1072,4 +1080,27 @@ test('업무 추가는 날짜 고치기와 같이 마감·일정·기간과 시�
   const span = await store.create({ title: '독서 주간', due: '2026-11-23', kind: '기간', end: '2026-11-27', time: '' });
   assert.deepEqual(span.dates, [{ date: '2026-11-23', label: '독서 주간', kind: '기간', end: '2026-11-27' }]);
   await assert.rejects(store.create({ title: '틀린 기간', due: '2026-11-23', kind: '기간', end: '2026-11-22' }), /끝 날짜/);
+});
+
+test('저장 파일을 바꿔 끼울 때 Windows가 잠깐 막으면(EPERM) 다시 해 보고, 계속 막히면 오류를 낸다', async (t) => {
+  const { makeStore, notes } = await setup(t);
+  await writeNote(notes, note(noteId));
+  const store = await makeStore();
+  await store.refresh();
+  const [task] = store.snapshot().tasks;
+  const realRename = fs.rename;
+  let blocked = 2;
+  const rename = t.mock.method(fs, 'rename', async (from, to) => {
+    if (blocked-- > 0) throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+    return realRename(from, to);
+  });
+  const saved = await store.update(task.id, { title: '바뀐 제목' });
+  assert.equal(saved.title, '바뀐 제목');
+  assert.equal(rename.mock.callCount(), 3);
+  assert.equal((await makeStore()).snapshot().tasks[0].title, '바뀐 제목');
+  rename.mock.mockImplementation(async () => { throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' }); });
+  await assert.rejects(store.update(task.id, { title: '저장 못 함', revision: saved.revision }), { code: 'EPERM' });
+  rename.mock.restore();
+  const left = (await fs.readdir(store.dataDir)).filter(name => name.endsWith('.tmp'));
+  assert.deepEqual(left, []);
 });

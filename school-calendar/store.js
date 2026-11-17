@@ -200,11 +200,24 @@ async function readJson(file) {
   return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
 }
 
+// Windows는 다른 프로그램(백신·검색 색인, 같은 파일을 읽는 중인 앱)이 잠깐 열고 있으면 바꿔 끼우기를 EPERM·EACCES·EBUSY로
+// 거절한다(2026-11-17 테스트 반복 중 tasks.json에서 확인). 곧 풀리므로 잠깐씩 기다리며 다시 해 본다(모두 합쳐 1초 안쪽).
+const RENAME_RETRY = new Set(['EPERM', 'EACCES', 'EBUSY']);
+async function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await fs.rename(from, to); }
+    catch (error) {
+      if (!RENAME_RETRY.has(error?.code) || attempt >= 9) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 15 * (attempt + 1)));
+    }
+  }
+}
+
 async function atomicWrite(file, data) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(temporary, data, { encoding: 'utf8', flag: 'wx' });
-    await fs.rename(temporary, file);
+    await renameWithRetry(temporary, file);
   } finally {
     await fs.unlink(temporary).catch(() => {});
   }
