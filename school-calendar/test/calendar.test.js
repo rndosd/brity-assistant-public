@@ -580,6 +580,48 @@ test('GOE 첨부만 다시 읽으면 실제 파일 이름을 표시하고 저장
   assert.equal(await fs.readFile(path.join(dataDir, 'tasks.json'), 'utf8'), before);
 });
 
+test('재안내 GOE 쪽지가 첨부를 못 붙이면 같은 첨부가 붙은 앞 쪽지의 파일을 보여 준다', async (t) => {
+  const { inboxDir, notes, makeStore } = await setup(t);
+  const day = offset => {
+    const date = new Date(Date.now() + offset * 86_400_000);
+    return new Date(+date - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+  };
+  const names = [
+    '(가상초등학교-15217 (본문) 가상교육지원청 초등교육지원과) 2026년 학교교육국 교육감 표창 계획 안내 및 대상자 추천 요청.odt',
+    '(가상초등학교-15217 (첨부) 가상교육지원청 초등교육지원과) [붙임1] 표창 통합 운영 목록.xlsx',
+  ];
+  const firstId = 'goe_202611161430_11111111';
+  const saved = [];
+  for (const name of names) {
+    const file = path.join(inboxDir, 'files', firstId, name);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, name);
+    saved.push({ name, path: file });
+  }
+  await writeNote(notes, note(firstId, { source: 'goe', sender: '가상 부장', datetime: `${day(-1)} 14:30`, attachCount: 2, attachStatus: 'saved', saved }));
+  const againId = 'goe_202611171125_22222222';
+  // 화면에서 읽은 이름은 몇 글자가 틀리고 "..."로 잘린다.
+  const ocr = '(가상초등학교-15217 (본문) 가상교육지원정 초등교육지원과) 2026년 학교교육국 교육감 표장 계획 안내 및 대상자 주전...';
+  await writeNote(notes, note(againId, { source: 'goe', datetime: `${day(0)} 11:25`, attachCount: 2, attachStatus: 'review', files: [ocr] }));
+  const store = await makeStore();
+  await store.refresh();
+  const task = store.snapshot().tasks.find(item => item.noteId === againId);
+  const view = await store.detail(task.id);
+  assert.equal(view.note.goeAttachments.status, 'shared');
+  assert.equal(view.note.goeAttachments.canRetry, false);
+  assert.equal(view.note.goeAttachments.sharedFrom.sender, '가상 부장');
+  assert.deepEqual(view.note.attachments.map(item => [item.name, item.available]), names.map(name => [name, true]));
+  assert.equal((await store.attachment(task.id, view.note.attachments[1].index)).path, saved[1].path);
+
+  // 이름이 다른 첨부면 빌리지 않고 다시 받기를 안내한다.
+  await writeNote(notes, note(againId, { source: 'goe', datetime: `${day(0)} 11:25`, attachCount: 2, attachStatus: 'review', files: ['(다른학교-99999 (본문) 전혀 다른 공문 제목입니다 정말로...'] }));
+  await store.refresh();
+  const other = await store.detail(task.id);
+  assert.equal(other.note.goeAttachments.status, 'review');
+  assert.equal(other.note.goeAttachments.canRetry, true);
+  await assert.rejects(store.attachment(task.id, 1000));
+});
+
 test('자동 분류는 초기 쪽지를 보내지 않고, 새로 모은 검증된 쪽지만 대기열에 넣는다', async (t) => {
   const { makeStore, notes } = await setup(t);
   await writeNote(notes, note(noteId));

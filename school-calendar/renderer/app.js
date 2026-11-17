@@ -1571,9 +1571,19 @@ const goeAttachmentMessages = {
   partial: '일부 첨부만 저장됐습니다.'
 };
 
+// 공문 첨부 이름 "(서룡초등학교-15217 (첨부) 경기도…과) [붙임1] 제목.xlsx"은 앞 괄호 묶음이 모두 같아
+// 줄이면 줄마다 똑같이 보인다(2026-11-17). 화면에는 괄호 묶음을 빼고 "[붙임1] 제목", 본문은 "본문 · 제목"으로 보인다.
+function shortAttachmentName(name) {
+  const match = name.match(/^\((?:[^()]|\([^()]*\))*\)\s*/u);
+  const rest = match ? name.slice(match[0].length) : '';
+  if (!match || !/\d/.test(match[0]) || rest.replace(/\.[^.]+$/, '').trim().length < 2) return name;
+  return /\(\s*본문\s*\)/u.test(match[0]) ? `본문 · ${rest}` : rest;
+}
+
 // 줄일 때도 확장자(.hwpx·.pdf)는 남긴다: 앞부분만 …으로 줄인다.
-function attachmentName(className, name) {
+function attachmentName(className, fullName) {
   const node = element('span', className);
+  const name = shortAttachmentName(fullName);
   const dot = name.lastIndexOf('.');
   const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : '';
   node.append(element('span', 'attachment-base', ext ? name.slice(0, dot) : name));
@@ -1581,9 +1591,29 @@ function attachmentName(className, name) {
   return node;
 }
 
+// GOE 첨부 안내(2026-11-17 사용자 "안내메시지는 적절한지"): 오류처럼 보이지 않게, 무엇을 누르면 되는지 말한다.
+function goeAttachmentMessage(goe, available) {
+  const retry = goe.canRetry ? ' ‘첨부만 다시 받기’를 누르면 GOE 저장 폴더에서 찾아 붙입니다.' : '';
+  if (goe.status === 'shared') {
+    const from = goe.sharedFrom?.datetime?.match(/^\d{4}-(\d{2})-(\d{2})(?:\s+(\d{2}:\d{2}))?/);
+    const when = from ? `${Number(from[1])}/${Number(from[2])}${from[3] ? ` ${from[3]}` : ''}` : '앞';
+    const who = goe.sharedFrom?.sender ? `(${goe.sharedFrom.sender})` : '';
+    return { message: `${when} 쪽지${who}와 같은 첨부입니다.`, error: false };
+  }
+  if (['expired', 'none', 'already-saved', 'folder-not-configured', 'not-found'].includes(goe.status)) {
+    return { message: goeAttachmentMessages[goe.status], error: goe.status === 'folder-not-configured' };
+  }
+  if (goe.canRetry && !goe.count) return { message: '첨부가 있는지 확인하지 못했습니다. 첨부가 있는 쪽지라면 ‘첨부만 다시 받기’를 눌러 주세요.', error: false };
+  if (!goe.canRetry || goe.count - available <= 0) return { message: '', error: false };
+  if (available) return { message: `첨부 ${goe.count}개 가운데 ${available}개만 붙었습니다.${retry}`, error: false };
+  if (goe.status === 'failed') return { message: `첨부 ${goe.count}개를 받지 못했습니다.${retry} 그래도 안 되면 GOE 메신저에서 직접 받아 주세요.`, error: true };
+  return { message: `첨부 ${goe.count}개를 아직 붙이지 못했습니다.${retry}`, error: false };
+}
+
 function renderAttachments(id, note) {
-  const attachments = note?.attachments || [];
   const goe = note?.goeAttachments;
+  // GOE에서 받지 못한 첨부의 이름은 화면에서 읽은 글자라 틀릴 수 있어 목록에 보이지 않는다(개수와 안내만).
+  const attachments = (note?.attachments || []).filter(item => !goe || item.available);
   const count = goe?.count || attachments.length;
   const current = state.attachmentRetry?.id === id ? state.attachmentRetry : null;
   const first = attachments.find(item => item.available);
@@ -1615,8 +1645,9 @@ ${item.direct ? '누르면 첨부를 엽니다' : '누르면 폴더에서 보여
   });
   $('attachments').replaceChildren(...rows);
   $('attachments').hidden = !rows.length;
-  const message = current?.message ?? (goe ? goeAttachmentMessages[goe.status] : '') ?? '';
-  const error = current?.error ?? ['review', 'failed'].includes(goe?.status);
+  const told = goe ? goeAttachmentMessage(goe, attachments.length) : { message: '', error: false };
+  const message = current?.message ?? told.message ?? '';
+  const error = current?.error ?? told.error;
   const status = $('attachment-status');
   if (status.textContent !== message || status.classList.contains('error') !== error) {
     setMessage('attachment-status', message, error);
@@ -2259,10 +2290,11 @@ function renderAiSettings() {
   $('ai-connect').disabled = !!state.testingAi || (provider === 'none' && state.snapshot.aiProvider === 'none');
   $('ai-connect').textContent = state.testingAi ? '연결 시험 중…' : provider === 'none' ? 'AI 연결 끄기'
     : provider === state.snapshot.aiProvider ? '연결 다시 시험' : '연결 시험 및 저장';
-  $('ai-hint').textContent = anthropic ? 'Anthropic 콘솔에서 만든 키(sk-ant-로 시작)를 붙여 넣으세요. Haiku 모델을 쓰고, 쓴 만큼 그 계정에 청구됩니다. 연결 시험에는 가짜 쪽지를 사용합니다.'
-    : isApi ? 'API 키를 붙여 넣으세요. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
-    : provider === 'claude' ? 'Claude 구독(Pro 이상)으로 Haiku 모델을 씁니다. ‘연결 시험 및 저장’을 누르면 Claude Code가 없을 때 설치할지 묻고, 로그인이 필요하면 로그인 창을 엽니다.'
-    : 'ChatGPT 구독(Plus 이상)으로 Codex를 씁니다. ‘연결 시험 및 저장’을 누르면 Codex가 없을 때 설치할지 묻고, 로그인이 필요하면 ChatGPT 로그인 창을 엽니다.';
+  $('ai-hint').textContent = anthropic ? 'Anthropic 콘솔에서 만든 키(sk-ant-로 시작)를 붙여 넣으세요. Haiku 모델을 쓰고, 쓴 만큼 그 계정에 청구됩니다. 비용은 쪽지 100건에 약 100원입니다. 연결 시험에는 가짜 쪽지를 사용합니다.'
+    // 비용 어림(2026-11-17 사용자 “쪽지 1건에 1원정도 … 대충 표시해두면 좋을것”): Luna에서 본 값을 어림으로 Haiku에도 같이 쓴다(사용자 “하이쿠도 그렇게 해놔”).
+    : isApi ? 'API 키를 붙여 넣으세요. 비용은 쪽지 100건에 약 100원입니다. 연결 시험에는 가짜 쪽지를 사용합니다.' : provider === 'none' ? 'AI 연결 없이도 쪽지를 가져오고 달력에 기록할 수 있습니다.'
+    : provider === 'claude' ? 'Claude 구독(Pro 이상)으로 Haiku 모델을 씁니다. ‘연결 시험 및 저장’을 누르면 Claude Code가 없을 때 설치할지 묻고, 로그인이 필요하면 로그인 창을 엽니다. 구독 요금 안에서 쓰고 따로 청구되지 않습니다.'
+    : 'ChatGPT 구독(Plus 이상)으로 Codex를 씁니다. 구독 요금 안에서 쓰고 따로 청구되지 않습니다. ‘연결 시험 및 저장’을 누르면 Codex가 없을 때 설치할지 묻고, 로그인이 필요하면 ChatGPT 로그인 창을 엽니다.';
 }
 
 // AI 연결 상태 줄(설정 AI 탭 맨 위). 연결 시험을 통과해 저장된 방식만 “연결됨”이다.

@@ -247,6 +247,34 @@ function readAttachments(note) {
   return attachments;
 }
 
+// 화면에서 읽은(OCR) 첨부 이름이 저장된 파일 이름과 같은 파일인지. GOE는 긴 이름을 "..."로 자르고,
+// OCR은 몇 글자를 틀리게 읽는다(서룡→서름, 표창→표장). 수집기 Test-AttachmentPrefix와 같은 기준.
+function attachmentNameMatches(label, fileNameValue) {
+  const clean = value => String(value).replace(/[^\p{L}\p{Nd}]/gu, '').toUpperCase();
+  const clipped = /\.{3}\s*$/.test(label);
+  const prefix = clean(clipped ? label : path.parse(label).name);
+  const stem = clean(path.parse(fileNameValue).name);
+  if (prefix.length < 12) return false;
+  if (stem.startsWith(prefix) || stem === prefix) return true;
+  if (prefix.length < 24) return false;
+  const limit = Math.floor(prefix.length * 0.25);
+  const target = clipped ? stem.slice(0, prefix.length + limit) : stem;
+  if (target.length < prefix.length - limit) return false;
+  let previous = Array.from({ length: target.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= prefix.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= target.length; j++) {
+      row[j] = Math.min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (prefix[i - 1] === target[j - 1] ? 0 : 1));
+    }
+    previous = row;
+  }
+  const ends = clipped ? previous.slice(Math.max(0, prefix.length - limit)) : [previous[target.length]];
+  return Math.min(...ends) <= limit;
+}
+
+// 첨부 표시 번호: 다른 쪽지의 같은 첨부를 빌려 보일 때는 이 수부터 센다.
+const SHARED_ATTACHMENT_BASE = 1000;
+
 function readGoeAttachments(note, attachments) {
   const count = Number.isSafeInteger(note.attachCount) && note.attachCount >= 0 ? note.attachCount : attachments.length;
   const status = GOE_ATTACHMENT_STATES.has(note.attachStatus) ? note.attachStatus : count ? 'not-requested' : 'none';
@@ -1260,6 +1288,30 @@ class CalendarStore {
     return this.attachmentPath(note, attachment);
   }
 
+  // 같은 첨부(2026-11-17 사용자 "표창 메시지가 어제꺼랑 오늘거 동일하게 온게 있는데 첨부파일이 겹쳐서"):
+  // 재안내 쪽지는 첨부가 앞 쪽지와 같아 GOE가 새로 받지 않는다. 이 쪽지가 첨부를 못 붙였고, 화면에서 읽은 이름이
+  // 다른 GOE 쪽지에 다 붙은 첨부(개수 같음)와 맞으면 그 쪽지의 첨부를 보여 준다. 앞 쪽지 가운데 가장 가까운 것을 고른다.
+  sharedGoeAttachments(note) {
+    const count = note.goeAttachments?.count || 0;
+    const labels = note.attachments.filter(item => !item.path).map(item => item.name);
+    if (!count || !labels.length || note.attachments.filter(item => item.path).length >= count) return null;
+    const at = note.datetime || '';
+    const sources = [...this.notes.values()].filter(other => other.id !== note.id && other.goeAttachments?.count === count &&
+      other.attachments.filter(item => item.path).length === count &&
+      labels.every(label => other.attachments.some(item => item.path && attachmentNameMatches(label, item.name))));
+    const rank = other => [(other.datetime || '') <= at ? 0 : 1, other.datetime || ''];
+    sources.sort((a, b) => {
+      const [ga, da] = rank(a); const [gb, db] = rank(b);
+      return ga - gb || (ga === 0 ? db.localeCompare(da) : da.localeCompare(db));
+    });
+    return sources[0] || null;
+  }
+
+  async sharedAttachmentPath(source, attachment) {
+    const owner = this.tasks.find(item => item.noteId === source.id) || {};
+    return this.displayAttachmentPath(owner, source, attachment);
+  }
+
   async detail(id) {
     const task = this.getTask(id);
     const note = this.notes.get(task.noteId);
@@ -1280,6 +1332,17 @@ class CalendarStore {
       return { index, name: item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
     }));
     const view = { ...note, attachments };
+    const shared = note.goeAttachments && this.inbox.status === 'ready' && this.sharedGoeAttachments(note);
+    if (shared) {
+      const borrowed = await Promise.all(shared.attachments.filter(item => item.path).map(async (item, index) => {
+        const location = await this.sharedAttachmentPath(shared, item);
+        return { index: SHARED_ATTACHMENT_BASE + index, name: item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+      }));
+      if (borrowed.every(item => item.available)) {
+        const goeAttachments = { count: note.goeAttachments.count, status: 'shared', canRetry: false, sharedFrom: { datetime: shared.datetime, sender: shared.sender } };
+        return { task: this.taskView(this.getTask(id)), note: { ...view, attachments: borrowed, goeAttachments } };
+      }
+    }
     if (note.goeAttachments) {
       const { count, status } = note.goeAttachments;
       const sentAt = Date.parse(note.datetime.replace(' ', 'T'));
@@ -1294,6 +1357,13 @@ class CalendarStore {
   async attachment(id, index) {
     const task = this.getTask(id);
     const note = this.notes.get(task.noteId);
+    if (note && Number.isSafeInteger(index) && index >= SHARED_ATTACHMENT_BASE && this.inbox.status === 'ready') {
+      const shared = note.goeAttachments && this.sharedGoeAttachments(note);
+      const item = shared && shared.attachments.filter(entry => entry.path)[index - SHARED_ATTACHMENT_BASE];
+      const location = item && await this.sharedAttachmentPath(shared, item);
+      if (!location) throw new CalendarError('저장된 첨부 파일을 찾을 수 없습니다.');
+      return { path: location, direct: SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+    }
     const attachment = note && Number.isSafeInteger(index) && note.attachments[index];
     const location = this.inbox.status === 'ready' && attachment && await this.displayAttachmentPath(task, note, attachment);
     if (!location) throw new CalendarError('저장된 첨부 파일을 찾을 수 없습니다.');
