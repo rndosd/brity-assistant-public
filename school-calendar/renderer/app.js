@@ -29,6 +29,19 @@ function element(tag, className, text) {
   return node;
 }
 
+// 원문 글을 넣으며 웹 주소는 링크로 만든다. 누르면 기본 브라우저로 연다(아래 클릭 처리).
+function setLinkedText(node, text) {
+  node.replaceChildren(...findLinks(text).map(part => {
+    if (!part.url) return part.text;
+    const link = element('a', 'note-link', part.text);
+    link.href = part.url;
+    link.title = `${part.url}
+누르면 브라우저로 엽니다.`;
+    return link;
+  }));
+  return node;
+}
+
 function button(className, text) {
   const node = element('button', className, text);
   node.type = 'button';
@@ -1353,14 +1366,15 @@ function renderNote(note, reset) {
   $('original-meta-row').hidden = !meta && !recipients;
   $('original-title').textContent = note?.title || '';
   $('reply-section').hidden = !parts?.reply;
-  $('reply-body').textContent = parts?.reply || '';
+  setLinkedText($('reply-body'), parts?.reply || '');
   $('previous-note').hidden = !parts;
   $('previous-subject').hidden = !parts?.subject;
   $('previous-subject').textContent = parts?.subject || '';
-  $('previous-body').textContent = parts?.message || '';
+  setLinkedText($('previous-body'), parts?.message || '');
   $('original-body').hidden = !!parts;
-  $('original-body').textContent = parts ? '' : note?.body ?? '쪽지 원문을 불러오지 못했습니다.';
-  $('raw-note-body').textContent = parts ? note.body : '';
+  setLinkedText($('original-body'), parts ? '' : note?.body ?? '쪽지 원문을 불러오지 못했습니다.');
+  setLinkedText($('raw-note-body'), parts ? note.body : '');
+  $('copy-note').hidden = !note?.body;
 }
 
 // evidence: 후보의 근거가 된 글 번호. 묶음 전체를 보이고 근거 글만 강조한다.
@@ -1395,7 +1409,7 @@ function renderChatOriginal(batch, evidence = [], source, sourceBatch = batch) {
       body.append(before.length ? `${before.join('\n')}\n` : '',
         element('mark', 'forwarded-source-line', lines.slice(sourceLine.lineIndex, sourceLine.endLineIndex).join('\n')),
         after.length ? `\n${after.join('\n')}` : '');
-    } else body.textContent = text;
+    } else setLinkedText(body, text);
     row.append(meta, body);
     return row;
   }));
@@ -1563,7 +1577,7 @@ function renderAttachments(id, note) {
   $('attachment-count').textContent = count;
   const retry = $('goe-attachment-retry');
   retry.hidden = !goe?.canRetry;
-  retry.disabled = !!state.attachmentRetry?.pending;
+  retry.disabled = messengerBusy();
   retry.textContent = current?.pending ? '첨부 받는 중…' : '첨부만 다시 받기';
   $('attachment-folder').hidden = !first;
   $('attachment-folder').onclick = first ? () => openAttachment(id, first.index, true) : null;
@@ -1591,10 +1605,11 @@ function renderAttachments(id, note) {
 
 $('goe-attachment-retry').addEventListener('click', async () => {
   const { selected: id, detail } = state;
-  if (!id || detail?.task.id !== id || !detail.note?.goeAttachments?.canRetry || state.attachmentRetry?.pending) return;
+  if (!id || detail?.task.id !== id || !detail.note?.goeAttachments?.canRetry || messengerBusy()) return;
   const retry = { id, pending: true, message: 'GOE 메신저에서 첨부를 받고 있습니다.', error: false };
   state.attachmentRetry = retry;
   renderAttachments(id, detail.note);
+  renderBusy();
   try {
     const result = await api.retryGoeAttachments(id);
     retry.error = !['saved', 'already-saved'].includes(result.attachStatus);
@@ -1605,6 +1620,7 @@ $('goe-attachment-retry').addEventListener('click', async () => {
     retry.message = error.message;
   } finally {
     retry.pending = false;
+    renderBusy();
     if (state.selected === id) await refreshDetail();
     if (state.detail?.task.id === state.selected) renderAttachments(state.selected, state.detail.note);
   }
@@ -1878,13 +1894,25 @@ function renderNotesFetch() {
   const { name } = state.messenger;
   const linked = !!collectorAvailable && !!collectorConnected && !collectorFirstImportPending;
   const button = $('notes-collect-now');
-  button.textContent = state.connectingCollector ? '가져오는 중…' : '지금 가져오기';
-  button.disabled = !linked || !!state.connectingCollector || collector?.status === 'connecting' || !!state.rangeBusy;
+  const fetching = state.connectingCollector || state.snapshot.activity === 'notes';
+  button.textContent = fetching ? '가져오는 중…' : '지금 가져오기';
+  button.disabled = !linked || messengerBusy();
   const status = state.snapshot.demo ? '' : !linked ? `위쪽 머리줄에서 ${name}를 먼저 연결해 주세요.`
-    : state.connectingCollector ? `${name}에서 쪽지를 확인하는 중…`
+    : fetching ? `${name}에서 쪽지를 확인하는 중…`
+      : messengerBusy() ? `${name}에서 다른 일을 하는 중입니다. 끝나면 누를 수 있습니다.`
       : collector?.status === 'in-use' ? `${name}를 쓰는 중이라 가져오지 않았습니다. 지금 가져오기를 누르면 확인한 뒤 가져옵니다.`
         : collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
   if ($('notes-collection-status').textContent !== status) setMessage('notes-collection-status', status);
+}
+
+// 메신저를 쓰는 일(쪽지·첨부·대화방·답장·지난 쪽지)이 하나라도 돌고 있으면 참. 자동으로 돌 때도 포함한다.
+// 그동안 같은 메신저를 쓰는 버튼은 모두 막는다(2026-11-17 “쪽지가져올때 가져오기 버튼이 활성화돼있으면 또 헷갈리잖아”).
+function messengerBusy() {
+  const snap = state.snapshot;
+  return !!(state.connectingCollector || state.rangeBusy || state.rangeCounting || state.chatCollecting
+    || state.attachmentRetry?.pending || state.replyOpening || state.firstImportConnecting
+    || snap.rangeImport?.running || snap.collector?.status === 'connecting'
+    || ['notes', 'attachments', 'chats', 'reply'].includes(snap.activity));
 }
 
 // 지금 하고 있는 일 한 줄(머리줄). 없으면 빈 글자. 순서: 지난 쪽지 불러오기 → 브리티 읽기 → AI 분류.
@@ -1897,6 +1925,8 @@ function activityText() {
   if (snap.activity === 'attachments') return 'GOE 메신저에서 첨부 확인 중…';
   if (snap.activity === 'chats') return '브리티에서 대화방 읽는 중…';
   if (snap.activity === 'chat-deciding') return '대화방 새 글에서 후보 찾는 중…';
+  if (snap.activity === 'reply' || state.replyOpening) return `${state.messenger.name}에서 답장창 여는 중…`;
+  if (state.rangeCounting) return '지난 쪽지 세는 중…';
   const waiting = snap.aiProvider === 'none' ? 0 : snap.tasks.filter(task => task.refining || task.queued).length;
   if (snap.aiBlocked && snap.aiProvider !== 'none') return `AI 분류 멈춤 · ${snap.aiBlocked}${waiting ? ` · 기다리는 쪽지 ${waiting}건` : ''}`;
   if (waiting) return `AI가 쪽지 분류 중 · 남은 ${waiting}건`;
@@ -1949,11 +1979,32 @@ function renderCollector() {
   // 2단계: 1단계(AI)가 끝났다는 것을 먼저 보인다.
   const aiDone = setup && !aiNotConnected() && !state.demo ? `✓ AI 연결됨(${aiNames[state.snapshot.aiProvider] || 'AI'}) · ` : '';
   $('collector-status').textContent = doing || (aiFirst && (status === 'idle' || status === 'offline') ? aiFirstText : '') || aiDone + (messages[status] || messages.unavailable);
-  $('collector-status').classList.toggle('busy', !!doing);
+  // 일하는 중이면 머리줄 연결 칸을 색 띠로 바꾸고 아래에 움직이는 줄을 보인다(2026-11-17 “시각적으로 눈에 띄게”).
+  // AI 분류가 멈춘 것은 일하는 중이 아니라 알림이라 움직이지 않는다.
+  const stopped = !!doing && !!state.snapshot.aiBlocked && doing.startsWith('AI 분류 멈춤');
+  const working = !!doing && !stopped;
+  $('collector-status').classList.toggle('busy', working);
+  $('collector-bar').classList.toggle('working', working);
+  $('collector-bar').classList.toggle('stopped', stopped);
+  document.querySelector('.app-header').classList.toggle('working', working);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
-  $('collector-connect').textContent = state.connectingCollector ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
+  const fetching = state.connectingCollector || state.snapshot.activity === 'notes';
+  $('collector-connect').textContent = fetching ? '가져오는 중…' : status === 'connecting' ? '연결 중…'
     : collectorFirstImportPending ? '첫 가져오기 계속' : collectorConnected ? '쪽지 가져오기' : aiFirst ? `AI 없이 ${name} 연결` : `${name} 연결`;
-  $('collector-connect').disabled = !!state.connectingCollector || status === 'connecting' || !!state.rangeBusy;
+  $('collector-connect').disabled = messengerBusy();
+  renderMessengerButtons();
+}
+
+// 열려 있는 자세히 칸의 메신저 버튼(첨부 다시 받기·답장)도 같은 기준으로 막는다. 자동 가져오기가 시작·끝날 때도 바로 바뀐다.
+function renderMessengerButtons() {
+  const busy = messengerBusy();
+  const retry = $('goe-attachment-retry');
+  retry.disabled = busy;
+  retry.title = busy && !state.attachmentRetry?.pending ? `${state.messenger.name}에서 다른 일을 하는 중입니다. 끝나면 누를 수 있습니다.` : '';
+  const reply = $('brity-reply');
+  reply.disabled = busy;
+  reply.textContent = state.replyOpening ? '답장창 여는 중…' : `${state.messenger.name}에서 답장`;
+  reply.title = busy && !state.replyOpening ? `${state.messenger.name}에서 다른 일을 하는 중입니다. 끝나면 누를 수 있습니다.` : '';
 }
 
 // 자동 가져오기가 켜져 있으면 다음 확인 시각("오후 3:40에"), 아니면 빈 글.
@@ -2022,7 +2073,7 @@ function renderAutoRefresh() {
   renderNotesFetch();
   const collecting = !!state.chatCollecting;
   $('chats-collect-now').textContent = collecting ? '가져오는 중…' : '지금 가져오기';
-  $('chats-collect-now').disabled = collecting || !!state.snapshot.demo || !state.snapshot.chatRooms?.length;
+  $('chats-collect-now').disabled = messengerBusy() || !!state.snapshot.demo || !state.snapshot.chatRooms?.length;
   const status = collecting ? '브리티에서 대화방을 읽는 중…' : state.chatCollectError || chatCollectionText(state.snapshot);
   if ($('chat-collection-status').textContent !== status) setMessage('chat-collection-status', status, !collecting && !!state.chatCollectError);
 }
@@ -2032,10 +2083,10 @@ $('notes-collect-now').addEventListener('click', () => void collectNow());
 $('chats-collect-now').addEventListener('click', async () => {
   state.chatCollecting = true;
   state.chatCollectError = '';
-  renderAutoRefresh();
+  renderBusy();
   try { sync(await api.collectChatsNow()); }
   catch (error) { state.chatCollectError = error.message; }
-  finally { state.chatCollecting = false; renderAutoRefresh(); }
+  finally { state.chatCollecting = false; renderBusy(); }
 });
 
 async function saveAutoRefresh() {
@@ -2486,12 +2537,12 @@ function renderFirstImport() {
 async function prepareFirstImport() {
   state.firstImportConnecting = true;
   state.firstImportError = '';
-  renderRange();
+  renderBusy();
   try { sync(await api.connectCollector()); }
   catch (error) { state.firstImportError = error.message; }
   finally {
     state.firstImportConnecting = false;
-    renderRange();
+    renderBusy();
     if (!$('range-from').disabled) $('range-from').focus();
     else if (!$('first-import-retry').hidden) $('first-import-retry').focus();
   }
@@ -2555,7 +2606,8 @@ function renderRange() {
   const available = !!snap.collectorAvailable && !!snap.collectorConnected &&
     (!first || (snap.collector?.status === 'ready' && snap.collector.managed && !state.firstImportConnecting));
   const running = !!snap.rangeImport?.running;
-  const busy = running || !!state.rangeBusy || !!state.firstImportSaving;
+  // 자동 가져오기·첨부·답장이 도는 동안에도 막는다(머리줄에 지금 하는 일이 보인다).
+  const busy = running || !!state.firstImportSaving || messengerBusy();
   $('range-preview').disabled = !available || busy;
   // 몇 건인지 보지 않아도 바로 불러올 수 있다. 세어 보았는데 새로 받을 쪽지가 없을 때만 막는다.
   $('range-import').disabled = !available || busy || (!!state.rangePreview && !state.rangePreview.fresh);
@@ -2589,10 +2641,18 @@ function rangeInput() {
 
 async function rangeAction(run) {
   state.rangeBusy = true;
-  renderRange();
+  renderBusy();
   try { await run(); }
   catch (error) { state.rangeMessage = true; setMessage('range-status', error.message, true); }
-  finally { state.rangeBusy = false; renderRange(); }
+  finally { state.rangeBusy = false; renderBusy(); }
+}
+
+// 이 창에서만 아는 '하는 중'(누른 버튼)이 바뀔 때: 머리줄과 메신저를 쓰는 버튼을 모두 다시 그린다.
+function renderBusy() {
+  if (!state.snapshot) return;
+  renderCollector();
+  renderAutoRefresh();
+  renderRange();
 }
 
 $('range-from').addEventListener('change', () => { state.rangePreview = null; renderRange(); });
@@ -2602,7 +2662,7 @@ $('range-preview').addEventListener('click', () => void rangeAction(async () => 
   state.rangeMessage = true;
   state.rangeCounting = true;
   setMessage('range-status', `${name} 쪽지 목록을 내려 가며 세고 있습니다(쪽지는 열지 않습니다).`);
-  renderRange();
+  renderBusy();
   let preview;
   try { preview = await api.previewRange(...rangeInput()); }
   finally { state.rangeCounting = false; }
@@ -3027,14 +3087,15 @@ document.querySelectorAll('[data-ai-guide]').forEach(button => button.addEventLi
 $('ai-guide-open').addEventListener('click', () => void openAiGuide($('ai-guide-open').dataset.page));
 $('ai-help').addEventListener('click', () => void openAiGuide($('ai-help').dataset.page));
 async function changeCollector(action) {
+  if (messengerBusy()) return;
   state.connectingCollector = true;
-  renderCollector();
+  renderBusy();
   let failure;
   try { sync(await action()); }
   catch (error) { failure = error.message; }
   finally {
     state.connectingCollector = false;
-    renderCollector();
+    renderBusy();
     if (failure) $('collector-status').textContent = failure;
   }
 }
@@ -3269,8 +3330,9 @@ $('reference-seen').addEventListener('click', async () => {
 });
 $('brity-reply').addEventListener('click', async () => {
   const id = state.selected;
-  if (!state.messenger.supportsReply || !id || state.detail?.note?.verified !== true) return;
-  $('brity-reply').disabled = true;
+  if (!state.messenger.supportsReply || !id || state.detail?.note?.verified !== true || messengerBusy()) return;
+  state.replyOpening = true;
+  renderBusy();
   const { name } = state.messenger;
   setMessage('detail-message', `${name}에서 쪽지를 찾고 있습니다.`);
   try {
@@ -3283,7 +3345,8 @@ $('brity-reply').addEventListener('click', async () => {
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
   } finally {
-    $('brity-reply').disabled = false;
+    state.replyOpening = false;
+    renderBusy();
   }
 });
 // 손으로 다듬을 때도 보낼 내용을 먼저 보여 주고 확인을 받는다.
@@ -3476,3 +3539,26 @@ for (const input of fontInputs) input.addEventListener('change', () => { if (inp
 redraw();
 api.onChange(sync);
 api.load().then(sync, error => { $('inbox-note').textContent = error.message; });
+
+// 원문 링크: 창 안에서 이동하지 않고 기본 브라우저로 연다. 주소 확인은 main.js에서 다시 한다.
+document.addEventListener('click', async event => {
+  const link = event.target.closest?.('a.note-link');
+  if (!link) return;
+  event.preventDefault();
+  try {
+    await api.openLink(link.href);
+  } catch (error) {
+    notice(error.message);
+  }
+});
+
+$('copy-note').addEventListener('click', async () => {
+  const note = state.detail?.note;
+  if (!note?.body) return;
+  try {
+    await api.copyText([note.title, note.body].filter(Boolean).join('\n\n'));
+    notice('쪽지 원문을 복사했습니다.');
+  } catch (error) {
+    notice(error.message);
+  }
+});

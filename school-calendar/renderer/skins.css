@@ -225,6 +225,7 @@
 :root[data-skin="cute"] :is(.check-field input, .chat-room-option input) { accent-color: var(--pink); }
 :root[data-skin="cute"] .notice { border-radius: 999px; padding: 8px 16px; font-family: var(--jua); }
 :root[data-skin="cute"] .connection .small-note.busy::before { background: var(--pink); }
+:root[data-skin="cute"] .connection.working .small-note.busy::before { background: none; border-color: var(--pink-deep); border-right-color: transparent; }
 
 /* ═══════════ 3. 저녁(어두운 화면) ═══════════
    별 뜬 밤하늘 바탕, 달 그림, 반투명 유리 판, 은은한 빛. 글꼴: 달 숫자는 송명, 제목은 고운바탕. */

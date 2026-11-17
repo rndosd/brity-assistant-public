@@ -529,9 +529,9 @@ function Read-AttachmentNames($Lines, $Header, [int]$Count, $NextRow) {
         if ($line.t -match $sizeSuffix) {
             $name = ($line.t -replace $sizeSuffix, '').Trim()
             if ($name) { $name }
-        } elseif ($line.t -match '(?:\.{3,}|\u2026)\s*$') {
-            # GOE clips long attachment labels with an ellipsis.
-            $name = ($line.t -replace '(?:\.{3,}|\u2026)\s*$', '...').Trim()
+        } elseif ($line.t -match '(?:\.{2,}|\u2026)\s*$') {
+            # GOE clips long attachment labels with an ellipsis (OCR sometimes reads only two dots).
+            $name = ($line.t -replace '(?:\.{2,}|\u2026)\s*$', '...').Trim()
             if (($name -replace '\s+', '').Length -ge 15) { $name }
         } elseif ($line.t -match '\.[a-z][a-z0-9]{1,7}\s*$') {
             $line.t.Trim()
@@ -598,6 +598,33 @@ function Find-ExistingAttachments($State, $Sizes, [string[]]$Taken) {
     @($picked.Values)
 }
 
+# GOE skipped every file and the window shows no sizes (only 2 of 8 clipped names were visible, 2026-11-17).
+# An earlier download wrote the whole set into one folder within a second or two, so take the file a visible
+# name points to and every file written into the same folder around the same time. Accept only the exact count.
+function Find-ExistingBatch($State, [int]$Count, [string[]]$Names) {
+    if ($Count -le 0) { return @() }
+    $pool = @($State.Values | Where-Object { $_.Length -gt 0 -and !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })
+    $anchors = @(Select-Attachments $pool $Names)
+    if (!$anchors.Count) { return @() }
+    $folder = Split-Path -Parent $anchors[0].Key
+    if ($anchors | Where-Object { (Split-Path -Parent $_.Key) -ne $folder }) { return @() }
+    $times = @($anchors | ForEach-Object { $_.LastWriteTimeUtc } | Sort-Object)
+    if (($times[-1] - $times[0]).TotalSeconds -gt 60) { return @() }
+    $from = $times[0].AddSeconds(-60); $to = $times[-1].AddSeconds(60)
+    $group = @($pool | Where-Object {
+        (Split-Path -Parent $_.Key) -eq $folder -and $_.LastWriteTimeUtc -ge $from -and $_.LastWriteTimeUtc -le $to
+    })
+    if ($group.Count -gt $Count) { $group = @($group | Where-Object { !(Test-FromInternet $_) }) }
+    if ($group.Count -gt $Count) {
+        # something else was saved at the same time: keep the files whose names start like the visible one
+        $lead = ([IO.Path]::GetFileNameWithoutExtension($anchors[0].Name) -replace '[^\p{L}\p{Nd}]', '')
+        $lead = $lead.Substring(0, [Math]::Min(10, $lead.Length))
+        $group = @($group | Where-Object { ($_.Name -replace '[^\p{L}\p{Nd}]', '').StartsWith($lead, [StringComparison]::Ordinal) })
+    }
+    if ($group.Count -ne $Count -or ($anchors | Where-Object { $_ -notin $group })) { return @() }
+    $group | Sort-Object Name
+}
+
 function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]]$Names, $Sizes) {
     if (!$Directory) { return @{ status = 'folder-not-configured' } }
     $Names = @($Names | Where-Object { $_ })
@@ -653,6 +680,11 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
         if ($rest.Count -and $new.Count + $old.Count -eq $Count) {
             return @{ status = 'complete'; files = @($new) + @($old); directory = $Directory }
         }
+    }
+    $changedAny = @($current.Values | Where-Object { !(Test-SameDownloadFile $before[$_.Key] $_) })
+    if (!$changedAny.Count) {
+        $old = @(Find-ExistingBatch $current $Count $Names)
+        if ($old.Count -eq $Count) { return @{ status = 'complete'; files = $old; directory = $Directory } }
     }
     @{ status = $(if ($batch.activity -or $stableSince -ge 0) { 'review' } else { 'failed' }) }
 }
@@ -952,8 +984,9 @@ try {
             $recipientRow = $nl | Where-Object { $attachHeader -and $_.y -gt $attachHeader.y -and $_.t -match $L.recipientHeader } | Select-Object -First 1
             $fileNames = @(Read-AttachmentNames $nl $attachHeader $attCount $recipientRow)
             $fileSizes = @(Read-AttachmentSizes $nl $attachHeader $attCount)
-            $hasAttachments = $attCount -gt 0 -or $fileNames.Count -gt 0 -or $r.attach -or
-                [bool]($els | Where-Object { $_.Current.Name -eq $L.downloadAll } | Select-Object -First 1)
+            # GOE shows the attachment header and its download button on every note, even one without files
+            # (2026-11-17), so only a count, a file name or the list row's clip icon means there are attachments.
+            $hasAttachments = $attCount -gt 0 -or $fileNames.Count -gt 0 -or $r.attach
 
             $hash = [Security.Cryptography.SHA1]::Create()
             try { $digest = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($r.sender + '|' + $body))) }
@@ -965,9 +998,9 @@ try {
             $sentDt = Parse-SentTime $sentLine
             $dtCheck = if (-not $sentDt) { 'note-time-unread' } elseif ($sentDt -eq $r.datetime) { 'match' } else { 'mismatch' }
             if ($sentDt -and [datetime]::ParseExact($sentDt, 'yyyy-MM-dd HH:mm', $calendar) -lt $attachmentCutoff) { $expired = $true }
-            # GOE keeps the attachment header after its storage period ends, but the file list is empty and the
-            # header has no count (seen on 11/11 notes, 2026-11-16): nothing can be downloaded any more.
-            if ($attachHeader -and $attCount -eq 0 -and $fileNames.Count -eq 0) { $expired = $true }
+            # After the storage period the list row keeps its clip icon but the file list is empty and the header
+            # has no count (seen on 11/11 notes, 2026-11-16): nothing can be downloaded any more.
+            if ($r.attach -and $attCount -eq 0 -and $fileNames.Count -eq 0) { $expired = $true }
             $attachStatus = if (!$hasAttachments) { 'none' } elseif ($expired) { 'expired' } else { 'not-requested' }
             $note = [pscustomobject]@{
                 id = $id; source = 'goe'; verified = [bool]($body -and $r.datetime -and $title)

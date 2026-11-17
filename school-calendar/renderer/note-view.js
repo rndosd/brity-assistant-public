@@ -67,4 +67,44 @@ function splitReply(raw) {
   };
 }
 
-if (typeof module !== 'undefined') module.exports = { splitReply, normalizeHeaders };
+// 원문 속 웹 주소를 찾는다(2026-11-17 사용자 "링크지원"). http(s)://와 www.만 링크로 본다.
+// 한글이 바로 붙으면("…/view주소입니다") 거기서 끊고, 끝의 문장부호·짝 없는 닫는 괄호는 주소에서 뺀다.
+const LINK = /(?:https?:\/\/|www\.)[^\s<>"'`가-힣ㄱ-ㅎㅏ-ㅣ「」『』【】〈〉《》]+/giu;
+const TRAILING = /[.,;:!?…·'"’”)\]}>]$/u;
+const PAIRS = { ')': '(', ']': '[', '}': '{' };
+
+function trimLink(text) {
+  let link = text;
+  while (TRAILING.test(link)) {
+    const last = link.at(-1);
+    const open = PAIRS[last];
+    if (open && link.split(open).length >= link.split(last).length) break;
+    link = link.slice(0, -1);
+  }
+  return link;
+}
+
+// [{ text }, { text, url }] 순서로 나눈다. 링크가 없으면 글 한 조각.
+function findLinks(text) {
+  const source = String(text ?? '');
+  const parts = [];
+  let last = 0;
+  for (const match of source.matchAll(LINK)) {
+    const link = trimLink(match[0]);
+    if (!/[a-z0-9-]\.[a-z]{2,}/iu.test(link)) continue;
+    let url;
+    try {
+      url = new URL(/^www\./iu.test(link) ? `http://${link}` : link);
+    } catch {
+      continue;
+    }
+    if (!/^https?:$/u.test(url.protocol)) continue;
+    if (match.index > last) parts.push({ text: source.slice(last, match.index) });
+    parts.push({ text: link, url: url.href });
+    last = match.index + link.length;
+  }
+  if (last < source.length || !parts.length) parts.push({ text: source.slice(last) });
+  return parts;
+}
+
+if (typeof module !== 'undefined') module.exports = { splitReply, normalizeHeaders, findLinks };

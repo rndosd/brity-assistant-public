@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('calendar', {
   openAttachment: (id, index, reveal) => invoke('calendar:attachment', id, index, reveal),
   retryGoeAttachments: id => invoke('calendar:goe-attachment-retry', id),
   copyWorkPrompt: id => invoke('calendar:copy-work', id),
+  openLink: url => invoke('calendar:open-link', String(url ?? '')),
+  copyText: text => invoke('calendar:copy-text', String(text ?? '')),
   onChange: callback => {
     const listener = (_event, snapshot) => callback(snapshot);
     ipcRenderer.on('calendar:changed', listener);

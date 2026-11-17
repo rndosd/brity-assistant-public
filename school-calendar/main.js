@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, clipboard, safeStorage, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, safeStorage, dialog, Notification, Menu } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -665,7 +665,18 @@ async function replyInBrity(id) {
     throw new CalendarError('캘린더에서 원문이 확인된 쪽지의 답장창을 열 수 있습니다.');
   }
   if (collectorRun || chatRun || brityReplyRun) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
-  if (goeEdition) return replyInGoe(note);
+  // 머리줄에 "답장창 여는 중"을 보이고, 그동안 메신저를 쓰는 다른 버튼을 막는다.
+  activity = 'reply';
+  publish();
+  try {
+    return goeEdition ? await replyInGoe(note) : await replyInBrityNote(note);
+  } finally {
+    activity = null;
+    publish();
+  }
+}
+
+async function replyInBrityNote(note) {
   brityReplyRun = openBrityReply(note, collectorOptions);
   try {
     const result = await brityReplyRun;
@@ -961,11 +972,47 @@ function bindHandlers() {
     if (error) throw new CalendarError('첨부를 열 수 없습니다. 폴더에서 파일과 연결 프로그램을 확인해 주세요.');
     return { revealed: false };
   });
+  // 쪽지 원문 링크(2026-11-17). http(s)만, 기본 브라우저로 연다.
+  bind('open-link', async href => {
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      throw new CalendarError('열 수 없는 주소입니다.');
+    }
+    if (!/^https?:$/.test(url.protocol) || href.length > 4000) throw new CalendarError('웹 주소만 열 수 있습니다.');
+    await shell.openExternal(url.href);
+  });
+  bind('copy-text', async text => {
+    if (!text || text.length > 200000) throw new CalendarError('복사할 글이 없습니다.');
+    clipboard.writeText(text);
+  });
   bind('copy-work', async id => {
     const { task, note } = await store.detail(id);
     if (task.chatSource) throw new CalendarError('대화방 업무는 캘린더에서 확인해 주세요.');
     clipboard.writeText(buildWorkPrompt(task, note));
   });
+}
+
+// 오른쪽 클릭 메뉴(2026-11-17): Electron은 기본 메뉴가 없어 복사·붙여넣기·링크 열기를 직접 단다.
+function showContextMenu(params) {
+  const items = [];
+  const link = /^https?:/i.test(params.linkURL || '') ? params.linkURL : '';
+  if (link) {
+    items.push({ label: '브라우저로 열기', click: () => void shell.openExternal(link) },
+      { label: '링크 주소 복사', click: () => clipboard.writeText(link) }, { type: 'separator' });
+  }
+  if (params.isEditable) {
+    items.push({ role: 'undo', label: '실행 취소', enabled: params.editFlags.canUndo }, { type: 'separator' },
+      { role: 'cut', label: '잘라내기', enabled: params.editFlags.canCut },
+      { role: 'copy', label: '복사', enabled: params.editFlags.canCopy },
+      { role: 'paste', label: '붙여넣기', enabled: params.editFlags.canPaste },
+      { role: 'selectAll', label: '모두 선택' });
+  } else if (params.selectionText.trim()) {
+    items.push({ role: 'copy', label: '복사' });
+  }
+  while (items.at(-1)?.type === 'separator') items.pop();
+  if (items.length && window && !window.isDestroyed()) Menu.buildFromTemplate(items).popup({ window });
 }
 
 function createWindow() {
@@ -978,6 +1025,7 @@ function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, reply) => reply(false));
+  window.webContents.on('context-menu', (_event, params) => showContextMenu(params));
   void window.loadFile(view);
 }
 

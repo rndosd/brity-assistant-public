@@ -327,6 +327,9 @@ button:disabled { cursor: default; opacity: .5; }
 #note-recipient-list { white-space: pre-line; }
 .original { font-size: 15px; line-height: 1.8; letter-spacing: -.005em; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; user-select: text; }
 .original::selection, .original *::selection { background: var(--today); }
+.note-link { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; word-break: break-all; cursor: pointer; }
+.note-link:hover { background: var(--hover); }
+.note-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .note-part + .note-part { margin-top: 14px; padding-top: 12px; border-top: 1px dotted var(--ink-3); }
 .note-part h4 { font-size: 12px; font-weight: 700; color: var(--ink-2); margin-bottom: 2px; }
 .previous-subject { font-size: 14.5px; }
@@ -633,7 +636,22 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 /* 지난 쪽지 세기·불러오기: 버튼 아래 한 줄을 깜박이는 점과 진한 글씨로(2026-11-12) */
 #range-status.busy { color: var(--ink); font-weight: 700; font-size: 13px; }
 #range-status.busy::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--ink); animation: busy-dot 1.1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .connection .small-note.busy::before, #range-status.busy::before { animation: none; } }
+/* 일하는 중 강조(2026-11-17 “시각적으로 눈에 띄게”): 연결 칸 전체를 오늘 색 띠로 칠하고, 점 대신 도는 고리,
+   머리줄 아래에는 왼쪽에서 오른쪽으로 지나가는 줄. 색은 스킨마다 바뀌는 --today·--blue를 쓴다. */
+.app-header { position: relative; }
+.connection { border-radius: 6px; transition: background-color .2s; }
+.connection.working { background: var(--today); padding: 3px 4px 3px 10px; margin-block: -3px; }
+.connection.working strong, .connection.working .small-note.busy { color: var(--ink); }
+.connection.working .small-note.busy::before { width: 10px; height: 10px; border-radius: 50%; background: none; border: 2px solid currentColor; border-right-color: transparent; vertical-align: -1px; animation: busy-spin .8s linear infinite; }
+.connection.stopped .small-note { color: var(--red); font-weight: 700; }
+.app-header.working::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; pointer-events: none;
+  background: linear-gradient(90deg, transparent 0 35%, var(--blue) 35% 65%, transparent 65% 100%) 0 0 / 300% 100%; animation: busy-sweep 1.4s linear infinite; }
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+@keyframes busy-sweep { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .connection .small-note.busy::before, #range-status.busy::before { animation: none; }
+  .app-header.working::after { animation: none; background: var(--blue); }
+}
 .check-field .small-note { font-weight: 400; }
 .span-piece .item-time { margin-right: 4px; color: var(--ink); }
 /* 날짜 추가는 날짜 칸 아래 왼쪽. "고치기/취소"는 제목 줄 오른쪽 끝에 그대로 있다. */
