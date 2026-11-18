@@ -3,6 +3,7 @@
   "mainClass": "@Messenger7_MainWnd",
   "childClass": "@Messenger7_Wnd",
   "noteTab": "쪽지함",
+  "noteTabShort": "쪽지",
   "inboxButton": "수신함",
   "sentButton": "발신함",
   "noteWindow": "쪽지",
