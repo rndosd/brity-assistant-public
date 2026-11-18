@@ -492,6 +492,10 @@ function Find-MainControls {
     foreach ($e in $mainEl.FindAll($TS::Descendants, $TRUE_COND)) {
         $c = $e.Current
         if ($c.ClassName -eq 'Button' -and $c.Name -in @($L.noteTab, $L.inboxButton, $L.sentButton) -and -not $found[$c.Name]) { $found[$c.Name] = [IntPtr]$c.NativeWindowHandle }
+        # some GOE windows label the tabs short (noteTabShort in labels.json instead of noteTab; 2026-11-18 on
+        # another PC with a 452 px wide window, found with the diagnosis tool). The note window has the same title,
+        # but it is a window, not a Button.
+        if ($L.noteTabShort -and $c.ClassName -eq 'Button' -and $c.Name -eq $L.noteTabShort -and -not $found[$L.noteTab]) { $found[$L.noteTab] = [IntPtr]$c.NativeWindowHandle }
         if ($c.ClassName -eq 'UltariListScrollView' -and -not $found.list) { $found.list = [IntPtr]$c.NativeWindowHandle }
         if ($c.ClassName -eq 'UListScrollBar' -and -not $found.scroll) { $found.scroll = [IntPtr]$c.NativeWindowHandle }
     }
@@ -509,8 +513,38 @@ if ($H[$L.noteTab] -and -not ($H[$L.inboxButton] -and $H[$L.sentButton] -and $H.
         do { Start-Sleep -Milliseconds 300; $H = Find-MainControls } while (-not ($H[$L.inboxButton] -and $H.list) -and ((Get-Date) - $t0).TotalSeconds -lt 3)
     }
 }
-foreach ($k in @($L.noteTab, $L.inboxButton, $L.sentButton, 'list', 'scroll')) {
-    if (-not $H[$k]) { Hide-Main; $result.status = 'error'; $result.reason = 'control-not-found'; Publish-Result "control-not-found:$k"; return }
+$controlKeys = @($L.noteTab, $L.inboxButton, $L.sentButton, 'list', 'scroll')
+# 2026-11-18 another PC showed "found the GOE window but could not read the note buttons" while GOE sat on the
+# contacts tab in front of the teacher. Tell those cases apart instead of one error:
+function Test-GoeInFront { $p = [uint32]0; [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$p); $p -eq $proc.Id }
+if (@($controlKeys | Where-Object { -not $H[$_] }).Count) {
+    # a small window folds the inbox/sent buttons away: enlarge it only for this check, then put the size back
+    # (reading enlarges it again later when needed)
+    $mr = Get-Rect $main
+    if ($mr.Rt - $mr.L -lt 360 -or $mr.B - $mr.T -lt 585) {
+        [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $mr.L, $mr.T, [Math]::Max(360, $mr.Rt - $mr.L), [Math]::Max(585, $mr.B - $mr.T), 0x14)
+        Start-Sleep -Milliseconds 400
+        $H = Find-MainControls
+        if ($H[$L.noteTab] -and -not $H[$L.inboxButton] -and ($Force -or -not (Test-GoeInFront))) {
+            [void][GoeWin.W]::SendMessage([IntPtr]$H[$L.noteTab], 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 600; $H = Find-MainControls
+        }
+        [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $mr.L, $mr.T, $mr.Rt - $mr.L, $mr.B - $mr.T, 0x14)
+    }
+}
+$missing = @($controlKeys | Where-Object { -not $H[$_] })
+if ($missing.Count) {
+    # the teacher is using GOE on another tab: not an error, the calendar tries again later
+    if (-not $Force -and (Test-GoeInFront)) {
+        Hide-Main
+        $result.status = 'busy'; $result.busyReason = 'in-goe'
+        Publish-Result 'user-is-in-goe'; return
+    }
+    Hide-Main
+    $result.status = 'error'; $result.reason = 'control-not-found'
+    # which one, as a fixed word the calendar shows (GOE labels stay in labels.json)
+    $result.detail = switch ($missing[0]) { $L.noteTab { 'note-tab' } $L.inboxButton { 'inbox-button' } $L.sentButton { 'sent-button' } default { $missing[0] } }
+    Publish-Result "control-not-found:$($result.detail)"; return
 }
 if ($Inspect) {
     [IO.Directory]::CreateDirectory((Join-Path $Inbox 'notes')) | Out-Null
