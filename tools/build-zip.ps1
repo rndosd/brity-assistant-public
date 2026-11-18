@@ -128,7 +128,7 @@ require('./main');
 
 function Copy-CollectorScripts([string]$coll) {
   New-Item -ItemType Directory -Force $coll | Out-Null
-  $names = if ($Goe) { 'collect-goe.ps1', 'labels.json' } else { 'collect-notes.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json' }
+  $names = if ($Goe) { 'collect-goe.ps1', 'goe-folder-state.ps1', 'labels.json' } else { 'collect-notes.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json' }
   foreach ($name in $names) { Copy-Item -LiteralPath (Join-Path $collectorSrc $name) -Destination $coll }
 }
 

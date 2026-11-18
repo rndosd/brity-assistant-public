@@ -98,7 +98,8 @@ $newestRow = $null
 # OCR can misread a digit; a list time later than now would hide newer read notes, so it is not remembered
 $latestPlausible = (Get-Date).AddMinutes(5).ToString('yyyy-MM-dd HH:mm', $calendar)
 
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Runtime.WindowsRuntime
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+. (Join-Path $PSScriptRoot 'goe-folder-state.ps1')
 $L = Get-Content (Join-Path $PSScriptRoot 'labels.json') -Raw -Encoding utf8 | ConvertFrom-Json
 if (-not $PSBoundParameters.ContainsKey('AttachmentFolder')) {
     $AttachmentFolder = [Environment]::ExpandEnvironmentVariables($L.attachmentFolder)
@@ -258,15 +259,7 @@ function Get-VirtualScreen { $v = [GoeWin.Style]::Virtual(); [pscustomobject]@{ 
 [void][GoeWin.W]::SetThreadDpiAwarenessContext([IntPtr](-4))   # PER_MONITOR_AWARE_V2
 
 # ---------- OCR (Windows.Media.Ocr, Korean) ----------
-[void][Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
-[void][Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
-[void][Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType=WindowsRuntime]
-[void][Windows.Globalization.Language, Windows.Globalization, ContentType=WindowsRuntime]
-$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-    $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
 function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(); $t.Result }
-$ocr = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('ko'))
-if (-not $ocr) { $result.status = 'error'; $result.reason = 'no-korean-ocr'; Publish-Result 'no-korean-ocr'; return }
 
 function Get-Rect($h) { $r = New-Object GoeWin.W+R; [void][GoeWin.W]::GetWindowRect([IntPtr]$h, [ref]$r); $r }
 
@@ -275,30 +268,48 @@ function Get-Rect($h) { $r = New-Object GoeWin.W+R; [void][GoeWin.W]::GetWindowR
 function Read-Window($h, [int]$k = 3) {
     $r = Get-Rect $h; $w = $r.Rt - $r.L; $hh = $r.B - $r.T
     $bmp = New-Object System.Drawing.Bitmap $w, $hh
-    $g = [System.Drawing.Graphics]::FromImage($bmp); $dc = $g.GetHdc()
-    [void][GoeWin.W]::PrintWindow([IntPtr]$h, $dc, 2); $g.ReleaseHdc($dc); $g.Dispose()
-    $big = New-Object System.Drawing.Bitmap ($w * $k), ($hh * $k)
-    $g2 = [System.Drawing.Graphics]::FromImage($big); $g2.InterpolationMode = 'HighQualityBicubic'
-    $g2.DrawImage($bmp, 0, 0, $w * $k, $hh * $k); $g2.Dispose()
-    $res = Ocr-Big $big
-    $lines = @($res.Lines | ForEach-Object {
-        $b = @($_.Words)[0].BoundingRect
-        [pscustomobject]@{ x = [int]($b.X / $k); y = [int]($b.Y / $k); t = $_.Text } } | Sort-Object y, x)
-    @{ bmp = $bmp; lines = $lines }
-}
-# OCR a (scaled) bitmap and dispose it
-function Ocr-Big($big) {
-    $png = Join-Path ([IO.Path]::GetTempPath()) ('goe-collector-' + [guid]::NewGuid().ToString() + '.png')
     try {
-        try { $big.Save($png) } finally { $big.Dispose() }
+        $g = [Drawing.Graphics]::FromImage($bmp)
+        try {
+            $dc = $g.GetHdc()
+            try { [void][GoeWin.W]::PrintWindow([IntPtr]$h, $dc, 2) } finally { $g.ReleaseHdc($dc) }
+        } finally { $g.Dispose() }
+        $view = Read-OcrRegion $bmp ([Drawing.Rectangle]::new(0, 0, $w, $hh)) $k
+        $lines = @($view.result.Lines | ForEach-Object {
+            $b = @($_.Words)[0].BoundingRect
+            [pscustomobject]@{ x = [int]($b.X / $view.scaleX); y = [int]($b.Y / $view.scaleY); t = $_.Text } } | Sort-Object y, x)
+        @{ bmp = $bmp; lines = $lines }
+    } catch { $bmp.Dispose(); throw }
+}
+function Read-OcrRegion($bmp, [Drawing.Rectangle]$area, [int]$requestedScale) {
+    # A full-width 4K window at 3x exceeds the Windows OCR limit. Keep integer zoom when it fits.
+    $limit = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension / [double][Math]::Max($area.Width, $area.Height)
+    $scale = if ($limit -lt 1) { $limit } else { [Math]::Min($requestedScale, [Math]::Floor($limit)) }
+    $width = [Math]::Max(1, [int]($area.Width * $scale))
+    $height = [Math]::Max(1, [int]($area.Height * $scale))
+    $png = Join-Path ([IO.Path]::GetTempPath()) ('goe-collector-' + [guid]::NewGuid().ToString() + '.png')
+    $s = $null; $sb = $null
+    try {
+        $big = [Drawing.Bitmap]::new($width, $height)
+        try {
+            $g = [Drawing.Graphics]::FromImage($big)
+            try {
+                $g.InterpolationMode = 'HighQualityBicubic'
+                $g.DrawImage($bmp, [Drawing.Rectangle]::new(0, 0, $width, $height), $area, [Drawing.GraphicsUnit]::Pixel)
+            } finally { $g.Dispose() }
+            $big.Save($png)
+        } finally { $big.Dispose() }
         $f = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($png)) ([Windows.Storage.StorageFile])
         $s = Await ($f.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
         $d = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($s)) ([Windows.Graphics.Imaging.BitmapDecoder])
         $sb = Await ($d.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
         $res = Await ($ocr.RecognizeAsync($sb)) ([Windows.Media.Ocr.OcrResult])
-        $s.Dispose()
-    } finally { Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue }
-    $res
+        @{ result = $res; scaleX = $width / $area.Width; scaleY = $height / $area.Height }
+    } finally {
+        if ($sb) { $sb.Dispose() }
+        if ($s) { $s.Dispose() }
+        Remove-Item -LiteralPath $png -Force -ErrorAction SilentlyContinue
+    }
 }
 # Read one list row's time cell again on its own (about 20 ms): only for a row whose time was not read or does
 # not fit the list order, so a normal run costs nothing extra (2026-11-17 "too slow is not ok").
@@ -306,11 +317,8 @@ function Read-TimeCell($bmp, [int]$x0, [int]$x1, [int]$y, [int]$h) {
     $x0 = [Math]::Max(0, $x0); $x1 = [Math]::Min($bmp.Width, $x1); $y0 = [Math]::Max(0, $y - [int]($h / 4))
     $w = $x1 - $x0; $hh = [Math]::Min($h, $bmp.Height - $y0)
     if ($w -lt 20 -or $hh -lt 8) { return $null }
-    $k = 4
-    $big = New-Object System.Drawing.Bitmap ($w * $k), ($hh * $k)
-    $g = [System.Drawing.Graphics]::FromImage($big); $g.InterpolationMode = 'HighQualityBicubic'
-    $g.DrawImage($bmp, (New-Object System.Drawing.Rectangle 0, 0, ($w * $k), ($hh * $k)), (New-Object System.Drawing.Rectangle $x0, $y0, $w, $hh), 'Pixel'); $g.Dispose()
-    $text = (@((Ocr-Big $big).Lines | ForEach-Object { $_.Text }) -join ' ')
+    $region = Read-OcrRegion $bmp ([Drawing.Rectangle]::new($x0, $y0, $w, $hh)) 4
+    $text = (@($region.result.Lines | ForEach-Object { $_.Text }) -join ' ')
     if (Parse-ListTime $text) { $text }
 }
 
@@ -326,7 +334,7 @@ function Avg-Bright($bmp, $x0, $x1, $y0, $y1) {
     $s = 0; $n = 0
     for ($x = $x0; $x -lt $x1; $x += 2) { for ($y = $y0; $y -lt $y1; $y += 2) {
         if ($x -ge 0 -and $y -ge 0 -and $x -lt $bmp.Width -and $y -lt $bmp.Height) { $c = $bmp.GetPixel($x, $y); $s += $c.R + $c.G + $c.B; $n++ } } }
-    if ($n) { $s / $n } else { 0 }
+    if ($n) { $s / $n }
 }
 
 # "2026-11-16 <am> 09:56" (OCR may drop or garble the colon) -> "2026-11-16 09:56"
@@ -429,6 +437,17 @@ if (Test-Path -LiteralPath $parkFile) {
         if ($closed) { Start-Sleep -Milliseconds 500 }
     } catch { }
     Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
+}
+if (-not $Inspect) {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    [void][Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
+    [void][Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
+    [void][Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType=WindowsRuntime]
+    [void][Windows.Globalization.Language, Windows.Globalization, ContentType=WindowsRuntime]
+    $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+        $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+    $ocr = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('ko'))
+    if (-not $ocr) { $result.status = 'list-unreadable'; $result.reason = 'no-korean-ocr'; Publish-Result $result.reason; return }
 }
 $wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVisible($main)
 # While a tray window is read it is parked right of all screens, so the teacher does not see GOE pop up on
@@ -1124,8 +1143,30 @@ function Restore-Main {
 }
 
 # read the visible inbox rows: time, title, sender, unread, attachment, click y (list client)
-function Read-Rows {
-    $cap = Read-Window $main
+function Get-GoeScanFolder {
+    if (-not (Test-GoeSamePane $folderProof.Pane (Get-GoeVisibleNotePane $main))) { return 'ambiguous' }
+    $state = Get-GoeFolderState $inboxButtonEl $sentButtonEl
+    if ($state -in 'sent', 'ambiguous') { return $state }
+    if ($folderProof.State -eq 'native' -and $state -ne 'inbox') { return 'ambiguous' }
+    if ($state -eq 'inbox' -or $folderProof.State -eq 'inbox') { return 'inbox' }
+    'visual'
+}
+
+function Test-GoeEmptyList {
+    try {
+        $list = $AE::FromHandle($H.list)
+        $grid = $null
+        if ($list.TryGetCurrentPattern([System.Windows.Automation.GridPattern]::Pattern, [ref]$grid)) {
+            return $grid.Current.RowCount -eq 0
+        }
+    } catch {}
+    return $false
+}
+
+function Read-Rows([int]$ocrScale = 3) {
+    $folder = Get-GoeScanFolder
+    if ($folder -notin 'inbox','visual') { return @{ inbox = $false; rows = @() } }
+    try { $cap = Read-Window $main $ocrScale } catch { throw 'list-unreadable' }
     $o = $cap.lines; $bmp = $cap.bmp
     if ($DebugOcr -and -not $script:debugSaved) {
         New-Item -ItemType Directory -Force $Inbox | Out-Null
@@ -1134,10 +1175,14 @@ function Read-Rows {
             @($o | ForEach-Object { '{0} {1} {2}' -f $_.y, $_.x, $_.t }) | Set-Content (Join-Path $Inbox 'debug-list.txt') -Encoding utf8
         $script:debugSaved = $true
     }
-    $isInbox = [bool]($o | Where-Object { $_.t -like ('*' + $L.unreadHeader + '*') })
-    # the selected box button is darker than the other one
-    $bIn = Avg-Bright $bmp ($ir.L - $mr.L + 5) ($ir.Rt - $mr.L - 5) ($ir.T - $mr.T + 3) ($ir.B - $mr.T - 3)
-    $bSent = Avg-Bright $bmp ($sr.L - $mr.L + 5) ($sr.Rt - $mr.L - 5) ($sr.T - $mr.T + 3) ($sr.B - $mr.T - 3)
+    $visualInbox = $false
+    if ($folder -eq 'visual') {
+        $header = $L.unreadHeader -replace '\s', ''
+        $isInbox = [bool]($o | Where-Object { ($_.t -replace '\s', '').Contains($header) })
+        $bIn = Avg-Bright $bmp ($ir.L - $mr.L + 5) ($ir.Rt - $mr.L - 5) ($ir.T - $mr.T + 3) ($ir.B - $mr.T - 3)
+        $bSent = Avg-Bright $bmp ($sr.L - $mr.L + 5) ($sr.Rt - $mr.L - 5) ($sr.T - $mr.T + 3) ($sr.B - $mr.T - 3)
+        $visualInbox = $isInbox -and $null -ne $bIn -and $null -ne $bSent -and $bIn -lt $bSent - 30
+    }
     # A row's time is found by its "yyyy-MM-dd am/pm hh:mm" shape alone, not by where it sits, so the GOE
     # window width does not matter (a fixed column cut missed every row in a narrow window, 2026-11-16).
     # If a title also holds such text, the rightmost one on that line is the row's time.
@@ -1210,7 +1255,9 @@ function Read-Rows {
         }
     }
     $bmp.Dispose()
-    @{ inbox = ($isInbox -and $bIn -lt $bSent - 30); rows = @($rows) }
+    $confirmed = $folder -eq (Get-GoeScanFolder) -and ($folder -eq 'inbox' -or $visualInbox)
+    $readable = $confirmed -and ($rows.Count -gt 0 -or (Test-GoeEmptyList))
+    @{ inbox = $confirmed; readable = $readable; visual = $folder -eq 'visual'; rows = @($rows) }
 }
 
 # ---------- go to the inbox ----------
@@ -1249,18 +1296,39 @@ try {
         Start-Sleep -Milliseconds 400
     }
 
-    $mr = Get-Rect $main; $lr = Get-Rect $H.list; $ir = Get-Rect $H[$L.inboxButton]; $sr = Get-Rect $H[$L.sentButton]
-    $listTop = $lr.T - $mr.T; $listBottom = $lr.B - $mr.T; $listLeft = $lr.L - $mr.L; $listRight = $lr.Rt - $mr.L
-    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)  # debug output only
-
     Click $H[$L.noteTab]; Start-Sleep -Milliseconds 300; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 300
+    $inboxButtonEl = $AE::FromHandle($H[$L.inboxButton])
+    $sentButtonEl = $AE::FromHandle($H[$L.sentButton])
+    $state = Get-GoeFolderState $inboxButtonEl $sentButtonEl
+    if ($state -eq 'unsupported') {
+        $folderProof = Get-GoeInboxPaneProof $main { Click $H[$L.sentButton] } { Click $H[$L.inboxButton] } {
+            ($Force -or -not (Goe-IsForeground)) -and -not (Get-NoteWindow)
+        }
+        if ($folderProof.State -eq 'busy') { throw 'folder-busy' }
+    } elseif ($state -eq 'inbox') {
+        $folderProof = @{ State = 'native'; Pane = (Wait-GoeNotePane $main) }
+    } else { throw 'inbox-not-confirmed' }
+    if (-not $folderProof.Pane) { throw 'inbox-not-confirmed' }
+    $H.list = $folderProof.Pane.List
+    $H.scroll = $folderProof.Pane.Scroll
     # the list keeps its scroll position between visits, and Home/PageUp/wheel do not scroll it up.
     # Clicking the scrollbar track just under the top arrow pages up: do it until the top is reached.
     $lp = [IntPtr](22 * 65536 + 9)
     for ($i = 0; $i -lt 40; $i++) { [void][GoeWin.W]::PostMessage($H.scroll, 0x0201, [IntPtr]1, $lp); [void][GoeWin.W]::PostMessage($H.scroll, 0x0202, [IntPtr]0, $lp); Start-Sleep -Milliseconds 30 }
-    $view = $null; $t0 = Get-Date
-    do { Start-Sleep -Milliseconds 300; $view = Read-Rows } while (-not ($view.inbox -and $view.rows.Count) -and ((Get-Date) - $t0).TotalSeconds -lt 4)
+    $mr = Get-Rect $main; $lr = Get-Rect $H.list; $ir = Get-Rect $H[$L.inboxButton]; $sr = Get-Rect $H[$L.sentButton]
+    $listTop = $lr.T - $mr.T; $listBottom = $lr.B - $mr.T; $listLeft = $lr.L - $mr.L; $listRight = $lr.Rt - $mr.L
+    $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)  # debug output only
+
+    $view = $null; $retryUntil = $null; $listOcrScale = 3
+    do {
+        # The same small header can be legible at 2x but misread at 3x.
+        if ($view -and -not $view.readable) { $listOcrScale = if ($listOcrScale -eq 3) { 2 } else { 3 } }
+        Start-Sleep -Milliseconds 300
+        $view = Read-Rows $listOcrScale
+        if (-not $retryUntil) { $retryUntil = (Get-Date).AddSeconds(4) }
+    } while (-not $view.readable -and (Get-Date) -lt $retryUntil)
     if (-not $view.inbox) { throw 'inbox-not-confirmed' }
+    if (-not $view.readable) { throw 'list-unreadable' }
 
     if (-not $ListOnly) { [void][IO.Directory]::CreateDirectory($notesDir) }
     $dlDir = $null
@@ -1306,6 +1374,10 @@ try {
                 $checkedDownloadDir = $true
             }
 
+            if ($view.visual) {
+                $current = Read-Rows $listOcrScale
+                if (-not $current.inbox -or -not ($current.rows | Where-Object { $_.clickY -eq $r.clickY -and (Row-Key $_) -eq $key })) { throw 'inbox-lost-while-paging' }
+            } elseif ((Get-GoeScanFolder) -ne 'inbox') { throw 'inbox-lost-while-paging' }
             DoubleClick $H.list 150 $r.clickY
             $n = $null; $t0 = Get-Date
             while (-not $n -and ((Get-Date) - $t0).TotalSeconds -lt 4) { Start-Sleep -Milliseconds 100; $n = Get-NoteWindow }
@@ -1433,13 +1505,23 @@ try {
         $wlp = [IntPtr](($lr.T + 100) * 65536 + ($lr.L + 150))
         for ($i = 0; $i -lt 6; $i++) { [void][GoeWin.W]::PostMessage($H.list, 0x020A, [IntPtr]((-120 -band 0xFFFF) -shl 16), $wlp); Start-Sleep -Milliseconds 60 }
         Start-Sleep -Milliseconds 600; $page++
-        $view = Read-Rows
+        $view = Read-Rows $listOcrScale
         if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
+        if (-not $view.readable) { throw 'list-unreadable' }
         if ((($view.rows | ForEach-Object { Row-Key $_ }) -join [Environment]::NewLine) -eq $before) { break }
     }
 } catch {
     $result.status = 'error'
-    $reason = 'collection-failed line=' + $_.InvocationInfo.ScriptLineNumber
+    $reason = if ($_.Exception.Message -in 'inbox-not-confirmed', 'inbox-lost-while-paging', 'list-unreadable') {
+        $_.Exception.Message
+    } elseif ($_.Exception.Message -eq 'folder-busy') {
+        $result.status = 'busy'
+        $result.busyReason = if (Get-NoteWindow) { 'note-open' } else { 'in-goe' }
+        'user-is-in-goe'
+    } else {
+        'collection-failed:' + $_.InvocationInfo.ScriptLineNumber
+    }
+    $result.reason = $reason
 } finally {
     try {
         try { if ($ownedNote) { Close-Note $ownedNote } }
@@ -1447,6 +1529,7 @@ try {
     } catch {
         $result.status = 'error'
         $reason = 'restore-failed'
+        $result.reason = $reason
     }
 }
 

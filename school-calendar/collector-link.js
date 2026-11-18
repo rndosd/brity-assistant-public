@@ -22,7 +22,8 @@ function roomHolds(value) {
 }
 
 // GOE판이 GOE를 못 찾거나 못 읽은 까닭(collect-goe.ps1·collector-link-goe.ps1, 2026-11-17 다른 PC에서 켜져 있어도 "로그인"만 보임)
-const GOE_REASONS = new Set(['goe-not-running', 'main-window-not-found', 'control-not-found', 'no-korean-ocr', 'script-error']);
+const GOE_REASONS = new Set(['goe-not-running', 'main-window-not-found', 'control-not-found', 'no-korean-ocr',
+  'inbox-not-confirmed', 'inbox-lost-while-paging', 'list-unreadable', 'restore-failed', 'script-error']);
 const REASONS = new Set(['not-running', 'tray', 'menu-open', 'not-minimized', 'in-use', 'screen']);
 
 function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '', goe = false, attachmentFolder, noteId } = {}) {
@@ -72,7 +73,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
       }
       try {
         const result = JSON.parse(stdout);
-        if (!statuses.has(result.status) || (result.inboxDir !== null && !path.isAbsolute(result.inboxDir))) return resolve(unavailable);
+        const validStatus = statuses.has(result.status) || (goe && result.status === 'list-unreadable');
+        if (!validStatus || (result.inboxDir !== null && !path.isAbsolute(result.inboxDir))) return resolve(unavailable);
         const value = {
           status: result.status,
           inboxDir: result.inboxDir,
@@ -85,7 +87,10 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
         }
         if (reply) value.reply = GOE_REPLY_RESULTS.has(result.reply) ? result.reply : 'not-found';
         // GOE판이 건너뛴 이유: 쪽지 창이 열려 있음(note-open) / GOE 창을 쓰는 중(in-goe)
-        if (goe && GOE_REASONS.has(result.reason)) value.goeReason = result.reason;
+        if (goe && typeof result.reason === 'string' &&
+            (GOE_REASONS.has(result.reason) || /^collection-failed:[1-9]\d{0,5}$/.test(result.reason))) {
+          value.goeReason = result.reason;
+        }
         if (goe && (result.busyReason === 'note-open' || result.busyReason === 'in-goe')) value.busyReason = result.busyReason;
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {

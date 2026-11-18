@@ -11,6 +11,72 @@ const qaRoot = path.join(__dirname, '..', '.qa');
 const listDate = path.join(__dirname, '..', '..', 'collector', 'list-date.ps1');
 const goeCollector = path.join(__dirname, '..', '..', 'collector', 'goe', 'collect-goe.ps1');
 
+test('GOE 수신함은 머리글의 OCR 띄어쓰기가 달라도 확인하고 발신함이나 다른 화면은 거른다', { skip: process.platform !== 'win32' }, () => {
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    Add-Type -AssemblyName System.Drawing
+    $ast = [Management.Automation.Language.Parser]::ParseFile($env:GOE_COLLECTOR_TEST, [ref]$null, [ref]$null)
+    $functions = $ast.FindAll({ param($n)
+      $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Read-Rows','Avg-Bright','Parse-ListTime'
+    }, $true)
+    foreach ($fn in $functions) { . ([scriptblock]::Create($fn.Extent.Text)) }
+    $L = Get-Content (Join-Path (Split-Path $env:GOE_COLLECTOR_TEST) 'labels.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $mr = @{ L=0; T=0; Rt=200; B=150 }
+    $ir = @{ L=10; T=5; Rt=85; B=30 }
+    $sr = @{ L=90; T=5; Rt=165; B=30 }
+    $listTop = 45; $listBottom = 145
+    function Test-GoeEmptyList { $false }
+    $folderState = 'visual'
+    function Get-GoeScanFolder {
+      if ($folderState -eq 'switching') {
+        $script:samples++
+        if ($script:samples -eq 1) { return 'inbox' }
+        return 'sent'
+      }
+      $folderState
+    }
+    function Read-Window {
+      $bmp = [Drawing.Bitmap]::new($mr.Rt, $mr.B)
+      $g = [Drawing.Graphics]::FromImage($bmp)
+      $g.Clear([Drawing.Color]::White)
+      $r = if ($selected -eq 'inbox') { $ir } else { $sr }
+      $g.FillRectangle([Drawing.Brushes]::DimGray, $r.L, $r.T, ($r.Rt - $r.L), ($r.B - $r.T))
+      $g.Dispose()
+      @{ bmp=$bmp; lines=@([pscustomobject]@{ x=10; y=35; t=$header }) }
+    }
+    function Confirm([string]$header, [string]$selected) { (Read-Rows).inbox }
+    $checks = [ordered]@{
+      normal = Confirm '읽지 않은 쪽지 먼저' 'inbox'
+      joined = Confirm '읽지않은쪽지 먼저' 'inbox'
+      spaced = Confirm '읽 지 않 은 쪽 지 먼저' 'inbox'
+      wrongHeader = Confirm '보낸 쪽지' 'inbox'
+      sentSelected = Confirm '읽지 않은 쪽지 먼저' 'sent'
+    }
+    $ir = @{ L=0; T=0; Rt=0; B=0 }
+    $checks.missingButton = Confirm '읽지 않은 쪽지 먼저' 'inbox'
+    $folderState = 'inbox'
+    $checks.provenWithoutHeader = Confirm '???' 'inbox'
+    $checks.blankRead = (Read-Rows).readable
+    function Test-GoeEmptyList { $true }
+    $checks.confirmedEmpty = (Read-Rows).readable
+    $folderState = 'switching'
+    $script:samples = 0
+    $checks.changedDuringOcr = Confirm '읽지 않은 쪽지 먼저' 'inbox'
+    $folderState = 'sent'
+    $checks.sentWithoutCapture = Confirm '읽지 않은 쪽지 먼저' 'inbox'
+    $checks | ConvertTo-Json -Compress
+  `;
+  const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    encoding: 'utf8', env: { ...process.env, GOE_COLLECTOR_TEST: goeCollector }
+  });
+  assert.deepEqual(JSON.parse(output), {
+    normal: true, joined: true, spaced: true, wrongHeader: false, sentSelected: false, missingButton: false,
+    provenWithoutHeader: true, blankRead: false, confirmedEmpty: true, changedDuringOcr: false, sentWithoutCapture: false
+  });
+});
+
 test('브리티 쪽지 목록의 날짜(월·일, 시각, 연도 포함)를 읽고 연도는 오늘보다 늦지 않게 정한다', { skip: process.platform !== 'win32' }, () => {
   const cases = [
     ['가상 제목, 가상 보낸이, 8월 27일', '2026-08-27'],

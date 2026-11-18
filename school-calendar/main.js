@@ -278,7 +278,7 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
   const started = Date.now();
   collectorRun = (async () => {
     try {
-      if (connect || !collector.managed || !['ready', 'in-use'].includes(collector.status)) {
+      if (connect || !collector.managed || !['ready', 'in-use', 'list-unreadable'].includes(collector.status)) {
         if (connect || collector.status === 'idle') {
           collector = { status: 'connecting', managed: false };
           publish();
@@ -302,7 +302,8 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
         publish();
         try { collector = await collectOnce({ ...collectorOptions, force, signal: lifetime.signal }); }
         finally { activity = null; }
-        if (collector.status === 'ready') lastImported = Number.isSafeInteger(collector.imported) ? collector.imported : 0;
+        lastImported = collector.status === 'ready' || collector.status === 'list-unreadable' && collector.imported > 0
+          ? collector.imported : null;
         if (collector.status === 'ready' && collector.inboxDir && collector.inboxDir !== store.inboxDir) {
           await store.saveCollectorConnection(collector.inboxDir);
         }
@@ -322,8 +323,8 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
       // Brity is running but unreadable (its window has not been shown since it started). Check again soon
       // so opening the window connects within seconds; after two minutes fall back to the regular interval.
       clearTimeout(retryTimer);
-      if (collector.status !== 'unverified') unverifiedSince = 0;
-      else if (!firstImport && !closing && !pausingCollector && store.settings.collectorConnected) {
+      if (!['unverified', 'list-unreadable'].includes(collector.status) || collector.goeReason === 'no-korean-ocr') unverifiedSince = 0;
+      else if (!firstImport && !closing && !pausingCollector && store.settings.collectorConnected && store.autoRefreshValue('notes').enabled) {
         unverifiedSince ||= Date.now();
         if (Date.now() - unverifiedSince < 120_000) retryTimer = setTimeout(() => void pollCollector(), 5_000);
       }
@@ -354,6 +355,7 @@ async function previewRange(from, to) {
   try {
     const result = await run;
     if (result.status === 'in-use' && goeEdition) throw new CalendarError('GOE 메신저를 쓰는 중입니다. 캘린더 창에서 다시 눌러 주세요.');
+    if (result.status === 'list-unreadable') throw new CalendarError('GOE 메신저에 연결했지만 기간 안의 쪽지 목록을 확인하지 못했습니다.');
     if (result.status !== 'ready') throw new CalendarError(`${messenger.name} 쪽지 목록을 읽지 못했습니다. ${messenger.name} 창을 한 번 열어 둔 뒤 다시 눌러 주세요.`);
     return { visible: result.visible, matched: result.matched, fresh: result.fresh, unknown: result.unknown, oldest: result.oldest };
   } finally {
@@ -542,6 +544,10 @@ function scheduleAutoRefresh() {
   clearInterval(noteTimer);
   noteTimer = null;
   const notes = store.autoRefreshValue('notes');
+  if (!notes.enabled || store.settings.collectorFirstImportPending) {
+    clearTimeout(retryTimer);
+    unverifiedSince = 0;
+  }
   if (!demo && !store.settings.collectorFirstImportPending && notes.enabled) {
     noteTimer = setInterval(() => void pollCollector(), notes.minutes * 60_000);
   }
@@ -619,6 +625,7 @@ async function retryNoteAttachments(id) {
       throw new CalendarError('GOE 메신저를 처리 중입니다. 잠시 뒤 캘린더에서 다시 눌러 주세요.');
     }
     if (result.status === 'offline') throw new CalendarError('GOE 메신저를 열고 로그인한 뒤 다시 눌러 주세요.');
+    if (result.status === 'list-unreadable') throw new CalendarError('GOE 메신저에 연결했지만 첨부를 찾을 쪽지 목록을 확인하지 못했습니다.');
     if (result.status !== 'ready') throw new CalendarError('GOE 쪽지 목록을 확인하지 못했습니다. GOE 창을 한 번 연 뒤 다시 시도해 주세요.');
     await store.refresh();
     return { attachStatus: result.attachStatus, attached: result.attached };
@@ -649,6 +656,7 @@ async function replyInGoe(note) {
     const messages = {
       'in-use': 'GOE 메신저에 열린 쪽지 창이 있거나 쓰는 중이라 열지 않았습니다. 쪽지 창을 닫은 뒤 다시 눌러 주세요.',
       offline: 'GOE 메신저에 로그인한 뒤 다시 눌러 주세요.',
+      'list-unreadable': 'GOE 메신저에 연결했지만 답장할 쪽지 목록을 확인하지 못했습니다.',
       conflict: 'GOE 메신저에서 쪽지를 가져오는 중입니다. 잠시 뒤 다시 눌러 주세요.',
       unverified: 'GOE 메신저 쪽지함 화면을 읽지 못했습니다. GOE 메신저 창에 열린 메뉴나 설정 창이 있으면 닫고 다시 눌러 주세요.'
     };

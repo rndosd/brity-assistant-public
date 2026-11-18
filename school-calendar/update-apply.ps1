@@ -86,7 +86,7 @@ function Get-RuntimePayload([string]$zip, [string]$destination) {
 
 function Restore-UpdateFiles([object[]]$changes, [string]$backup) {
   foreach ($change in $changes) {
-    if ($change.path -notmatch '^(?:runtime/|collector/(?:collect-notes\.ps1|collect-goe\.ps1|list-date\.ps1|watch\.ps1|labels\.json)$)' -or
+    if ($change.path -notmatch '^(?:runtime/|collector/(?:collect-notes\.ps1|collect-goe\.ps1|goe-folder-state\.ps1|list-date\.ps1|watch\.ps1|labels\.json)$)' -or
         $change.path -match '(?:^|/)(?:data|calendar-data|inbox|\.demo|\.qa)(?:/|$)' -or $change.existed -isnot [bool]) {
       throw '업데이트 복구 기록을 확인하지 못했습니다.'
     }
@@ -130,7 +130,7 @@ function Install-RuntimeUpdate([string]$files, [string]$zip) {
       if ($_.FullName -ne $zip -and $name -ne 'package.json') { $payload["runtime/resources/app/$name"] = $_.FullName }
     }
     $collectorFiles = Join-Path $files 'collector'
-    foreach ($name in 'collect-notes.ps1', 'collect-goe.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json') {
+    foreach ($name in 'collect-notes.ps1', 'collect-goe.ps1', 'goe-folder-state.ps1', 'list-date.ps1', 'watch.ps1', 'labels.json') {
       $source = Join-Path $collectorFiles $name
       if ([IO.File]::Exists($source)) { $payload["collector/$name"] = $source }
     }

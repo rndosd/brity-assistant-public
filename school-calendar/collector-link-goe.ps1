@@ -69,10 +69,15 @@ try {
         'ok' { 'ready' }
         'busy' { 'in-use' }
         'offline' { 'offline' }
+        'list-unreadable' { 'list-unreadable' }
+        'error' {
+            if ($collected.reason -in 'inbox-not-confirmed', 'inbox-lost-while-paging', 'list-unreadable') { 'list-unreadable' }
+            else { 'unverified' }
+        }
         default { 'unverified' }
     }
     $result.imported = [int]$collected.imported
-    if ($result.status -in 'ready', 'in-use') {
+    if ($result.status -in 'ready', 'in-use', 'list-unreadable') {
         $result.inboxDir = $inbox
         $result.managed = $true
     }
