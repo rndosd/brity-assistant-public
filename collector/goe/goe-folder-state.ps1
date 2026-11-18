@@ -19,7 +19,7 @@ public static class GoeFolderButton {
         int style = GetWindowLong(h, -16) & 15;
         if (style < 2 || (style > 6 && style != 9)) return -1;
         IntPtr value;
-        if (SendMessageTimeout(h, 0xF0, IntPtr.Zero, IntPtr.Zero, 2, 250, out value) == IntPtr.Zero) return -2;
+        if (SendMessageTimeout(h, 0xF0, IntPtr.Zero, IntPtr.Zero, 2, 750, out value) == IntPtr.Zero) return -2;
         return value == IntPtr.Zero ? 0 : value == (IntPtr)1 ? 1 : -2;
     }
     public static IntPtr[] VisiblePane(IntPtr main) {
@@ -68,7 +68,8 @@ function Wait-GoeNotePane([IntPtr]$Main, $Previous, [switch]$RequireChange) {
         if ((Test-GoeSamePane $pane $last) -and (-not $RequireChange -or -not (Test-GoeSamePane $pane $Previous))) { return $pane }
         $last = $pane
         Start-Sleep -Milliseconds 75
-    } while ($deadline.ElapsedMilliseconds -lt 1200)
+    # 1.2 s was too short for a slow school PC right after a folder click (2026-11-18)
+    } while ($deadline.ElapsedMilliseconds -lt 2500)
     # A build that shares a pane between folders can use the established visual checks.
     if ($RequireChange -and -not $changed -and (Test-GoeSamePane $pane $Previous)) { return $pane }
 }

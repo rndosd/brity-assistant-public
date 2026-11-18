@@ -77,6 +77,8 @@ try {
         default { 'unverified' }
     }
     $result.imported = [int]$collected.imported
+    # notes opened but not read, kept in the calendar as placeholders (shown like Brity's "original unverified")
+    if ($Mode -eq 'Tick') { $result.unverified = [int]$collected.placeholders }
     if ($result.status -in 'ready', 'in-use', 'list-unreadable') {
         $result.inboxDir = $inbox
         $result.managed = $true

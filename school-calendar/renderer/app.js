@@ -128,6 +128,7 @@ function needsCheck(task) {
 }
 
 function checkLabel(task) {
+  if (task.noteState === 'unverified') return '원문 확인 필요';
   if (task.noteState === 'missing') return '원문 없음';
   if (classifyFailed(task)) return '분류 실패';
   if (task.uncertain) return task.type === '할 일' ? '확인 필요' : `${typeLabels[task.type]}?`;
@@ -584,7 +585,8 @@ function whenText(task, today) {
   if (next) return entryWhen(task, next, today);
   if (task.chatSource) return '';
   const received = receivedDay(task.datetime || '');
-  return received ? monthDay(received) : '';
+  // 날짜 없는 업무는 받은 날을 보인다. 마감일과 헷갈리지 않게 "받음"을 붙인다(2026-11-18 사용자 평가).
+  return received ? `${monthDay(received)} 받음` : '';
 }
 
 // 목록 한 줄. entry가 있으면 그 날짜 하나를 보여 주고(이름이 제목), 없으면 업무 전체를 보여 준다.
@@ -763,9 +765,10 @@ function candidateRow(task, today, unread, existing) {
       bar.append(choice);
     }
   }
-  const drop = button('button text-button small candidate-drop', '×');
-  drop.setAttribute('aria-label', `${task.title} 버리기`);
-  drop.title = '후보 버리기';
+  // ×만으로는 결과가 안 보여 글자로 쓴다(2026-11-18 사용자 평가). 제외한 후보는 숨기기에서 되살릴 수 있다.
+  const drop = button('button text-button small candidate-drop', '후보 제외');
+  drop.setAttribute('aria-label', `${task.title} 후보 제외`);
+  drop.title = '이 후보를 올리지 않습니다. 숨기기에서 되살릴 수 있습니다.';
   drop.dataset.focusKey = `candidate-${task.id}-drop`;
   drop.addEventListener('click', () => void discardCandidates({ id: task.id }));
   bar.append(drop);
@@ -901,7 +904,8 @@ function candidateFooter(batchId, message, room, list) {
     open.addEventListener('click', () => void selectChat(batchId, open.dataset.focusKey, { forwarded: true }));
     footer.append(open);
   }
-  const done = button('button small candidate-finish', '정리 끝');
+  // "이 묶음": 정리하는 단위가 방이 아니라 한 번에 가져온 대화 묶음이다(2026-11-18 사용자 평가 "정리 끝"이 모호).
+  const done = button('button small candidate-finish', '이 묶음 정리 끝');
   done.setAttribute('aria-label', `${room} 이 묶음 정리 끝`);
   done.dataset.focusKey = `candidate-batch-${batchId}`;
   done.disabled = finishingBatches.has(batchId);
@@ -1106,6 +1110,7 @@ function renderLists() {
   $('backlog-note').hidden = aiMissing || !backlog || !!state.demo;
   $('backlog-text').textContent = `AI 연결 전에 가져온 쪽지 ${backlog}건이 아직 정리되지 않았습니다.`;
   $('backlog-classify').disabled = !!state.backlogBusy;
+  renderSearch();
 }
 
 function aiNotConnected() {
@@ -1369,6 +1374,12 @@ function renderNote(note, reset) {
   $('original-meta').hidden = !meta;
   $('original-meta-row').hidden = !meta && !recipients;
   $('original-title').textContent = note?.title || '';
+  const review = $('original-review');
+  review.hidden = note?.verified !== false;
+  if (!review.hidden) {
+    const observed = note.observedHeader ? `화면에서 읽은 글 · ${note.observedHeader}. 목록의 쪽지와 맞는지 확인해 주세요.` : '브리티에서 원문을 확인해 주세요.';
+    review.textContent = note.readAttempts >= 3 ? `${observed} 세 차례 시도해 자동 열기를 멈췄습니다. 지난 쪽지 가져오기로 다시 시도할 수 있습니다.` : observed;
+  }
   $('reply-section').hidden = !parts?.reply;
   setLinkedText($('reply-body'), parts?.reply || '');
   $('previous-note').hidden = !parts;
@@ -1544,7 +1555,7 @@ function renderDetail(detail, reset = false) {
     : task.summary || '');
   // 안내 글은 할 일이 있을 때만(AI 연결 전, 원문 확인 필요). 평소에는 숨긴다.
   const aiName = aiNames[state.snapshot.aiProvider];
-  const hint = state.demo ? '' : !aiName ? '설정에서 AI를 연결하면 제목과 날짜를 정리합니다.' : task.noteState === 'unverified' ? '원문을 확인한 뒤 다듬어 주세요.' : '';
+  const hint = !aiName && !state.demo ? '설정에서 AI를 연결하면 제목과 날짜를 정리합니다.' : '';
   const failure = task.refined === 'failed' && !task.refining
     ? `마지막 다듬기에 실패했습니다${task.refineFailure?.message ? `: ${task.refineFailure.message}` : '.'}` : '';
   setMessage('refine-note', [failure, hint].filter(Boolean).join(' '));
@@ -1923,7 +1934,9 @@ function sync(snapshot) {
   const fresh = snapshot.tasks.filter(task => task.candidate && !seen?.has(task.id));
   state.seenCandidates = new Set([...(seen || []), ...snapshot.tasks.filter(task => task.candidate).map(task => task.id)]);
   if (seen && fresh.length) setTimeout(() => notice(`대화방 후보 ${fresh.length}개가 분류할 것에 들어왔습니다.`), 0);
+  const searchChanged = snapshot.searchRevision !== state.snapshot.searchRevision;
   state.snapshot = snapshot;
+  if (searchChanged && search.query) scheduleSearch();
   state.messenger = snapshot.messenger ?? state.messenger;
   state.demo = snapshot.demo ?? state.demo;
   renderMessenger();
@@ -1997,10 +2010,15 @@ function renderCollector() {
   const auto = state.snapshot.autoRefresh?.notes;
   const checked = collector?.checkedAt ? `마지막 확인 ${new Date(collector.checkedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : '';
   const schedule = collectorFirstImportPending ? '첫 가져오기 설정 중' : auto?.enabled ? `${minutesLabel(auto.minutes)}마다 자동으로 가져옴` : '자동 꺼짐 · 누를 때만 가져옴';
+  let received = '';
+  if (checked && collector.imported != null) {
+    received = collector.imported || collector.unverified ? `쪽지 ${collector.imported}건 받음` : '새 쪽지 없음';
+    if (collector.unverified) received += ` · 이번에 원문 미확인 ${collector.unverified}건`;
+  }
   const messages = {
     idle: `${name}에 로그인한 뒤 연결하세요. 가져온 쪽지는 ${name}에서 읽음 처리됩니다.`,
     connecting: `${name}의 쪽지 목록을 확인하고 있습니다.`,
-    ready: collector?.managed ? [schedule, checked, checked && collector.imported != null ? (collector.imported ? `새 쪽지 ${collector.imported}건 받음` : '새 쪽지 없음') : ''].filter(Boolean).join(' · ')
+    ready: collector?.managed ? [schedule, checked, received].filter(Boolean).join(' · ')
       : `이미 실행 중인 ${name} 수집기의 결과를 읽습니다.`,
     // 2026-11-16 “자동 불러오기 … 그런 거에 대한 안내 메시지가 필요할 것 같은데”: 건너뛴 이유와 다음 확인 시각을 보인다.
     'in-use': collector?.busyReason === 'note-open'
@@ -2030,6 +2048,15 @@ function renderCollector() {
   }[goeReason];
   if (name === 'GOE 메신저') messages.unverified = 'GOE 쪽지 목록을 확인하지 못했습니다.';
   if (goeWhy) for (const key of ['offline', 'unverified', 'unavailable']) messages[key] = goeWhy;
+  // 브리티판: 못 읽은 까닭과 할 일(2026-11-18, 제보 PC는 검색칸이 열려 있었는데 "읽지 못했습니다"만 보였다).
+  const brityWhy = {
+    'window-not-found': `${fullName} 창을 찾지 못했습니다. 브리티에 로그인돼 있는지 확인해 주세요.`,
+    'note-menu-not-found': `${name} 화면에서 쪽지 메뉴를 찾지 못했습니다. 브리티에 열린 창이나 메뉴가 있으면 닫아 주세요. 브리티가 새로 업데이트됐다면 캘린더도 새 판이 필요할 수 있으니 이 문구를 알려 주세요.`,
+    'note-list-not-found': `${name}의 쪽지 목록이 보이지 않습니다. 브리티에 검색칸이나 메뉴, 설정 창이 열려 있으면 닫아 주세요.`,
+    'classic-unreadable': `클래식 뷰에서 쪽지를 열지 못했습니다. 브리티 환경설정 › 뷰 모드에서 원(One) 뷰로 바꿔 주세요.`
+  }[name === 'GOE 메신저' ? '' : collector?.brityReason];
+  if (brityWhy && status === 'unverified') messages.unverified = brityWhy;
+  if (brityWhy && status === 'ready' && collector.brityReason === 'classic-unreadable') messages.ready = [messages.ready, brityWhy].join(' · ');
   messages['list-unreadable'] = [goeWhy || '이번 쪽지 목록을 읽지 못했습니다.', collector?.imported ? `중단 전 ${collector.imported}건 받음` : ''].filter(Boolean).join(' · ');
   const running = status === 'ready' || status === 'in-use';
   // 처음 시작: 브리티를 아직 연결하지 않았으면 1단계 AI 연결 → 2단계 브리티 연결 순서로 보인다.
@@ -3371,6 +3398,99 @@ document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) 
     next.focus();
   });
 });
+// 업무·쪽지 검색(2026-11-18 사용자 "대화방 검색보다 중요한게 쪽지 검색"): 탭과 상관없이 전체에서 찾고,
+// 결과마다 지금 어느 목록에 있는지(할 일·끝낸 것·숨김 등)와 받은 날을 붙인다. 찾기는 앱 안쪽(store.search)에서 한다.
+const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '끝낸 것', hidden: '숨김' };
+const search = { query: '', result: null, timer: null, token: 0 };
+
+function searchRow(hit, today) {
+  const task = state.snapshot.tasks.find(item => item.id === hit.id);
+  const row = element('li', 'row search-row');
+  row.classList.toggle('selected', hit.id === state.selected);
+  const pick = button('pick search-pick');
+  pick.dataset.focusKey = `search-${hit.id}`;
+  pick.setAttribute('aria-pressed', String(hit.id === state.selected));
+  pick.title = [hit.title, hit.noteTitle && hit.noteTitle !== hit.title ? `쪽지 제목: ${hit.noteTitle}` : ''].filter(Boolean).join('\n');
+  const head = element('span', 'search-head');
+  head.append(rowTitle(hit.title));
+  const view = state.taskViews.get(hit.id);
+  if (view) head.append(element('span', `flag soft search-state state-${view}`, SEARCH_VIEWS[view]));
+  const day = receivedDay(hit.datetime || '');
+  if (day) head.append(element('span', 'row-when', `${day === today ? '오늘' : monthDay(day)} 받음`));
+  const match = hit.field === 'body' ? hit.snippet
+    : hit.field === 'attachment' ? `첨부: ${hit.attachment}`
+    : hit.field === 'noteTitle' ? `쪽지 제목: ${hit.noteTitle}` : '';
+  const meta = element('span', 'search-meta', [hit.sender, match].filter(Boolean).join(' · '));
+  pick.append(head, meta);
+  pick.addEventListener('click', () => {
+    if (selectTask(hit.id, pick.dataset.focusKey) !== false && task) showTaskMonth(task);
+  });
+  row.append(pick);
+  return row;
+}
+
+function renderSearch() {
+  const on = !!search.query;
+  $('calendar-list-pane').classList.toggle('searching', on);
+  $('view-search').hidden = !on;
+  if (!on) return;
+  const result = search.result;
+  const known = new Set(state.snapshot.tasks.map(task => task.id));
+  const hits = result ? result.results.filter(hit => known.has(hit.id)) : [];
+  const folded = search.query.replace(/\s+/gu, '');
+  $('search-status').textContent = [...folded].length < 2 ? '두 글자 이상 넣어 주세요.'
+    : !result ? '찾는 중입니다.'
+    : result.error ? '검색을 마치지 못했습니다. 검색어를 다시 입력해 주세요.'
+    : !hits.length ? `‘${search.query}’와 맞는 업무·쪽지가 없습니다.`
+    : `${hits.length}건${result.more ? ' (최근 것부터 50건만 보입니다. 더 자세히 넣어 주세요.)' : ''}`;
+  const today = key(new Date());
+  $('search-list').replaceChildren(...hits.map(hit => searchRow(hit, today)));
+}
+
+async function runSearch(query, request) {
+  try {
+    const result = await api.search(query);
+    if (request !== search.token) return;
+    search.result = result;
+  } catch {
+    if (request !== search.token) return;
+    search.result = { results: [], error: true };
+  }
+  renderSearch();
+}
+
+function scheduleSearch() {
+  const request = ++search.token;
+  const query = search.query;
+  clearTimeout(search.timer);
+  search.result = null;
+  if ([...query.replace(/\s+/gu, '')].length >= 2) {
+    search.timer = setTimeout(() => void runSearch(query, request), 150);
+  }
+}
+
+$('list-search').addEventListener('input', event => {
+  search.query = event.target.value.trim();
+  scheduleSearch();
+  renderSearch();
+});
+$('list-search').addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !event.target.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.target.value = '';
+  search.query = '';
+  scheduleSearch();
+  renderSearch();
+});
+// Ctrl+F: 검색칸으로. 대화 상자가 열려 있으면 그대로 둔다.
+document.addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'f' || document.querySelector('dialog[open]')) return;
+  event.preventDefault();
+  $('list-search').focus();
+  $('list-search').select();
+});
+
 let savedView = 'todo';
 try { savedView = localStorage.getItem('calendar-list-view') || 'todo'; } catch {}
 showView(savedView);

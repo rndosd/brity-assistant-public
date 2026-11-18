@@ -72,6 +72,70 @@ function stampNow(date = new Date()) {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
+// 쪽지 검색(2026-11-18 사용자 "대화방 검색보다 중요한게 쪽지 검색"): 띄어쓰기·대소문자를 무시하고 글자가 들어 있는지 본다.
+// 입력할 때마다 본문 전체를 변환하지 않도록 검색용 문자열을 메모리에 보관한다.
+const SEARCH_MIN = 2;
+const SEARCH_LIMIT = 50;
+const SEARCH_SNIPPET = 36;
+
+function searchFold(text) {
+  return text.replace(/\s+/gu, '').toLowerCase();
+}
+
+// 본문에서 맞은 곳 앞뒤를 한 줄로 잘라 보여 준다.
+function searchSnippet(text, query, folded = searchFold(text)) {
+  const needle = searchFold(query);
+  const found = folded.indexOf(needle);
+  if (found < 0) return '';
+  let start = 0, end = 0, position = 0;
+  for (const char of text) {
+    end += char.length;
+    if (/\s/u.test(char)) continue;
+    const next = position + char.toLowerCase().length;
+    if (position <= found && found < next) start = end - char.length;
+    if (next >= found + needle.length) break;
+    position = next;
+  }
+  const from = Math.max(0, start - SEARCH_SNIPPET);
+  const to = Math.min(text.length, end + SEARCH_SNIPPET);
+  const line = text.slice(from, to).replace(/\s+/gu, ' ').trim();
+  return `${from > 0 ? '…' : ''}${line}${to < text.length ? '…' : ''}`;
+}
+
+function prepareSearchFields(fields) {
+  return fields.filter(field => field.text).flatMap(({ name, text }) => {
+    const values = name === 'attachment' ? text.split('\n') : [text];
+    return values.map(value => ({ name, text: value, folded: searchFold(value) }));
+  });
+}
+
+function searchMatches(items, query, limit = SEARCH_LIMIT) {
+  const folded = searchFold(query);
+  if ([...folded].length < SEARCH_MIN) return [];
+  const terms = query.trim().toLowerCase().split(/\s+/u);
+  const hits = [];
+  for (const item of items) {
+    const fields = item.searchFields ?? prepareSearchFields(item.fields);
+    let needle = folded;
+    let field = fields.find(one => one.folded.includes(needle));
+    if (!field) {
+      if (terms.length < 2) continue;
+      const matches = terms.map(term => fields.find(one => one.folded.includes(term)));
+      if (matches.some(match => !match)) continue;
+      // 제목과 보낸 사람은 행에 이미 보인다. 본문·첨부 등 숨은 단서를 먼저 보여 준다.
+      field = matches.find(match => ['body', 'attachment', 'noteTitle'].includes(match.name)) ?? matches[0];
+      needle = terms[matches.indexOf(field)];
+    }
+    hits.push({
+      ...item.summary, id: item.id, field: field.name,
+      snippet: field.name === 'body' ? searchSnippet(field.text, needle, field.folded) : '',
+      attachment: field.name === 'attachment' ? field.text : ''
+    });
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+
 function string(value) {
   return typeof value === 'string' ? value : '';
 }
@@ -415,6 +479,8 @@ class CalendarStore {
     this.chatBatches = new Map();
     this.messageViews = new Set();
     this.notes = new Map();
+    this.searchRevision = 0;
+    this.searchItems = null;
     this.refining = new Set();
     // AI 연결이 막혀 자동 분류를 멈춘 사유(키·크레딧·로그인 등). 연결을 다시 저장하거나 한 건이 성공하면 푼다.
     this.aiBlocked = null;
@@ -423,6 +489,7 @@ class CalendarStore {
   }
 
   async init() {
+    this.invalidateSearch();
     await fs.mkdir(this.dataDir, { recursive: true });
     try {
       this.settings = await readJson(this.settingsPath);
@@ -647,6 +714,11 @@ class CalendarStore {
     await writeJson(this.tasksPath, chatProgress.size ? {
       version: 1, tasks, chatProgress: Object.fromEntries(chatProgress)
     } : tasks);
+    if (tasks.length !== this.tasks.length || tasks.some((task, i) => {
+      const old = this.tasks[i];
+      return task.id !== old.id || task.title !== old.title || task.noteId !== old.noteId ||
+        task.chatSource?.roomTitle !== old.chatSource?.roomTitle || task.chatSource?.observedAt !== old.chatSource?.observedAt;
+    })) this.invalidateSearch();
     this.tasks = tasks;
     this.chatProgress = chatProgress;
   }
@@ -665,7 +737,7 @@ class CalendarStore {
 
   taskView(task) {
     const note = this.notes.get(task.noteId);
-    const { autoPending, categoryCorrection, correction, aiAnswer, downloadedAttachments, chatSource, privacyHold, candidate, ...record } = task;
+    const { autoPending, awaitingNoteBody, categoryCorrection, correction, aiAnswer, downloadedAttachments, chatSource, privacyHold, candidate, ...record } = task;
     return {
       ...record,
       ...(candidate && { candidate: {
@@ -689,6 +761,7 @@ class CalendarStore {
 
   snapshot() {
     return {
+      searchRevision: this.searchRevision,
       tasks: this.tasks.map(task => this.taskView(task)), inbox: { ...this.inbox }, messages: this.messageList(),
       defaultTool: TOOLS.includes(this.settings.defaultTool) ? this.settings.defaultTool : 'claude',
       automatic: this.settings.automatic === true, showPeriods: this.settings.showPeriods !== false,
@@ -900,7 +973,8 @@ class CalendarStore {
       const sameInbox = this.settings.baselineInbox === this.inboxDir;
       const baselineAt = sameInbox && Number.isFinite(this.settings.baselineAt) ? this.settings.baselineAt : null;
       const notes = new Map();
-      const seen = new Set(this.tasks.map(task => task.noteId));
+      const byNote = new Map(this.tasks.map(task => [task.noteId, task]));
+      const recovered = new Map();
       const added = [];
       let pending = 0;
       for (const file of files) {
@@ -915,31 +989,51 @@ class CalendarStore {
           const note = {
             id, title: raw.title, sender: string(raw.sender), datetime: string(raw.datetime),
             body: raw.body, verified: typeof raw.verified === 'boolean' ? raw.verified : null, attachments,
+            ...(raw.placeholder === true && { readAttempts: Number(raw.readAttempts) || 0, observedHeader: string(raw.observedHeader) }),
             recipients: string(raw.recipients),
             ...(raw.source === 'goe' && { goeAttachments: readGoeAttachments(raw, attachments) })
           };
           notes.set(id, note);
-          if (!seen.has(id)) {
+          const existing = byNote.get(id);
+          if (!existing || existing.awaitingNoteBody && note.verified === true) {
             const title = raw.title.replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, 180) || '제목 없는 쪽지';
             // 기간을 정해 불러온 지난 쪽지(3단계): 바로 분류하지 않고 건수를 보여 준 뒤 묻는다. 첨부도 복사하지 않는다.
             const ranged = raw.imported === 'range';
             const requested = !ranged && Number.isFinite(classifyFrom) && this.aiProvider !== 'none' && location.stat.birthtimeMs >= classifyFrom;
             const autoPending = !ranged && (requested || (this.settings.automatic === true && baselineAt !== null && location.stat.birthtimeMs >= baselineAt));
-            const task = newTask(id, title, [], autoPending);
-            if (ranged) task.rangeImported = { day: localDay(new Date()) };
+            const task = existing ? { ...existing } : newTask(id, title, [], autoPending);
+            if (existing) {
+              delete task.awaitingNoteBody;
+              if (task.revision === 0) {
+                task.title = title;
+                task.type = '할 일';
+                task.referenceSeen = false;
+              }
+              if (ranged) task.autoPending = false;
+            } else if (raw.placeholder === true) {
+              task.awaitingNoteBody = true;
+              task.type = '알아 둘 것';
+            }
+            if (ranged && !task.rangeImported) task.rangeImported = { day: localDay(new Date()) };
             if (!ranged && this.downloadsDir && note.verified === true && location.stat.mtimeMs >= this.settings.downloadsStartedAt) {
               const downloads = await this.copyDownloads(note);
               if (downloads.length) task.downloadedAttachments = downloads;
             }
-            added.push(task);
-            seen.add(id);
+            if (existing) recovered.set(task.id, task);
+            else added.push(task);
+          } else if (raw.placeholder === true && (!existing.awaitingNoteBody || existing.revision === 0 && existing.type === '할 일')) {
+            // Older installations may already have a task for this placeholder.
+            recovered.set(existing.id, { ...existing, awaitingNoteBody: true, type: existing.revision === 0 ? '알아 둘 것' : existing.type });
           }
         } catch {
           pending++;
         }
       }
-      if (added.length || (!sameInbox && this.tasks.some(task => task.autoPending))) {
-        const existing = sameInbox ? this.tasks : this.tasks.map(task => task.autoPending ? { ...task, autoPending: false } : task);
+      if (added.length || recovered.size || (!sameInbox && this.tasks.some(task => task.autoPending))) {
+        const existing = this.tasks.map(original => {
+          const task = recovered.get(original.id) ?? original;
+          return !sameInbox && task.autoPending ? { ...task, autoPending: false } : task;
+        });
         await this.commit([...existing, ...added]);
       }
       if (baselineAt === null) {
@@ -947,6 +1041,13 @@ class CalendarStore {
         await writeJson(this.settingsPath, settings);
         this.settings = settings;
       }
+      // 같은 파일을 주기적으로 다시 읽을 때에는 검색 결과와 입력 초점을 유지한다.
+      if (notes.size !== this.notes.size || [...notes.values()].some(note => {
+        const old = this.notes.get(note.id);
+        return !old || note.title !== old.title || note.sender !== old.sender || note.datetime !== old.datetime ||
+          note.body !== old.body || note.attachments.length !== old.attachments.length ||
+          note.attachments.some((item, i) => item.name !== old.attachments[i].name);
+      })) this.invalidateSearch();
       this.notes = notes;
       this.inbox = { status: 'ready', pending };
       return this.snapshot();
@@ -1325,6 +1426,42 @@ class CalendarStore {
     return this.displayAttachmentPath(owner, source, attachment);
   }
 
+  invalidateSearch() {
+    this.searchRevision++;
+    this.searchItems = null;
+  }
+
+  buildSearchItems() {
+    return this.tasks.map(task => {
+      const note = this.notes.get(task.noteId);
+      const room = task.chatSource?.roomTitle || '';
+      return {
+        id: task.id,
+        summary: {
+          title: task.title, noteTitle: note?.title || '', sender: note?.sender || room,
+          datetime: note?.datetime || task.chatSource?.observedAt || ''
+        },
+        searchFields: prepareSearchFields([
+          { name: 'title', text: task.title },
+          ...(note ? [
+            { name: 'noteTitle', text: note.title },
+            { name: 'sender', text: note.sender },
+            { name: 'attachment', text: note.attachments.map(item => item.name).join('\n') },
+            { name: 'body', text: note.body }
+          ] : []),
+          { name: 'room', text: room }
+        ])
+      };
+    }).sort((a, b) => b.summary.datetime.localeCompare(a.summary.datetime));
+  }
+
+  search(query) {
+    const text = typeof query === 'string' ? query.slice(0, 100) : '';
+    this.searchItems ??= this.buildSearchItems();
+    const hits = searchMatches(this.searchItems, text, SEARCH_LIMIT + 1);
+    return { query: text, more: hits.length > SEARCH_LIMIT, results: hits.slice(0, SEARCH_LIMIT) };
+  }
+
   async detail(id) {
     const task = this.getTask(id);
     const note = this.notes.get(task.noteId);
@@ -1360,9 +1497,13 @@ class CalendarStore {
       const { count, status } = note.goeAttachments;
       const sentAt = Date.parse(note.datetime.replace(' ', 'T'));
       const available = attachments.filter(item => item.available).length;
-      const expired = status === 'expired' || (Number.isFinite(sentAt) && Date.now() - sentAt > GOE_ATTACHMENT_AGE);
-      const hasMissing = available < count || (!count && ['review', 'failed', 'folder-not-configured', 'partial'].includes(status));
-      view.goeAttachments = { count, status: expired && hasMissing ? 'expired' : status, canRetry: note.verified === true && !expired && hasMissing };
+      // 보관 기간은 보낸 날짜로만 정한다. 7일이 안 된 쪽지에 남은 'expired'는 옛 수집기의 잘못된 판정이라(2026-11-18,
+      // 하루 지난 쪽지 4건) 확인 필요로 보이고 다시 받기를 눌러 바로잡게 한다.
+      const aged = Number.isFinite(sentAt) ? Date.now() - sentAt > GOE_ATTACHMENT_AGE : status === 'expired';
+      const shown = status === 'expired' && !aged ? 'review' : status;
+      const expired = aged;
+      const hasMissing = available < count || (!count && ['review', 'failed', 'folder-not-configured', 'partial'].includes(shown));
+      view.goeAttachments = { count, status: expired && hasMissing ? 'expired' : shown, canRetry: note.verified === true && !expired && hasMissing };
     }
     return { task: this.taskView(this.getTask(id)), note: view };
   }
@@ -1625,4 +1766,4 @@ function workMarkdown(task, note, attachments) {
   return `${sections.join('\n\n')}\n`;
 }
 
-module.exports = { CalendarStore, CalendarError, aiStopError, TYPES, TOOLS };
+module.exports = { CalendarStore, CalendarError, aiStopError, TYPES, TOOLS, searchMatches, searchSnippet };

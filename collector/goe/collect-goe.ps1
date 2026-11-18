@@ -31,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     status = 'ok'; visible = 0; matched = 0; fresh = 0; unknown = 0
-    remaining = 0; opened = 0; imported = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''; reason = ''
+    remaining = 0; opened = 0; imported = 0; placeholders = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''; reason = ''
 }
 
 function Publish-Result([string]$Reason) {
@@ -281,7 +281,7 @@ function Read-Window($h, [int]$k = 3) {
         @{ bmp = $bmp; lines = $lines }
     } catch { $bmp.Dispose(); throw }
 }
-function Read-OcrRegion($bmp, [Drawing.Rectangle]$area, [int]$requestedScale) {
+function Read-OcrRegion($bmp, [Drawing.Rectangle]$area, [int]$requestedScale, [switch]$Mono) {
     # A full-width 4K window at 3x exceeds the Windows OCR limit. Keep integer zoom when it fits.
     $limit = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension / [double][Math]::Max($area.Width, $area.Height)
     $scale = if ($limit -lt 1) { $limit } else { [Math]::Min($requestedScale, [Math]::Floor($limit)) }
@@ -297,6 +297,20 @@ function Read-OcrRegion($bmp, [Drawing.Rectangle]$area, [int]$requestedScale) {
                 $g.InterpolationMode = 'HighQualityBicubic'
                 $g.DrawImage($bmp, [Drawing.Rectangle]::new(0, 0, $width, $height), $area, [Drawing.GraphicsUnit]::Pixel)
             } finally { $g.Dispose() }
+            if ($Mono) {
+                # dark text black, everything lighter white: GOE draws a new attachment as dark text on an orange
+                # chip, which OCR misread badly in color (2026-11-18, one letter off in black and white instead)
+                $data = $big.LockBits([Drawing.Rectangle]::new(0, 0, $width, $height), 'ReadWrite', [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+                try {
+                    $bytes = [byte[]]::new($data.Stride * $height)
+                    [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+                    for ($i = 0; $i -lt $bytes.Length; $i += 4) {
+                        $v = if (0.114 * $bytes[$i] + 0.587 * $bytes[$i + 1] + 0.299 * $bytes[$i + 2] -lt 140) { 0 } else { 255 }
+                        $bytes[$i] = $v; $bytes[$i + 1] = $v; $bytes[$i + 2] = $v
+                    }
+                    [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $data.Scan0, $bytes.Length)
+                } finally { $big.UnlockBits($data) }
+            }
             $big.Save($png)
         } finally { $big.Dispose() }
         $f = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($png)) ([Windows.Storage.StorageFile])
@@ -629,6 +643,11 @@ function Close-Note($n) {
     $b = $n.FindAll($TS::Descendants, $TRUE_COND) | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.closeButton } | Select-Object -Last 1
     if ($b) { Click $b.Current.NativeWindowHandle }
     $t0 = Get-Date; while ([GoeWin.W]::IsWindow($handle) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
+    # still open: the next note would stop the run as "a note window is open". Ask the window to close once more.
+    if ([GoeWin.W]::IsWindow($handle)) {
+        [void][GoeWin.W]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+        $t0 = Get-Date; while ([GoeWin.W]::IsWindow($handle) -and ((Get-Date) - $t0).TotalSeconds -lt 2) { Start-Sleep -Milliseconds 100 }
+    }
 }
 
 if ((-not $Force -and (Goe-IsForeground)) -or (Get-NoteWindow)) {
@@ -673,6 +692,9 @@ function Read-DownloadDir {
         # moved off screen by the keeper while GOE is parked: hide it and put it back before Cancel
         [GoeWin.Keeper]::PutBack([IntPtr]$sw.Current.NativeWindowHandle)
         if ($cancel) { Click $cancel.Current.NativeWindowHandle }
+        # let the settings window close before the next step (a note or a download button press follows)
+        $sh = [IntPtr]$sw.Current.NativeWindowHandle; $t0 = Get-Date
+        while ([GoeWin.W]::IsWindow($sh) -and [GoeWin.W]::IsWindowVisible($sh) -and ((Get-Date) - $t0).TotalSeconds -lt 2) { Start-Sleep -Milliseconds 100 }
     }
     $dir
 }
@@ -775,6 +797,9 @@ function Select-Attachments($Candidates, [string[]]$Names) {
                 $stem = [IO.Path]::GetFileNameWithoutExtension($expected)
                 $found = @($pool | Where-Object { $_.Extension -eq $extension -and (Test-AttachmentPrefix $stem $_.Name 0.25) })
             }
+            # a short name (under 24 letters) with a letter or two misread: same extension, close spelling
+            # ("<x>-ra-seu-eun" for "-on", 2026-11-18)
+            if (!$found.Count -and $extension) { $found = @($pool | Where-Object { Test-SimilarName $label $_.Name }) }
         }
         if ($found.Count -gt 1) { $found = @($found | Where-Object { !(Test-FromInternet $_) }) }
         if ($found.Count -eq 1) { $picked[$found[0].Key] = $found[0] }
@@ -830,14 +855,30 @@ function Read-AttachmentNames($Lines, $Header, [int]$Count, $NextRow) {
         if ($line.t -match $sizeSuffix) {
             $name = ($line.t -replace $sizeSuffix, '').Trim()
             if ($name) { $name }
-        } elseif ($line.t -match '(?:\.{2,}|\u2026)\s*$') {
-            # GOE clips long attachment labels with an ellipsis (OCR sometimes reads only two dots).
-            $name = ($line.t -replace '(?:\.{2,}|\u2026)\s*$', '...').Trim()
+        } elseif ($line.t -match '(?:\.{2,}|\u2026)(?:\s+\S{1,4}){0,2}\s*$') {
+            # GOE clips long attachment labels with an ellipsis (OCR sometimes reads only two dots). A misread size
+            # may follow it ("... 19 <x", 2026-11-18): drop that.
+            $name = ($line.t -replace '(?:\.{2,}|\u2026)(?:\s+\S{1,4}){0,2}\s*$', '...').Trim()
             if (($name -replace '\s+', '').Length -ge 15) { $name }
         } elseif ($line.t -match '\.[a-z][a-z0-9]{1,7}\s*$') {
             $line.t.Trim()
         }
     }
+}
+
+# The attachment rows read again in black and white (about 0.2 s, only for notes with attachments). Lines come
+# back in window pixels like Read-Window's, so Read-AttachmentNames can read them the same way.
+function Read-AttachmentBand($Bmp, $Header, $NextRow, [int]$Count) {
+    if (-not $Header -or -not $Bmp) { return @() }
+    $y0 = [Math]::Min($Bmp.Height - 1, $Header.y + 14)
+    $y1 = if ($NextRow) { $NextRow.y - 2 } else { $Header.y + 70 + 32 * [Math]::Max(0, $Count - 1) }
+    $y1 = [Math]::Min($Bmp.Height, $y1)
+    if ($y1 - $y0 -lt 10) { return @() }
+    $view = Read-OcrRegion $Bmp ([Drawing.Rectangle]::new(0, $y0, $Bmp.Width, $y1 - $y0)) 3 -Mono
+    @($view.result.Lines | ForEach-Object {
+        $b = @($_.Words)[0].BoundingRect
+        [pscustomobject]@{ x = [int]($b.X / $view.scaleX); y = $y0 + [int]($b.Y / $view.scaleY); t = $_.Text }
+    } | Where-Object { ($_.t -replace '[^\p{L}]', '').Length -ge 3 } | Sort-Object y, x)
 }
 
 # Sizes shown next to each attachment ("... .hwp 173 KB"), with how far the rounding may be off.
@@ -932,17 +973,28 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
     if ($Count -le 0) { $Count = $Names.Count }
     if ($Count -le 0 -or (Goe-IsForeground)) { return @{ status = 'review' } }
     $button = $Elements | Where-Object { $_.Current.Name -eq $L.downloadAll } | Select-Object -First 1
-    if (!$button -or (Find-GoeMenu) -ne [IntPtr]::Zero) { return @{ status = 'failed' } }
+    if (!$button) { return @{ status = 'failed'; step = 'no-button' } }
+    # a menu left open (by GOE or a cut-off run) made the press fail; close it first
+    $stale = Find-GoeMenu
+    if ($stale -ne [IntPtr]::Zero) { Key $stale 0x1B; Start-Sleep -Milliseconds 300 }
+    if ((Find-GoeMenu) -ne [IntPtr]::Zero) { return @{ status = 'failed'; step = 'menu-busy' } }
     [void][GoeWin.W]::PostMessage([IntPtr]$button.Current.NativeWindowHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
     $t0 = Get-Date
     do {
         Start-Sleep -Milliseconds 80
         $menu = Find-GoeMenu
     } while ($menu -eq [IntPtr]::Zero -and ((Get-Date) - $t0).TotalSeconds -lt 3)
-    if ($menu -eq [IntPtr]::Zero) { return @{ status = 'failed' } }
+    if ($menu -eq [IntPtr]::Zero) { return @{ status = 'failed'; step = 'menu-not-shown' } }
     if (Goe-IsForeground) { return @{ status = 'review' } }
-    $menuHandle = [GoeWin.W]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
-    if ([GoeWin.W]::MenuItem($menuHandle, 0) -ne $L.menuDefault) { Key $menu 0x1B; return @{ status = 'failed' } }
+    # The menu window can show before its items are filled in (empty text): wait for them instead of failing.
+    $t0 = Get-Date
+    do {
+        $menuHandle = [GoeWin.W]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
+        $first = if ($menuHandle -ne [IntPtr]::Zero) { [GoeWin.W]::MenuItem($menuHandle, 0) } else { '' }
+        if ($first) { break }
+        Start-Sleep -Milliseconds 100
+    } while (((Get-Date) - $t0).TotalSeconds -lt 1.5)
+    if ($first -ne $L.menuDefault) { Key $menu 0x1B; return @{ status = 'failed'; step = $(if ($first) { 'menu-item-other' } else { 'menu-item-empty' }) } }
 
     Start-Sleep -Milliseconds 300
     [void][GoeWin.W]::SendMessage($menu, 0x01E5, [IntPtr]0, [IntPtr]::Zero)
@@ -987,7 +1039,8 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
         $old = @(Find-ExistingBatch $current $Count $Names)
         if ($old.Count -eq $Count) { return @{ status = 'complete'; files = $old; directory = $Directory } }
     }
-    @{ status = $(if ($batch.activity -or $stableSince -ge 0) { 'review' } else { 'failed' }) }
+    if ($batch.activity -or $stableSince -ge 0) { return @{ status = 'review'; step = 'files-unmatched' } }
+    @{ status = 'failed'; step = 'nothing-downloaded' }
 }
 
 function Save-DownloadBatch($Batch, $Note, [string]$NotePath, [bool]$Retry) {
@@ -1065,6 +1118,14 @@ function Save-DownloadBatch($Batch, $Note, [string]$NotePath, [bool]$Retry) {
 function Collect-NoteAttachments($Elements, [string]$Directory, [int]$Count, [string[]]$Names, $Sizes, $Note, [string]$NotePath, [bool]$Retry) {
     try {
         $batch = Receive-Downloads $Elements $Directory $Count $Names $Sizes
+        # 2026-11-18: a 2-file note failed on the first automatic try with nothing written to the GOE folder,
+        # and the same note downloaded fine on "download again". When nothing was downloaded, press once more.
+        if ($batch.status -eq 'failed' -and $batch.step -ne 'no-button') {
+            $first = $batch.step
+            Start-Sleep -Milliseconds 800
+            $batch = Receive-Downloads $Elements $Directory $Count $Names $Sizes
+            if ($batch.status -ne 'complete') { $batch.step = "$first,then-$($batch.step)" }
+        }
         if ($batch.status -ne 'complete') { return $batch }
         Save-DownloadBatch $batch $Note $NotePath $Retry
     } catch { return @{ status = 'review' } }
@@ -1081,7 +1142,7 @@ function Known-Row($Row, [string]$Key) {
         foreach ($file in Get-ChildItem -LiteralPath $notesDir -Filter "goe_${stamp}_*.json" -File -ErrorAction SilentlyContinue) {
             try {
                 $note = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
-                if ($note.datetime -and $note.ocr.listTitle) {
+                if ($note.datetime -and $note.ocr.listTitle -and $note.placeholder -ne $true) {
                     $savedRow = [pscustomobject]@{ datetime = $note.datetime; sender = $note.sender; titleOcr = $note.ocr.listTitle }
                     $known[(Row-Key $savedRow)] = $true
                 }
@@ -1103,7 +1164,7 @@ function Known-RowLoose($Row) {
     }
     $title = [string]$Row.titleOcr -replace '\s+', ''
     foreach ($note in $dayNotes[$day]) {
-        if (-not (Test-SameNoteRow $Row $note)) { continue }
+        if ($note.placeholder -eq $true -or -not (Test-SameNoteRow $Row $note)) { continue }
         $saved = [string]$note.ocr.listTitle -replace '\s+', ''
         if (!$title -or !$saved -or (Get-EditDistance $title $saved) -le [Math]::Max(2, [int]($saved.Length / 5))) { return $true }
     }
@@ -1117,6 +1178,44 @@ function Test-SavedBody([string]$Datetime, [string]$Body) {
         try { if ((Format-Body (Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json).body) -ceq $wanted) { return $true } } catch {}
     }
     return $false
+}
+# A note opened but not read (no window, no body control, empty body) still goes to the calendar as a
+# placeholder from its list row, so nothing is lost when GOE has already marked it read (2026-11-18, same rule
+# as Brity: "the calendar must get it either way"). The real note later takes over the placeholder's id, so the
+# calendar's task turns into the real note. After three tries the automatic run stops reopening it.
+function Find-Placeholder($Row) {
+    $day = $Row.datetime.Substring(0, 10) -replace '\D', ''
+    $title = [string]$Row.titleOcr -replace '\s+', ''
+    foreach ($file in Get-ChildItem -LiteralPath $notesDir -Filter "goe_${day}*.json" -File -ErrorAction SilentlyContinue) {
+        try { $p = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json } catch { continue }
+        if ($p.placeholder -ne $true -or $p.id -cne $file.BaseName -or -not (Test-SameNoteRow $Row $p)) { continue }
+        $saved = [string]$p.ocr.listTitle -replace '\s+', ''
+        if (!$title -or !$saved -or (Get-EditDistance $title $saved) -le [Math]::Max(2, [int]($saved.Length / 5))) { return $p }
+    }
+}
+function Write-Placeholder($Row, $Existing, [string]$Why) {
+    if ($Existing) { $pid8 = $Existing.id; $attempts = [int]$Existing.readAttempts + 1 }
+    else {
+        $hash = [Security.Cryptography.SHA1]::Create()
+        try { $digest = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('placeholder|' + (Row-Key $Row)))) }
+        finally { $hash.Dispose() }
+        $pid8 = 'goe_' + ($Row.datetime -replace '\D', '') + '_' + ($digest -replace '-', '').Substring(0, 8).ToLowerInvariant()
+        $attempts = 1
+    }
+    $target = Join-Path $notesDir ($pid8 + '.json')
+    if (!$Existing -and [IO.File]::Exists($target)) { return }
+    $listed = (@($Row.titleOcr, $Row.sender, $Row.datetime) | Where-Object { $_ }) -join ' / '
+    $record = [pscustomobject]@{
+        id = $pid8; source = 'goe'; verified = $false; placeholder = $true; readAttempts = $attempts; readFailure = $Why
+        datetimeCheck = 'note-time-unread'; datetimeNote = $null; attachCount = 0
+        attachStatus = $(if ($Row.attach) { 'review' } else { 'none' })
+        wasUnread = $Row.unread; openedByAssistant = $true; collectedAt = (Get-Date).ToString('s')
+        title = [string]$Row.titleOcr; sender = [string]$Row.sender; org = ''; datetime = $Row.datetime
+        recipients = ''; files = @(); saved = @(); body = $L.placeholderBody + "`n`n" + $L.placeholderList + ': ' + $listed
+        ocr = [pscustomobject]@{ sentLine = ''; attachLine = ''; listTitle = $Row.titleOcr }
+    }
+    if ($RangeImport) { $record | Add-Member -NotePropertyName imported -NotePropertyValue 'range' }
+    try { Write-Note $record $target ([bool]$Existing); $script:result.placeholders++ } catch {}
 }
 function Write-Note($Note, [string]$Target, [bool]$Replace = $false) {
     $temporary = $Target + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
@@ -1143,7 +1242,19 @@ function Restore-Main {
 }
 
 # read the visible inbox rows: time, title, sender, unread, attachment, click y (list client)
-function Get-GoeScanFolder {
+# GOE can be busy for a moment after a folder click or while it redraws (button query times out, pane not
+# settled). One 'ambiguous' look stopped the whole run (2026-11-18 review): look again for up to 2 s first.
+function Wait-NotAmbiguous([scriptblock]$Look) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $s = & $Look
+        if ($s -ne 'ambiguous') { return $s }
+        Start-Sleep -Milliseconds 150
+    } while ($sw.ElapsedMilliseconds -lt 2000)
+    $s
+}
+function Get-GoeScanFolder { Wait-NotAmbiguous { Get-GoeScanFolderOnce } }
+function Get-GoeScanFolderOnce {
     if (-not (Test-GoeSamePane $folderProof.Pane (Get-GoeVisibleNotePane $main))) { return 'ambiguous' }
     $state = Get-GoeFolderState $inboxButtonEl $sentButtonEl
     if ($state -in 'sent', 'ambiguous') { return $state }
@@ -1299,7 +1410,12 @@ try {
     Click $H[$L.noteTab]; Start-Sleep -Milliseconds 300; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 300
     $inboxButtonEl = $AE::FromHandle($H[$L.inboxButton])
     $sentButtonEl = $AE::FromHandle($H[$L.sentButton])
-    $state = Get-GoeFolderState $inboxButtonEl $sentButtonEl
+    $state = Wait-NotAmbiguous { Get-GoeFolderState $inboxButtonEl $sentButtonEl }
+    if ($state -eq 'sent' -and ($Force -or -not (Goe-IsForeground))) {
+        # the inbox click did not take yet: press it once more
+        Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 400
+        $state = Wait-NotAmbiguous { Get-GoeFolderState $inboxButtonEl $sentButtonEl }
+    }
     if ($state -eq 'unsupported') {
         $folderProof = Get-GoeInboxPaneProof $main { Click $H[$L.sentButton] } { Click $H[$L.inboxButton] } {
             ($Force -or -not (Goe-IsForeground)) -and -not (Get-NoteWindow)
@@ -1357,6 +1473,9 @@ try {
             $result.matched++
             if (!$retryNote -and ($IncludeRead -or $newRead) -and (Known-Row $r $key)) { continue }
             if ($newRead -and (Known-RowLoose $r)) { continue }
+            $placeholder = if (!$retryNote) { Find-Placeholder $r }
+            # tried three times already: leave it in the calendar as "check in GOE" instead of reopening every run
+            if ($placeholder -and [int]$placeholder.readAttempts -ge 3 -and -not $range) { continue }
             $result.fresh++
             if ($ListOnly) { continue }
             if ($result.opened -ge $Max) { $result.remaining++; $stop = $true; break }
@@ -1382,13 +1501,18 @@ try {
             $n = $null; $t0 = Get-Date
             while (-not $n -and ((Get-Date) - $t0).TotalSeconds -lt 4) { Start-Sleep -Milliseconds 100; $n = Get-NoteWindow }
             $result.opened++
-            if (-not $n) { $result.unknown++; continue }
+            if (-not $n) {
+                $result.unknown++
+                if (!$retryNote) { Write-Placeholder $r $placeholder 'window-not-opened' }
+                continue
+            }
             $ownedNote = $n
             $nh = [IntPtr]$n.Current.NativeWindowHandle
             $els = $n.FindAll($TS::Descendants, $TRUE_COND)
             $re = $els | Where-Object { $_.Current.ClassName -eq 'RICHEDIT50W' } | Select-Object -First 1
             if (-not $re) {
                 $result.unknown++
+                if (!$retryNote) { Write-Placeholder $r $placeholder 'no-body-control' }
                 Close-Note $ownedNote
                 $ownedNote = $null
                 continue
@@ -1396,19 +1520,33 @@ try {
             $body = ''; $t0 = Get-Date
             do { $body = [GoeWin.W]::Text([IntPtr]$re.Current.NativeWindowHandle); if ($body -and $body -ne $prevBody) { break }; Start-Sleep -Milliseconds 80 } while (((Get-Date) - $t0).TotalSeconds -lt 2)
             $prevBody = $body
+            if (!$body -and !$retryNote) {
+                # an empty body is saved as nothing: keep the placeholder and read it again next time
+                $result.unknown++
+                Write-Placeholder $r $placeholder 'body-empty'
+                Close-Note $ownedNote
+                $ownedNote = $null
+                continue
+            }
 
             $cap = Read-Window $nh; $nl = $cap.lines
             if ($DebugOcr) {
                 $cap.bmp.Save((Join-Path $Inbox 'debug-note.png'))
                 @($nl | ForEach-Object { '{0} {1} {2}' -f $_.y, $_.x, $_.t }) | Set-Content (Join-Path $Inbox 'debug-note.txt') -Encoding utf8
             }
-            $cap.bmp.Dispose()
+            $noteBmp = $cap.bmp   # kept for the black-and-white pass over the attachment names below
             $sentRow = $nl | Where-Object { $_.t -match $L.sentTimeWord -and $_.y -lt 150 } | Select-Object -First 1
             $sentLine = $sentRow.t
             # the title line sits between the window caption and the sent-time line
             $title = ''
             if ($sentRow) { $title = ($nl | Where-Object { $_.y -gt 35 -and $_.y -lt $sentRow.y - 15 -and $_.x -lt 300 } | Select-Object -First 1).t }
             if (-not $title) { $title = $r.titleOcr }
+            # Both titles are OCR. A missing title made the note "unverified" and kept it from being classified
+            # although the body (read exactly) was there (2026-11-18): take the first body line instead.
+            if (-not $title) {
+                $line = @($body -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })[0]
+                if ($line) { $title = $line.Substring(0, [Math]::Min(60, $line.Length)) }
+            }
             $recLine = ($nl | Where-Object { $_.t -match $L.recipientHeader } | Select-Object -First 1).t
             if ($recLine) { $recLine = $recLine.Substring($recLine.IndexOf($L.recipientHeader)) }
             # The attachment header is a short line below the body ("1^1 <attachments> (3<unit>)"); a body sentence
@@ -1421,15 +1559,33 @@ try {
             $recipientRow = $nl | Where-Object { $attachHeader -and $_.y -gt $attachHeader.y -and $_.t -match $L.recipientHeader } | Select-Object -First 1
             $fileNames = @(Read-AttachmentNames $nl $attachHeader $attCount $recipientRow)
             $fileSizes = @(Read-AttachmentSizes $nl $attachHeader $attCount)
+            # Names decide which file in the GOE folder is this note's, so read them once more in black and white
+            # and keep whichever reading found more names (black and white wins a tie: it misread fewer letters).
+            if ($attachHeader -and ($attCount -gt 0 -or $r.attach -or $fileNames.Count)) {
+                try {
+                    $bwNames = @(Read-AttachmentNames (Read-AttachmentBand $noteBmp $attachHeader $recipientRow $attCount) $attachHeader $attCount $recipientRow)
+                    if ($bwNames.Count -ge $fileNames.Count -and $bwNames.Count -gt 0) { $fileNames = $bwNames }
+                } catch {}
+            }
+            $noteBmp.Dispose(); $noteBmp = $null
             # GOE shows the attachment header and its download button on every note, even one without files
             # (2026-11-17), so only a count, a file name or the list row's clip icon means there are attachments.
             $hasAttachments = $attCount -gt 0 -or $fileNames.Count -gt 0 -or $r.attach
+            if ($DebugOcr) {
+                $dl = $els | Where-Object { $_.Current.Name -eq $L.downloadAll } | Select-Object -First 1
+                $kids = if ($attachHeader) { @($els | Where-Object { $_.Current.BoundingRectangle.Y -gt 0 }).Count } else { -1 }
+                Add-Content (Join-Path $Inbox 'debug-note.txt') ("listClip={0} headerRead={1} count={2} names={3} sizes={4} downloadButton={5} enabled={6} elements={7}" -f
+                    $r.attach, [bool]$attachHeader, $attCount, $fileNames.Count, $fileSizes.Count, [bool]$dl, $(if ($dl) { $dl.Current.IsEnabled } else { '' }), $kids) -Encoding utf8
+            }
 
             $hash = [Security.Cryptography.SHA1]::Create()
             try { $digest = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($r.sender + '|' + $body))) }
             finally { $hash.Dispose() }
             $id = 'goe_' + ($r.datetime -replace '\D', '') + '_' + ($digest -replace '-', '').Substring(0, 8).ToLowerInvariant()
             $notePath = Join-Path $notesDir ($id + '.json')
+            # read at last: the real note replaces the placeholder under the placeholder's id
+            $takeOver = $placeholder -and !$retryNote -and ![IO.File]::Exists($notePath)
+            if ($takeOver) { $id = $placeholder.id; $notePath = Join-Path $notesDir ($id + '.json') }
 
             # the time is read twice (list row and note window); both are OCR, so flag when they disagree
             $sentDt = Parse-SentTime $sentLine
@@ -1437,10 +1593,13 @@ try {
             if ($sentDt -and [datetime]::ParseExact($sentDt, 'yyyy-MM-dd HH:mm', $calendar) -lt $attachmentCutoff) { $expired = $true }
             # After the storage period the list row keeps its clip icon but the file list is empty and the header
             # has no count (seen on 11/11 notes, 2026-11-16): nothing can be downloaded any more.
-            if ($r.attach -and $attCount -eq 0 -and $fileNames.Count -eq 0) { $expired = $true }
-            $attachStatus = if (!$hasAttachments) { 'none' } elseif ($expired) { 'expired' } else { 'not-requested' }
+            # Expiry is decided by the date alone (GOE keeps attachments 7 days). A clip icon with nothing read in the
+            # note window marked fresh notes expired (2026-11-17/18: four notes a day old, none had files when
+            # reopened): within 7 days that is "review", which the calendar can retry.
+            $attachUnread = $r.attach -and $attCount -eq 0 -and $fileNames.Count -eq 0
+            $attachStatus = if (!$hasAttachments) { 'none' } elseif ($expired) { 'expired' } elseif ($attachUnread) { 'review' } else { 'not-requested' }
             $note = [pscustomobject]@{
-                id = $id; source = 'goe'; verified = [bool]($body -and $r.datetime -and $title)
+                id = $id; source = 'goe'; verified = [bool]($body -and $r.datetime)
                 datetimeCheck = $dtCheck; datetimeNote = $sentDt; attachCount = $attCount; attachStatus = $attachStatus
                 wasUnread = $r.unread; openedByAssistant = $true; collectedAt = (Get-Date).ToString('s')
                 title = $title; sender = $r.sender; org = ''; datetime = $r.datetime
@@ -1469,7 +1628,17 @@ try {
                         try { Write-Note ([pscustomobject]$updated) $notePath $true } catch {}
                     }
                 }
-                elseif (!$hasAttachments) { $result.attachStatus = 'review' }
+                elseif (!$hasAttachments) {
+                    # no clip icon, no count, no file name: the note has none. Record it, so an older "review" or
+                    # "expired" left by an earlier version stops asking the teacher to check (2026-11-18).
+                    $result.attachStatus = 'none'
+                    if ($result.attached -eq 0 -and $retryNote.attachStatus -ne 'none') {
+                        $updated = [ordered]@{}
+                        foreach ($prop in $retryNote.PSObject.Properties) { $updated[$prop.Name] = $prop.Value }
+                        $updated.attachStatus = 'none'; $updated.attachCount = 0
+                        try { Write-Note ([pscustomobject]$updated) $notePath $true } catch { $result.attachStatus = 'review' }
+                    }
+                }
                 elseif ($attCount -gt 0 -and $result.attached -eq $attCount) { $result.attachStatus = 'already-saved' }
                 else {
                     # OCR of the note window can miss the attachment list; fall back to what the first import read
@@ -1477,20 +1646,25 @@ try {
                     $retryCount = if ($attCount -gt 0) { $attCount } else { [int]$retryNote.attachCount }
                     $savedBatch = Collect-NoteAttachments $els $dlDir $retryCount $retryNames $fileSizes $retryNote $notePath $true
                     $result.attachStatus = $savedBatch.status
+                    if ($savedBatch.step) { $result.attachDetail = $savedBatch.step }
                     if ($savedBatch.status -eq 'saved') { $result.attached = @($savedBatch.note.saved).Count }
                 }
                 $stop = $true
-            } elseif (!$retryNote -and ![IO.File]::Exists($notePath) -and !($newRead -and (Test-SavedBody $r.datetime $body))) {
+            } elseif (!$retryNote -and ($takeOver -or ![IO.File]::Exists($notePath)) -and !($newRead -and (Test-SavedBody $r.datetime $body))) {
                 if ($RangeImport) { $note | Add-Member -NotePropertyName imported -NotePropertyValue 'range' }
-                if ($Download -and $hasAttachments -and !$expired) {
+                if ($Download -and $hasAttachments -and !$expired -and !$attachUnread) {
                     if (!$note.verified) { $note.attachStatus = 'review' }
                     else {
-                        $savedBatch = Collect-NoteAttachments $els $dlDir $attCount $fileNames $fileSizes $note $notePath $false
+                        $savedBatch = Collect-NoteAttachments $els $dlDir $attCount $fileNames $fileSizes $note $notePath ([bool]$takeOver)
                         if ($savedBatch.status -eq 'saved') { $note = $savedBatch.note }
-                        else { $note.attachStatus = $savedBatch.status }
+                        else {
+                            $note.attachStatus = $savedBatch.status
+                            # which step went wrong, so the next failure can be traced (not shown to the teacher)
+                            if ($savedBatch.step) { $note | Add-Member -NotePropertyName attachDetail -NotePropertyValue $savedBatch.step -Force }
+                        }
                     }
                 }
-                if ($note.attachStatus -ne 'saved') { Write-Note $note $notePath }
+                if ($note.attachStatus -ne 'saved') { Write-Note $note $notePath ([bool]$takeOver) }
                 $result.imported++
                 $opened.Add($note)
             }

@@ -15,8 +15,14 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-function Write-Result([string]$Status, $InboxDir = $null, [bool]$Managed = $false, [int]$Imported = 0) {
-    [pscustomobject]@{ status = $Status; inboxDir = $InboxDir; managed = $Managed; imported = $Imported } | ConvertTo-Json -Compress
+function Write-Result([string]$Status, $InboxDir = $null, [bool]$Managed = $false, [int]$Imported = 0, [int]$Unverified = 0, [string]$Reason = '') {
+    [pscustomobject]@{ status = $Status; inboxDir = $InboxDir; managed = $Managed; imported = $Imported; unverified = $Unverified; reason = $Reason } | ConvertTo-Json -Compress
+}
+
+# The collector says why it could not read Brity as reason=<code> (collect-notes.ps1, watch.ps1).
+function Get-Reason($lines) {
+    foreach ($line in @($lines)) { if ("$line" -match 'reason=([a-z][a-z-]{1,40})') { return $Matches[1] } }
+    return ''
 }
 
 function Find-WatcherInbox {
@@ -131,7 +137,7 @@ try {
             if ($output -match '^list=\d+ unread=\d+ opened=0 verified=0 filesSaved=0$') { Write-Result 'ready' $inbox $true; return }
             if ($attempt -lt 3) { Start-Sleep -Seconds 3 }
         }
-        Write-Result 'unverified'
+        Write-Result 'unverified' -Reason (Get-Reason $output)
         return
     }
 
@@ -145,12 +151,12 @@ try {
     }
     if ($Force -and (Get-Command -Name $watch).Parameters.ContainsKey('AllowInMessenger')) { $watchArgs.AllowInMessenger = $true }
     $output = @(& $watch @watchArgs 2>$null)
-    $count = @($output -match '^collected=\d+ unverified=\d+$') | Select-Object -First 1
-    if ($count -match '^collected=(\d+) unverified=(\d+)$') { Write-Result 'ready' $inbox $true ([int]$Matches[1] + [int]$Matches[2]) }
+    $count = @($output -match '^collected=\d+ unverified=\d+( reason=[a-z-]+)?$') | Select-Object -First 1
+    if ($count -match '^collected=(\d+) unverified=(\d+)') { Write-Result 'ready' $inbox $true ([int]$Matches[1]) ([int]$Matches[2]) (Get-Reason $count) }
     elseif ($output -contains 'no-new-notes') { Write-Result 'ready' $inbox $true }
     elseif ($output -contains 'skipped-user-in-messenger') { Write-Result 'in-use' $inbox $true }
     elseif ($output -contains 'messenger-not-running') { Write-Result 'offline' }
-    else { Write-Result 'unverified' }
+    else { Write-Result 'unverified' -Reason (Get-Reason $output) }
 } catch {
     Write-Result 'unavailable'
 } finally {

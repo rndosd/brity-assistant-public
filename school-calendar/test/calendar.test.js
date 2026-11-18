@@ -45,6 +45,30 @@ const writeNote = (notes, row) => fs.writeFile(path.join(notes, `${row.id}.json`
 // \uADF8\uB798\uC11C \uC774 \uD14C\uC2A4\uD2B8\uB4E4\uC774 \uAC00\uB054 \uCABD\uC9C0\uB97C "\uCF1C\uAE30 \uC804\uBD80\uD130 \uC788\uB358 \uAC83"\uC73C\uB85C \uBCF4\uACE0 \uC2E4\uD328\uD588\uB2E4. \uC0C8 \uCABD\uC9C0\uB85C \uCCD0\uC57C \uD560 \uD30C\uC77C\uC740 \uD55C \uCE78 \uB118\uAC8C \uAE30\uB2E4\uB9B0 \uB4A4 \uC4F4\uB2E4.
 const pastBaseline = () => new Promise((resolve) => setTimeout(resolve, 40));
 
+test('검색을 시작한 뒤 새 쪽지, 제목 수정, 본문 교체와 삭제가 검색에 반영된다', async t => {
+  const { makeStore, notes } = await setup(t);
+  const store = await makeStore();
+  const find = query => store.search(query).results.map(hit => hit.id);
+  assert.deepEqual(find('교무 체험학습'), []);
+  const original = note(noteId, { sender: '가상교무', body: '체험 학습 안내' });
+  await writeNote(notes, original);
+  const imported = await store.refresh();
+  const [task] = imported.tasks;
+  assert.deepEqual(find('교무 체험학습'), [task.id]);
+  assert.equal((await store.refresh()).searchRevision, imported.searchRevision);
+  await store.update(task.id, { title: '신청서 회신', revision: task.revision });
+  assert.ok(store.snapshot().searchRevision > imported.searchRevision);
+  assert.deepEqual(find('회신 교무'), [task.id]);
+  await writeNote(notes, { ...original, body: '학부모 안내' });
+  await store.refresh();
+  assert.deepEqual(find('교무 체험학습'), []);
+  assert.deepEqual(find('교무 학부모'), [task.id]);
+  await fs.unlink(path.join(notes, `${noteId}.json`));
+  await store.refresh();
+  assert.deepEqual(find('교무 학부모'), []);
+  assert.deepEqual(find('신청서'), [task.id]);
+});
+
 test('숨긴 쪽지를 재실행 뒤 되돌려도 저장한 날짜와 마감 완료 상태가 남는다', async (t) => {
   const { makeStore, notes } = await setup(t);
   await writeNote(notes, note(noteId));
@@ -553,6 +577,20 @@ test('GOE에서 이미 다운로드한 동일한 첨부를 그대로 쓰고 내�
     assert.equal((await store.attachment(task.id, 0)).path, path.join(downloadsDir, expected));
   }
   assert.deepEqual((await fs.readdir(downloadsDir)).sort(), ['같은 파일.txt', '바뀐 파일 (2).txt', '바뀐 파일.txt']);
+});
+
+test('GOE 첨부 기간 지남은 보낸 날짜로만 정하고, 7일 안의 옛 판정은 다시 받게 한다', async (t) => {
+  const { notes, makeStore } = await setup(t);
+  const local = date => new Date(+date - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16).replace('T', ' ');
+  const fresh = local(new Date(Date.now() - 86_400_000));
+  const old = local(new Date(Date.now() - 9 * 86_400_000));
+  await writeNote(notes, note('goe_202611170846_00000001', { source: 'goe', datetime: fresh, attachCount: 0, attachStatus: 'expired' }));
+  await writeNote(notes, note('goe_202611090846_00000002', { source: 'goe', datetime: old, attachCount: 1, attachStatus: 'review' }));
+  const store = await makeStore();
+  await store.refresh();
+  const view = async noteId => (await store.detail(store.snapshot().tasks.find(item => item.noteId === noteId).id)).note.goeAttachments;
+  assert.deepEqual(await view('goe_202611170846_00000001'), { count: 0, status: 'review', canRetry: true });
+  assert.deepEqual(await view('goe_202611090846_00000002'), { count: 1, status: 'expired', canRetry: false });
 });
 
 test('GOE 첨부만 다시 읽으면 실제 파일 이름을 표시하고 저장된 분류를 보존한다', async (t) => {

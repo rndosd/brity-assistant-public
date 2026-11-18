@@ -98,7 +98,7 @@ const store = new CalendarStore({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, unverified: collector.unverified ?? 0, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null, brityReason: collector.status === 'in-use' ? null : collector.brityReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -718,6 +718,7 @@ function bindHandlers() {
   bind('load', snapshot);
   bind('refresh', refresh);
   bind('detail', id => store.detail(id));
+  bind('search', query => store.search(query));
   bind('message-seen', async (kind, id) => changed(await store.markMessageSeen(kind, id)));
   bind('chat-batch', id => store.chatBatch(id));
   bind('forwarded-accept', async (batchId, messageIndex, lineIndex, input) => changed(await store.acceptForwardedLine(batchId, messageIndex, lineIndex, input)));

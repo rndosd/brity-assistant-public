@@ -25,6 +25,8 @@ function roomHolds(value) {
 const GOE_REASONS = new Set(['goe-not-running', 'main-window-not-found', 'control-not-found', 'no-korean-ocr',
   'inbox-not-confirmed', 'inbox-lost-while-paging', 'list-unreadable', 'restore-failed', 'script-error']);
 const REASONS = new Set(['not-running', 'tray', 'menu-open', 'not-minimized', 'in-use', 'screen']);
+// 브리티 쪽지를 못 읽은 까닭(collect-notes.ps1 reason=, 2026-11-18 "쪽지 화면을 읽지 못했습니다" 하나로 뭉쳐 있던 것을 나눔)
+const BRITY_REASONS = new Set(['window-not-found', 'note-menu-not-found', 'note-list-not-found', 'classic-unreadable']);
 
 function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force = false, manual = false, from = '', to = '', goe = false, attachmentFolder, noteId } = {}) {
   if (process.platform !== 'win32' || typeof scriptsDir !== 'string' || !path.isAbsolute(scriptsDir) || signal?.aborted) {
@@ -81,6 +83,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           managed: result.managed === true,
           imported: count(result.imported)
         };
+        if (mode === 'Tick') value.unverified = count(result.unverified);
         if (retry) {
           value.attachStatus = GOE_ATTACHMENT_RESULTS.has(result.attachStatus) ? result.attachStatus : 'failed';
           value.attached = count(result.attached);
@@ -92,6 +95,7 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
           value.goeReason = result.reason;
         }
         if (goe && (result.busyReason === 'note-open' || result.busyReason === 'in-goe')) value.busyReason = result.busyReason;
+        if (!goe && !chatMode && BRITY_REASONS.has(result.reason)) value.brityReason = result.reason;
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {
             visible: count(result.visible), matched: count(result.matched), fresh: count(result.fresh), unknown: count(result.unknown),

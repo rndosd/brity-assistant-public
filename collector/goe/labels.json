@@ -21,5 +21,7 @@
   "settingsWindow": "환경설정",
   "settingsNoteTabMark": "/",
   "cancelButton": "취소",
-  "attachmentFolder": "%USERPROFILE%\\Downloads\\GOE 첨부"
+  "attachmentFolder": "%USERPROFILE%\\Downloads\\GOE 첨부",
+  "placeholderBody": "GOE 쪽지 창에서 본문을 읽지 못했습니다. 다음 가져오기에서 다시 읽고, 그래도 안 되면 GOE 메신저에서 직접 확인해 주세요.",
+  "placeholderList": "목록에 보인 내용"
 }

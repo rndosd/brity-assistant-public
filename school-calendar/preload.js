@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('calendar', {
   load: () => invoke('calendar:load'),
   refresh: () => invoke('calendar:refresh'),
   detail: id => invoke('calendar:detail', id),
+  search: query => invoke('calendar:search', String(query ?? '')),
   chatBatch: id => invoke('calendar:chat-batch', id),
   acceptForwardedLine: (batchId, messageIndex, lineIndex, input) => invoke('calendar:forwarded-accept', batchId, messageIndex, lineIndex, input),
   reviewForwardedBatch: id => invoke('calendar:forwarded-review', id),

@@ -14,5 +14,6 @@
   "toastTitle": "새 쪽지 {0}건을 모았습니다",
   "digestNotSaved": "저장 안 됨",
   "digestCollected": "모은 시각",
+  "unreadBodyMissing": "본문을 읽지 못해 브리티 목록에 표시된 내용을 먼저 남겼습니다.",
   "downloadDir": "C:\\BrityWorks\\BrityMessenger\\download"
 }

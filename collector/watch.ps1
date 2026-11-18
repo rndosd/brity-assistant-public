@@ -104,6 +104,8 @@ function Invoke-Tick {
     $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $collector)
     if ($DemoId) { $a += @('-Id', $DemoId, '-Download') } else { $a += @('-Open', '-Download') }
     $out = (& powershell.exe @a | Out-String)
+    # reason=<code> from the collector: why notes could not be read, shown by the calendar (2026-11-18).
+    $why = if ($out -match 'reason=([a-z][a-z-]{1,40})') { ' reason=' + $Matches[1] } else { '' }
     if ($out -notmatch 'opened=(\d+)') { return ('error: ' + (Norm $out)) }
     if ([int]$Matches[1] -eq 0) { return 'no-new-notes' }
     $j = Get-Content (Join-Path $inbox 'latest.json') -Raw -Encoding utf8 | ConvertFrom-Json
@@ -116,7 +118,7 @@ function Invoke-Tick {
         if ($t.Length -gt 70) { $t = $t.Substring(0, 70) }
         [void](Show-Toast ($L.toastTitle -f $good.Count) ('{0}: {1}' -f $first.sender, $t))
     }
-    return ('collected={0} unverified={1}' -f $good.Count, $bad)
+    return ('collected={0} unverified={1}' -f $good.Count, $bad) + $why
 }
 
 if (-not $Loop) {
