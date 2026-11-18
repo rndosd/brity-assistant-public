@@ -237,6 +237,25 @@ function Invoke-El($el) {
     return $false
 }
 
+# Some list rows expose SelectionItem instead of Invoke. Also try selection
+# on a retry if an accepted Invoke did not bring up the requested note.
+function Open-NoteRow($row, [switch]$PreferSelect) {
+    if (-not $PreferSelect) {
+        try { if (Invoke-El $row) { return $true } } catch [InvalidOperationException] {}
+    }
+    try {
+        $selection = $null
+        if ($row.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+            $selection.Select()
+            return $true
+        }
+    } catch [InvalidOperationException] {}
+    if ($PreferSelect) {
+        try { return (Invoke-El $row) } catch [InvalidOperationException] {}
+    }
+    return $false
+}
+
 function Get-NoteItems($list) {
     $items = New-Object System.Collections.ArrayList
     foreach ($e in $list.FindAll($TS::Descendants, (New-Cond $AE::ControlTypeProperty $CT::ListItem))) {
@@ -307,15 +326,24 @@ function Get-AllNoteItems($win, [string]$Since) {
 }
 
 # The row of one note, scrolling to it when it is not on screen.
+function Get-VisibleNoteRow($win, [string]$id) {
+    $list = Find-ByName $win $CT::List $L.noteListName
+    if (-not $list -or -not $id) { return $null }
+    $cond = [System.Windows.Automation.AndCondition]::new(
+        (New-Cond $AE::AutomationIdProperty $id), (New-Cond $AE::ControlTypeProperty $CT::ListItem))
+    $rows = $list.FindAll($TS::Descendants, $cond)
+    if ($rows.Count -eq 1) { return $rows.Item(0) }
+    return $null
+}
+
 function Find-NoteRow($win, [string]$id) {
-    $cond = New-Cond $AE::AutomationIdProperty $id
-    $el = $win.FindFirst($TS::Descendants, $cond)
+    $el = Get-VisibleNoteRow $win $id
     if ($el) { return $el }
     foreach ($pass in 0, 1) {
-        if ($pass -eq 1) { Reset-NoteList $win; $el = $win.FindFirst($TS::Descendants, $cond); if ($el) { return $el } }
+        if ($pass -eq 1) { Reset-NoteList $win; $el = Get-VisibleNoteRow $win $id; if ($el) { return $el } }
         for ($i = 0; $i -lt 400; $i++) {
             if (-not (Move-NoteList $win)) { break }
-            $el = $win.FindFirst($TS::Descendants, $cond)
+            $el = Get-VisibleNoteRow $win $id
             if ($el) { return $el }
         }
     }
@@ -325,6 +353,10 @@ function Find-NoteRow($win, [string]$id) {
 function Read-Detail($win) {
     $g = Find-ByName $win $CT::Group $L.detailName
     if (-not $g) { return $null }
+    return (Read-DetailGroup $g)
+}
+
+function Read-DetailGroup($g) {
     $textCond = New-Cond $AE::ControlTypeProperty $CT::Text
     $all = @($g.FindAll($TS::Descendants, $textCond) | ForEach-Object { $_.Current.Name })
     $doc = $g.FindFirst($TS::Descendants, (New-Cond $AE::ControlTypeProperty $CT::Document))
@@ -379,8 +411,61 @@ function Test-Match($detail, [string]$listText) {
     return $false
 }
 
-function Save-Attachment($win, [string]$file, [string]$destDir) {
-    $g = Find-ByName $win $CT::Group $L.detailName
+# A layout can expose a differently named container or open a separate Brity
+# window. Start at the recipient header, and never read a whole inbox as a note.
+function Find-AlternativeDetail($win, [string]$listText, $existingWindows, [int]$lastDetailWindow, [string]$day) {
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $windows = @($win)
+    foreach ($w in (Get-BrityWindows)) {
+        $handle = $w.Current.NativeWindowHandle
+        if ($handle -ne $win.Current.NativeWindowHandle -and $w.Current.Name -ne $L.composeWindow -and
+            ($handle -eq $lastDetailWindow -or $handle -notin $existingWindows)) {
+            $windows += $w
+        }
+    }
+    $match = $null
+    foreach ($w in $windows) {
+        try {
+            $labels = $w.FindAll($TS::Descendants, (New-Cond $AE::NameProperty $L.recipientLabel))
+            foreach ($label in $labels) {
+                $g = $walker.GetParent($label)
+                while ($g) {
+                    $atRoot = [System.Windows.Automation.Automation]::Compare($g, $w)
+                    if ($atRoot -and $w.Current.NativeWindowHandle -eq $win.Current.NativeWindowHandle) { break }
+                    if (Find-ByName $g $CT::List $L.noteListName) { break }
+                    $docs = $g.FindAll($TS::Descendants, (New-Cond $AE::ControlTypeProperty $CT::Document))
+                    if ($docs.Count -gt 1) { break }
+                    if ($docs.Count -eq 1) {
+                        $d = Read-DetailGroup $g
+                        if ($d.datetime -and (-not $day -or $d.datetime.StartsWith($day + ' ')) -and
+                            $d.sender -and $d.title -and ($d.body -or $d.files.Count) -and
+                            (-not $listText -or ($listText.Contains($d.sender) -and $listText.Contains($d.title)))) {
+                            if ($match -and -not [System.Windows.Automation.Automation]::Compare($match.group, $g)) { return $null }
+                            $d | Add-Member -NotePropertyName detailWindow -NotePropertyValue $w.Current.NativeWindowHandle
+                            $match = $d
+                            break
+                        }
+                    }
+                    if ($atRoot) { break }
+                    $g = $walker.GetParent($g)
+                }
+            }
+        } catch [System.Windows.Automation.ElementNotAvailableException] {
+            # The popup can disappear during polling.
+            continue
+        }
+    }
+    return $match
+}
+
+function Get-BrityWindows {
+    $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    $ids = @((Get-Process $L.processName -ErrorAction SilentlyContinue | Where-Object SessionId -eq $session).Id)
+    $AE::RootElement.FindAll($TS::Children, [System.Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $ids -contains $_.Current.ProcessId }
+}
+
+function Save-Attachment($g, [string]$file, [string]$destDir) {
     if (-not $g) { return $null }
     $btn = Find-ByName $g $CT::Button ($L.downloadPrefix + ' ' + [System.Management.Automation.WildcardPattern]::Escape($file))
     if (-not $btn) { return $null }
@@ -489,19 +574,26 @@ elseif ($From -or $To) {
 elseif ($Open) { $targets = @(Select-NewNotes $items $processed $Max) }
 
 $opened = @()
+$lastDetailWindow = 0
 foreach ($t in $targets) {
     $el = Find-NoteRow $win $t.id
     if (-not $el) { $opened += [pscustomobject]@{ id = $t.id; error = 'list item not found' }; continue }
     # The pane updates in steps (header first, body and files later), so a matching header is not enough.
     # Accept only when two reads in a row are identical AND the body/files are no longer the previous note's.
+    $existingWindows = @((Get-BrityWindows) | ForEach-Object { $_.Current.NativeWindowHandle })
     $b = Read-Detail $win
+    if (-not $b) { $b = Find-AlternativeDetail $win '' $existingWindows $lastDetailWindow }
     $beforeHead = ''; $beforeRest = ''
     if ($b) { $beforeHead = (Get-HeadSig $b); $beforeRest = (Get-RestSig $b) }
-    [void](Invoke-El $el)
+    $openedRow = Open-NoteRow $el
     $d = $null; $ok = $false; $prev = ''
     for ($i = 0; $i -lt 18; $i++) {
         Start-Sleep -Milliseconds 500
         $d = Read-Detail $win
+        if ($openedRow -and $i -ge 1 -and -not (Test-Match $d $t.text)) {
+            $alt = Find-AlternativeDetail $win $t.text $existingWindows $lastDetailWindow $t.listDate
+            if ($alt) { $d = $alt }
+        }
         if (Test-Match $d $t.text) {
             $head = Get-HeadSig $d; $rest = Get-RestSig $d
             $fresh = ($rest -ne $beforeRest) -or ($head -eq $beforeHead)   # same head before the click = this note was already showing
@@ -510,15 +602,16 @@ foreach ($t in $targets) {
         } else { $prev = '' }
         if ($i -eq 5 -or $i -eq 11) {
             # the app sometimes ignores the first click right after the list renders: click again
-            $el = $win.FindFirst($TS::Descendants, (New-Cond $AE::AutomationIdProperty $t.id))
-            if ($el) { [void](Invoke-El $el) }
+            $el = Get-VisibleNoteRow $win $t.id
+            if ($el) { $openedRow = (Open-NoteRow $el -PreferSelect:($i -eq 5)) -or $openedRow }
         }
     }
-    if (-not $d) { $opened += [pscustomobject]@{ id = $t.id; error = 'detail pane not found' }; continue }
+    if (-not $openedRow -or -not $d -or ($d.detailWindow -and -not $ok)) { $opened += [pscustomobject]@{ id = $t.id; error = 'detail pane not found' }; continue }
+    if ($ok -and $d.detailWindow) { $lastDetailWindow = $d.detailWindow }
     $saved = @()
     if ($Download -and $ok) {
         foreach ($f in $d.files) {
-            $dest = Save-Attachment $win $f (Join-Path (Join-Path $Inbox 'files') $t.id)
+            $dest = Save-Attachment $d.group $f (Join-Path (Join-Path $Inbox 'files') $t.id)
             $saved += [pscustomobject]@{ name = $f; path = $dest }
         }
     }

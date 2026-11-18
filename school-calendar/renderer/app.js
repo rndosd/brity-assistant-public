@@ -2751,11 +2751,12 @@ $('range-import').addEventListener('click', () => void rangeAction(async () => {
   const result = await api.importRange(...rangeInput());
   if (firstImportDialog.open && result.imported) state.firstImportImported = true;
   state.rangePreview = null;
-  const summary = `${result.imported}건을 불러왔습니다.${result.stopped ? ' 중간에 멈췄습니다.' : ''}${result.failed ? ` ${name} 목록을 읽지 못해 끝까지 불러오지 못했습니다.` : ''}`;
-  setMessage('range-status', summary, result.failed);
+  const detailWarning = result.unreadableNotes ? ` 목록에서 쪽지 ${result.unreadableNotes}건을 찾았지만 본문을 확인할 수 없어 가져오기를 멈췄습니다.` : '';
+  const summary = `${result.imported}건을 불러왔습니다.${result.stopped ? ' 중간에 멈췄습니다.' : ''}${result.failed ? ` ${name} 목록을 읽지 못해 끝까지 불러오지 못했습니다.` : ''}${detailWarning}`;
+  setMessage('range-status', summary, result.failed || !!detailWarning);
   if (result.pending && classify) {
     const queued = await api.classifyRange();
-    setMessage('range-status', `${summary} ${queued}건을 분류하고 있습니다.`, result.failed);
+    setMessage('range-status', `${summary} ${queued}건을 분류하고 있습니다.`, result.failed || !!detailWarning);
   }
 }));
 $('range-stop').addEventListener('click', () => void api.stopRange().then(sync, () => {}));

@@ -368,6 +368,7 @@ async function importRange(from, to) {
   rangeReady();
   rangeImport = { running: true, done: 0, total: 0, stopping: false };
   publish();
+  let unreadableNotes = 0;
   const work = (async () => {
     let failed = false;
     // 한 번에 20건씩 연다. 확인하지 못한 쪽지가 남아 계속 돌지 않도록 횟수를 묶는다.
@@ -378,6 +379,10 @@ async function importRange(from, to) {
       await store.refresh();
       publish();
       if (result.status !== 'ready') { failed = true; break; }
+      if (!goeEdition && result.opened && !result.imported) {
+        unreadableNotes = result.opened;
+        break;
+      }
       if (!result.remaining || !result.opened) break;
     }
     return failed;
@@ -385,7 +390,7 @@ async function importRange(from, to) {
   collectorRun = work.then(() => snapshot(), () => snapshot());
   try {
     const failed = await work;
-    const summary = { imported: rangeImport.done, stopped: rangeImport.stopping, failed, pending: store.rangePending().length };
+    const summary = { imported: rangeImport.done, stopped: rangeImport.stopping, failed, unreadableNotes, pending: store.rangePending().length };
     return summary;
   } catch {
     return { imported: rangeImport.done, stopped: false, failed: true, pending: store.rangePending().length };
