@@ -110,6 +110,17 @@ function shortDate(value) {
   return `${date.getMonth() + 1}/${date.getDate()}(${WEEKDAYS[date.getDay()]})`;
 }
 
+// 2026-11-19 날짜 표기 맞추기: AI 정리·원문 머리의 '2026-11-12', '2026-11-05 09:30'을 날짜 줄과 같은 '11/12(목)' 꼴로.
+// 올해가 아니면 앞에 'N년'을 붙인다. 화면에만 바꾸고 저장된 글은 그대로 둔다.
+function friendlyDates(text, year = new Date().getFullYear()) {
+  return String(text || '').replace(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?(?![\d:])/gu, (whole, y, m, d, time) => {
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (date.getMonth() !== Number(m) - 1 || date.getDate() !== Number(d)) return whole;
+    const day = `${Number(y) === year ? '' : `${y}년 `}${shortDate(`${y}-${m}-${d}`)}`;
+    return time ? `${day} ${time}` : day;
+  });
+}
+
 function entryLate(task, entry, today = key(new Date())) {
   return task.type === '할 일' && entry?.kind === '까지' && !entry.done && entry.date < today;
 }
@@ -1356,7 +1367,7 @@ function renderNote(note, reset) {
   const raw = $('raw-note');
   if (reset || !parts) raw.open = false;
   raw.hidden = !parts;
-  const meta = note ? [note.sender, note.datetime].filter(Boolean).join(' · ') : '';
+  const meta = note ? [note.sender, friendlyDates(note.datetime)].filter(Boolean).join(' · ') : '';
   const recipients = note?.recipients?.trim() || '';
   const suffix = /\s*외\s*\d+\s*명?\s*$/u;
   const count = taskModel.recipientCount(recipients);
@@ -1552,7 +1563,7 @@ function renderDetail(detail, reset = false) {
   $('memo-label').textContent = optionalMemo ? '메모' : '내용';
   $('refine').textContent = task.refining ? '정리 중…' : state.snapshot.aiProvider === 'none' ? 'AI 연결' : task.refined === 'none' ? '다듬기' : '다시 다듬기';
   setMessage('refinement', task.refining ? '쪽지를 정리하고 있습니다.'
-    : task.summary || '');
+    : friendlyDates(task.summary));
   // 안내 글은 할 일이 있을 때만(AI 연결 전, 원문 확인 필요). 평소에는 숨긴다.
   const aiName = aiNames[state.snapshot.aiProvider];
   const hint = !aiName && !state.demo ? '설정에서 AI를 연결하면 제목과 날짜를 정리합니다.' : '';
@@ -2016,7 +2027,9 @@ function renderCollector() {
     if (collector.unverified) received += ` · 이번에 원문 미확인 ${collector.unverified}건`;
   }
   const messages = {
-    idle: `${name}에 로그인한 뒤 연결하세요. 가져온 쪽지는 ${name}에서 읽음 처리됩니다.`,
+    // 2026-11-19: 클래식 뷰는 다른 PC에서 0.5.12로도 실패했다. 연결 전에 원 뷰로 쓰라고 알린다.
+    idle: name === 'GOE 메신저' ? `${name}에 로그인한 뒤 연결하세요. 가져온 쪽지는 ${name}에서 읽음 처리됩니다.`
+      : `${name}에 로그인한 뒤 연결하세요. ${name}는 원 뷰로 써 주세요(환경설정 › 일반 › 뷰 모드). 가져온 쪽지는 ${name}에서 읽음 처리됩니다.`,
     connecting: `${name}의 쪽지 목록을 확인하고 있습니다.`,
     ready: collector?.managed ? [schedule, checked, received].filter(Boolean).join(' · ')
       : `이미 실행 중인 ${name} 수집기의 결과를 읽습니다.`,
@@ -2053,10 +2066,15 @@ function renderCollector() {
     'window-not-found': `${fullName} 창을 찾지 못했습니다. 브리티에 로그인돼 있는지 확인해 주세요.`,
     'note-menu-not-found': `${name} 화면에서 쪽지 메뉴를 찾지 못했습니다. 브리티에 열린 창이나 메뉴가 있으면 닫아 주세요. 브리티가 새로 업데이트됐다면 캘린더도 새 판이 필요할 수 있으니 이 문구를 알려 주세요.`,
     'note-list-not-found': `${name}의 쪽지 목록이 보이지 않습니다. 브리티에 검색칸이나 메뉴, 설정 창이 열려 있으면 닫아 주세요.`,
-    'classic-unreadable': `클래식 뷰에서 쪽지를 열지 못했습니다. 브리티 환경설정 › 뷰 모드에서 원(One) 뷰로 바꿔 주세요.`
+    'classic-unreadable': `클래식 뷰에서 쪽지를 열지 못했습니다. 브리티 환경설정 › 일반 › 뷰 모드에서 원 뷰로 바꿔 주세요.`
   }[name === 'GOE 메신저' ? '' : collector?.brityReason];
   if (brityWhy && status === 'unverified') messages.unverified = brityWhy;
-  if (brityWhy && status === 'ready' && collector.brityReason === 'classic-unreadable') messages.ready = [messages.ready, brityWhy].join(' · ');
+  // 클래식 뷰로 읽혔으면 읽기에 성공해도 원 뷰로 바꾸라고 알리고, 원 뷰로 읽힐 때까지 남긴다(2026-11-19).
+  const classicNotice = name !== 'GOE 메신저' && collectorConnected && state.snapshot.brityView === 'classic' && collector?.brityReason !== 'classic-unreadable'
+    ? `${name}가 클래식 뷰라 쪽지를 놓칠 수 있습니다. 환경설정 › 일반 › 뷰 모드에서 원 뷰로 바꿔 주세요.` : '';
+  const classicShown = classicNotice || (brityWhy && collector.brityReason === 'classic-unreadable');
+  if (classicNotice && status === 'ready') messages.ready = [classicNotice, messages.ready].join(' · ');
+  if (brityWhy && status === 'ready' && collector.brityReason === 'classic-unreadable') messages.ready = [brityWhy, messages.ready].join(' · ');
   messages['list-unreadable'] = [goeWhy || '이번 쪽지 목록을 읽지 못했습니다.', collector?.imported ? `중단 전 ${collector.imported}건 받음` : ''].filter(Boolean).join(' · ');
   const running = status === 'ready' || status === 'in-use';
   // 처음 시작: 브리티를 아직 연결하지 않았으면 1단계 AI 연결 → 2단계 브리티 연결 순서로 보인다.
@@ -2079,7 +2097,7 @@ function renderCollector() {
   const working = !!doing && !stopped;
   $('collector-status').classList.toggle('busy', working);
   $('collector-bar').classList.toggle('working', working);
-  $('collector-bar').classList.toggle('stopped', stopped);
+  $('collector-bar').classList.toggle('stopped', stopped || (!doing && !!classicShown && ['ready', 'unverified'].includes(status)));
   document.querySelector('.app-header').classList.toggle('working', working);
   // 연결한 뒤에는 이 버튼이 "지금 가져오기"다. 자동 분류가 꺼져 있어도 이렇게 가져온 쪽지는 분류한다.
   const fetching = state.connectingCollector || state.snapshot.activity === 'notes';
@@ -3403,7 +3421,29 @@ document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) 
 const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '끝낸 것', hidden: '숨김' };
 const search = { query: '', result: null, timer: null, token: 0 };
 
-function searchRow(hit, today) {
+// 찾은 말에 형광펜(mark). 찾기는 띄어쓰기·대소문자를 무시하므로(store.searchFold) 글자 사이 공백을 허용해 맞춘다.
+function searchPattern(query) {
+  const chars = [...query.replace(/\s+/gu, '')].map(char => char.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
+  return chars.length ? new RegExp(chars.join('\\s*'), 'giu') : null;
+}
+
+function appendMarked(node, text, pattern) {
+  let last = 0;
+  if (pattern) {
+    pattern.lastIndex = 0;
+    for (const found of text.matchAll(pattern)) {
+      if (!found[0]) continue;
+      node.append(text.slice(last, found.index), element('mark', '', found[0]));
+      last = found.index + found[0].length;
+    }
+  }
+  node.append(text.slice(last));
+  return node;
+}
+
+// 2026-11-19 사용자 “검색했을 때 나오는 정보도 깔끔한지”: 1줄 제목만(좁은 칸에서 제목이 가장 잘리던 문제),
+// 2줄 목록·받은 날·보낸 사람, 3줄은 본문·첨부·쪽지 제목에서 찾았을 때만 찾은 말이 앞쪽에 오게 두 줄까지.
+function searchRow(hit, today, pattern) {
   const task = state.snapshot.tasks.find(item => item.id === hit.id);
   const row = element('li', 'row search-row');
   row.classList.toggle('selected', hit.id === state.selected);
@@ -3412,16 +3452,23 @@ function searchRow(hit, today) {
   pick.setAttribute('aria-pressed', String(hit.id === state.selected));
   pick.title = [hit.title, hit.noteTitle && hit.noteTitle !== hit.title ? `쪽지 제목: ${hit.noteTitle}` : ''].filter(Boolean).join('\n');
   const head = element('span', 'search-head');
-  head.append(rowTitle(hit.title));
+  const title = element('span', 'row-title');
+  title.append(appendMarked(element('span', 'row-text'), displayTitle(hit.title), pattern));
+  head.append(title);
+  const meta = element('span', 'search-meta');
   const view = state.taskViews.get(hit.id);
-  if (view) head.append(element('span', `flag soft search-state state-${view}`, SEARCH_VIEWS[view]));
   const day = receivedDay(hit.datetime || '');
-  if (day) head.append(element('span', 'row-when', `${day === today ? '오늘' : monthDay(day)} 받음`));
-  const match = hit.field === 'body' ? hit.snippet
-    : hit.field === 'attachment' ? `첨부: ${hit.attachment}`
-    : hit.field === 'noteTitle' ? `쪽지 제목: ${hit.noteTitle}` : '';
-  const meta = element('span', 'search-meta', [hit.sender, match].filter(Boolean).join(' · '));
-  pick.append(head, meta);
+  const parts = [
+    view ? element('span', `search-state state-${view}`, SEARCH_VIEWS[view]) : null,
+    day ? (day === today ? '오늘' : monthDay(day)) : '',
+    hit.sender || '',
+  ].filter(Boolean);
+  parts.forEach((part, index) => meta.append(...(index ? [' · ', part] : [part])));
+  const match = element('span', 'search-match');
+  if (hit.field === 'body') appendMarked(match, hit.snippet || '', pattern);
+  else if (hit.field === 'attachment') appendMarked(match, `첨부 ${hit.attachment}`, pattern);
+  else if (hit.field === 'noteTitle') appendMarked(match, `쪽지 제목 ${hit.noteTitle}`, pattern);
+  pick.append(head, meta, match);
   pick.addEventListener('click', () => {
     if (selectTask(hit.id, pick.dataset.focusKey) !== false && task) showTaskMonth(task);
   });
@@ -3438,13 +3485,17 @@ function renderSearch() {
   const known = new Set(state.snapshot.tasks.map(task => task.id));
   const hits = result ? result.results.filter(hit => known.has(hit.id)) : [];
   const folded = search.query.replace(/\s+/gu, '');
-  $('search-status').textContent = [...folded].length < 2 ? '두 글자 이상 넣어 주세요.'
+  // 결과 없음은 조사 없이(‘체험학습’와 처럼 받침에 어긋나던 문제), 무엇으로 찾을 수 있는지 한 줄 덧붙인다.
+  const status = $('search-status');
+  status.replaceChildren([...folded].length < 2 ? '두 글자 이상 넣어 주세요.'
     : !result ? '찾는 중입니다.'
     : result.error ? '검색을 마치지 못했습니다. 검색어를 다시 입력해 주세요.'
-    : !hits.length ? `‘${search.query}’와 맞는 업무·쪽지가 없습니다.`
-    : `${hits.length}건${result.more ? ' (최근 것부터 50건만 보입니다. 더 자세히 넣어 주세요.)' : ''}`;
+    : !hits.length ? '맞는 업무·쪽지가 없습니다.'
+    : `${hits.length}건 찾음${result.more ? ' · 최근 50건만 보입니다. 더 자세히 넣어 보세요.' : ''}`);
+  if (result && !result.error && !hits.length) status.append(element('span', 'search-hint', '보낸 사람 이름이나 첨부 파일 이름으로도 찾을 수 있습니다.'));
   const today = key(new Date());
-  $('search-list').replaceChildren(...hits.map(hit => searchRow(hit, today)));
+  const pattern = searchPattern(search.query);
+  $('search-list').replaceChildren(...hits.map(hit => searchRow(hit, today, pattern)));
 }
 
 async function runSearch(query, request) {
@@ -3702,7 +3753,7 @@ $('zoom-out').addEventListener('click', () => { zoomStep = applyZoom(zoomStep - 
 
 // 화면 꾸미기(스킨): 자리는 그대로 두고 색·질감·글꼴·그림만 바꾼다(skins.css). 이 PC에만 기억하고,
 // 첫 화면 전에 skin-boot.js가 먼저 입힌다.
-const SKINS = ['diary', 'cute', 'evening', 'minimal', 'contrast'];
+const SKINS = ['diary', 'cute', 'evening', 'minimal', 'contrast', 'brutal', 'retro', 'news'];
 const skinInputs = [...document.querySelectorAll('input[name="skin"]')];
 function applySkin(skin) {
   const value = SKINS.includes(skin) ? skin : 'minimal';

@@ -1081,7 +1081,7 @@ if ($DiagnosticReadId) {
     & $Observe 'target' $targets.Count
 }
 $noteWindowBase = $null
-$classicTried = 0; $classicOk = 0
+$classicTried = 0; $classicOk = 0; $viewClassic = 0; $viewOne = 0
 if ($targets.Count) { Start-Keeper $startForeground }
 try {
 foreach ($t in $targets) {
@@ -1192,6 +1192,9 @@ foreach ($t in $targets) {
     }
     if ($usedWindow -and $ok) { $script:classicView = $true }
     if ($noteWindowBase -ne $null -or $usedWindow) { $classicTried++; if ($ok) { $classicOk++ } }
+    # Which view this PC uses, for the calendar's "switch to One view" notice: a note read from its own window
+    # is classic view, one read in the main window is One view.
+    if ($ok -and $d.detailWindow -and $usedWindow) { $viewClassic++ } elseif ($ok -and -not $d.detailWindow) { $viewOne++ }
     if ($DiagnosticReadId) {
         & $Observe 'result' @($openedRow, $ok, $i, [bool]$d, $matchesRow)
         & $Observe 'inspect' $existingWindows
@@ -1252,6 +1255,10 @@ $okCount = @($opened | Where-Object { $_.verified }).Count
 $savedCount = @($opened | ForEach-Object { $_.saved } | Where-Object { $_.path }).Count
 # Classic view opened nothing this run (seen at 150% scale, 2026-11-18): the teacher can switch Brity to One view.
 if ($classicTried -ge 2 -and $classicOk -eq 0) { Write-Output 'reason=classic-unreadable' }
+# Classic view works less reliably (it failed on another PC with 0.5.12): the calendar asks to switch to One view
+# as soon as classic view is seen, even when the notes were read (2026-11-19).
+if ($viewClassic -or ($classicTried -ge 2 -and $classicOk -eq 0)) { Write-Output 'view=classic' }
+elseif ($viewOne) { Write-Output 'view=one' }
 Write-Output ("list={0} unread={1} opened={2} verified={3} filesSaved={4}" -f $items.Count, $unreadCount, $opened.Count, $okCount, $savedCount)
 if ($From -or $To) {
     $left = @($inRange | Where-Object { $processed -notcontains $_.id }).Count

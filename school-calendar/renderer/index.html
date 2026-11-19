@@ -57,12 +57,14 @@
   <main class="workspace" id="calendar-workspace">
     <aside class="todo" id="calendar-list-pane" aria-labelledby="todo-title">
       <h2 class="sr-only" id="todo-title">목록</h2>
-      <p class="today-line"><span id="today-label"></span></p>
-      <!-- 업무·쪽지 검색: 탭과 상관없이 전체에서 찾는다. 글자를 넣으면 탭 목록 대신 결과가 보인다. -->
+      <!-- 업무·쪽지 검색: 탭과 상관없이 전체에서 찾는다. 글자를 넣으면 탭 목록 대신 결과가 보인다.
+           칸 맨 위에 둔다(2026-11-19 “어디 있냐”): 탭 아래면 치는 순간 탭이 숨으며 칸이 위로 튄다. Ctrl+F 꼬리표는 달지 않는다(사용자). -->
       <div class="list-search" role="search">
         <label class="sr-only" for="list-search">업무·쪽지 검색</label>
-        <input type="search" id="list-search" placeholder="제목·보낸 사람·내용·첨부 검색" autocomplete="off" maxlength="100">
+        <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+        <input type="search" id="list-search" placeholder="업무·쪽지 검색" title="제목·보낸 사람·내용·첨부 이름으로 찾습니다 (Ctrl+F)" autocomplete="off" maxlength="100">
       </div>
+      <p class="today-line"><span id="today-label"></span></p>
       <!-- 접는 목록 대신 탭. 탭마다 건수가 늘 보여서 다른 목록에 쌓인 것을 놓치지 않는다. -->
       <div class="list-tabs" role="tablist" aria-label="목록 고르기">
         <button type="button" role="tab" data-view="todo" id="tab-todo" aria-controls="view-todo">
@@ -482,6 +484,9 @@
           <label class="skin-choice"><input type="radio" name="skin" value="evening"><span class="skin-swatch skin-swatch-evening" aria-hidden="true"></span><span class="skin-name"><b>저녁</b><small>어두운 밤하늘</small></span></label>
           <label class="skin-choice"><input type="radio" name="skin" value="minimal"><span class="skin-swatch skin-swatch-minimal" aria-hidden="true"></span><span class="skin-name"><b>미니멀</b><small>흰 바탕·가는 선·여백</small></span></label>
           <label class="skin-choice"><input type="radio" name="skin" value="contrast"><span class="skin-swatch skin-swatch-contrast" aria-hidden="true"></span><span class="skin-name"><b>고대비</b><small>굵은 글씨·진한 선</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="brutal"><span class="skin-swatch skin-swatch-brutal" aria-hidden="true"></span><span class="skin-name"><b>팝</b><small>굵은 선·쨍한 색</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="retro"><span class="skin-swatch skin-swatch-retro" aria-hidden="true"></span><span class="skin-name"><b>레트로</b><small>옛 컴퓨터 창</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="news"><span class="skin-swatch skin-swatch-news" aria-hidden="true"></span><span class="skin-name"><b>신문</b><small>명조 제목·이중 괘선</small></span></label>
         </div>
       </fieldset>
 

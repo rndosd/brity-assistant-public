@@ -302,6 +302,8 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
         publish();
         try { collector = await collectOnce({ ...collectorOptions, force, signal: lifetime.signal }); }
         finally { activity = null; }
+        // 클래식 뷰 안내는 원 뷰로 읽힐 때까지 남긴다(재시작 뒤에도). 쪽지를 안 읽은 주기는 판단을 바꾸지 않는다.
+        if (collector.brityView) await store.setBrityView(collector.brityView).catch(() => {});
         lastImported = collector.status === 'ready' || collector.status === 'list-unreadable' && collector.imported > 0
           ? collector.imported : null;
         if (collector.status === 'ready' && collector.inboxDir && collector.inboxDir !== store.inboxDir) {
@@ -374,6 +376,7 @@ async function importRange(from, to) {
     // 한 번에 20건씩 연다. 확인하지 못한 쪽지가 남아 계속 돌지 않도록 횟수를 묶는다.
     for (let round = 0; round < 10 && !closing && !rangeImport.stopping; round++) {
       const result = await collectRange({ ...collectorOptions, signal: lifetime.signal, ...days });
+      if (result.brityView) await store.setBrityView(result.brityView).catch(() => {});
       rangeImport.done += result.imported;
       rangeImport.total = Math.max(rangeImport.total, rangeImport.done + (result.remaining ?? 0));
       await store.refresh();

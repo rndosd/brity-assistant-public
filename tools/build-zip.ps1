@@ -76,7 +76,8 @@ function Copy-Guides([string]$destination) {
   foreach ($name in '처음-시작-안내.html','API-연결-안내.html','Claude-연결-안내.html','Claude-API-연결-안내.html','Codex-연결-안내.html') {
     $source = Join-Path $app $name
     if (!$Goe) { Copy-Item -LiteralPath $source -Destination $destination; continue }
-    $guide = Convert-GoeGuide (Get-Content -LiteralPath $source -Raw -Encoding UTF8)
+    # 원 뷰 안내는 브리티에만 있는 설정이라 GOE판 안내에서 뺀다(2026-11-19).
+    $guide = Convert-GoeGuide ((Get-Content -LiteralPath $source -Raw -Encoding UTF8) -replace '\s*<li>브리티는 <b>원 뷰</b>[^\r\n]*</li>', '')
     if ($name -eq '처음-시작-안내.html') {
       $guide = $guide.Replace('AI가 애매하다고 본 쪽지와 대화방에서 찾은 후보.', 'AI가 애매하다고 본 쪽지.')
       $guide = $guide.Replace('<h3>앞으로 쪽지 가져오기</h3>', '<p>읽지 않은 쪽지를 먼저 표시하는 정렬에서는 이미 읽은 옛 쪽지를 찾지 못할 수 있습니다. 읽은 쪽지는 GOE 메신저에서 날짜순으로 바꾼 뒤 불러오세요.</p><p>첨부는 따로 설정할 것 없이 GOE 메신저에 설정된 저장 폴더로 받습니다. 보낸 지 7일 이내인 쪽지의 첨부가 대상이고, 받은 파일은 그 폴더에 그대로 남고 캘린더 쪽지에서도 열 수 있습니다. 쪽지를 먼저 가져왔다면 자세히에서 <b>첨부만 다시 받기</b>를 누르세요.</p><h3>앞으로 쪽지 가져오기</h3>')
@@ -147,6 +148,7 @@ New-Item -ItemType Directory -Force $root | Out-Null
 if ($ElectronRuntimeZip) { [IO.Compression.ZipFile]::ExtractToDirectory($ElectronRuntimeZip, $runtime) }
 else { Copy-Item -LiteralPath $installedRuntime -Destination $runtime -Recurse }
 Remove-Item (Join-Path $runtime 'resources\default_app.asar') -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $runtime 'debug.log') -ErrorAction SilentlyContinue
 Copy-AppCode (Join-Path $runtime 'resources\app')
 Copy-CollectorScripts (Join-Path $root 'collector')
 
@@ -190,6 +192,7 @@ $readme = @"
    설정 → 백업·정보의 '바탕 화면에 바로 가기 만들기'를 누르면 다음부터 바탕 화면에서 열 수 있습니다.
 4. 1단계: 앱 위쪽의 'AI 연결'을 눌러 AI를 먼저 연결합니다($recommendedAi 권장). 쪽지에서 날짜와 할 일을 뽑는 일을 AI가 합니다.
 5. 2단계: 브리티 메신저에 로그인한 뒤 앱 위쪽의 '브리티 연결'을 누릅니다.
+   브리티는 원 뷰로 써 주세요(브리티 환경설정 › 일반 › 뷰 모드). 클래식 뷰에서는 쪽지를 놓칠 수 있습니다.
    자세한 순서는 처음-시작-안내.html과 AI-SETUP.txt에 있습니다.
 6. 배포한 곳에서 새 ZIP을 받을 수 있습니다. 설정의 '백업 만들기'로 기존 업무와 쪽지를 옮길 수 있습니다.
 
@@ -199,7 +202,7 @@ $readme = @"
 실행기('Brity Messenger Calendar')로 켜면 runtime 폴더에만 그 권한을 더해 고칩니다. runtime\electron.exe를 직접 켜지 마세요.
 그래도 켜지지 않으면 GitHub 첫 화면 '켜지지 않을 때'의 진단 도구 결과를 보내 주세요.
 "@
-if ($Goe) { $readme = (Convert-GoeGuide $readme).Replace('Brity Messenger Calendar', $launcher).Replace('삼성SDS·교육청과 관계없음', '울타리·교육청과 관계없음') }
+if ($Goe) { $readme = (Convert-GoeGuide ($readme -replace "(?m)^   브리티는 원 뷰로 써 주세요[^\r\n]*\r?\n", '')).Replace('Brity Messenger Calendar', $launcher).Replace('삼성SDS·교육청과 관계없음', '울타리·교육청과 관계없음') }
 Set-Content (Join-Path $root 'Read-me.txt') $readme -Encoding utf8
 New-Zip $stageRoot $out
 Get-Item $out | Select-Object FullName, Length

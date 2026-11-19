@@ -58,5 +58,39 @@ test('a classic view that opens nothing asks for One view', { skip: process.plat
     function Find-AlternativeDetail {}
     function Read-Detail {}
   `);
-  assert.match(run(['-Open']), /reason=classic-unreadable[\s\S]*opened=3 verified=0/);
+  assert.match(run(['-Open']), /reason=classic-unreadable[\s\S]*view=classic[\s\S]*opened=3 verified=0/);
+});
+
+// 2026-11-19: 클래식 뷰는 다른 PC에서 0.5.12로도 실패했다. 읽기에 성공해도 view=classic을 알려 앱이 원 뷰를 권한다.
+function readable(where) {
+  const detail = `[pscustomobject]@{ title='Title 1'; sender='Sender'; org=''; datetime='2026-11-18 09:00'; recipients=''; body='Body'; files=@(); group=$null${where === 'window' ? '; detailWindow=42' : ''} }`;
+  return quiet + `
+    function Get-AppWindow { 1 }
+    function Find-ByName { 1 }
+    function Get-NoteItems { [pscustomobject]@{ id='0_202611180000000031_0'; text='Title 1, Sender, 2026-11-18'; unread=$true; hasFile=$false } }
+    function Find-NoteRow { 1 }
+    function Get-VisibleNoteRow { 1 }
+    function Open-NoteRow { $true }
+    function Open-NoteWindow { $script:windowOpened = $true; $true }
+    function Get-NewNoteWindows { @() }
+    function Close-NewNoteWindows {}
+    function Test-Match($d) { [bool]$d }
+    function Get-HeadSig($d) { if ($d) { 'head' } else { '' } }
+    function Get-RestSig($d) { if ($d) { 'rest' } else { '' } }
+    function Read-Detail { ${where === 'window' ? '$null' : `if ($script:rowOpened) { ${detail} }`} }
+    function Find-AlternativeDetail { ${where === 'window' ? `if ($script:windowOpened) { ${detail} }` : '$null'} }
+  ` + (where === 'window' ? '' : `
+    function Open-NoteRow { $script:rowOpened = $true; $true }`);
+}
+
+test('the collector says which Brity view the notes were read in', { skip: process.platform !== 'win32' }, async t => {
+  const classic = await collector(t, readable('window'));
+  const classicOut = classic(['-Open']);
+  assert.match(classicOut, /^view=classic\s*$/m);
+  assert.match(classicOut, /verified=1/);
+  assert.doesNotMatch(classicOut, /reason=/);
+  const one = await collector(t, readable('main'));
+  const oneOut = one(['-Open']);
+  assert.match(oneOut, /^view=one\s*$/m);
+  assert.match(oneOut, /verified=1/);
 });

@@ -76,7 +76,9 @@ function stampNow(date = new Date()) {
 // 입력할 때마다 본문 전체를 변환하지 않도록 검색용 문자열을 메모리에 보관한다.
 const SEARCH_MIN = 2;
 const SEARCH_LIMIT = 50;
-const SEARCH_SNIPPET = 36;
+// 미리보기는 찾은 말이 앞쪽에 오게 앞은 짧게, 뒤는 길게(좁은 목록 칸에서 찾은 말이 … 뒤로 잘리던 문제, 2026-11-19).
+const SEARCH_SNIPPET_BEFORE = 10;
+const SEARCH_SNIPPET_AFTER = 60;
 
 function searchFold(text) {
   return text.replace(/\s+/gu, '').toLowerCase();
@@ -96,8 +98,8 @@ function searchSnippet(text, query, folded = searchFold(text)) {
     if (next >= found + needle.length) break;
     position = next;
   }
-  const from = Math.max(0, start - SEARCH_SNIPPET);
-  const to = Math.min(text.length, end + SEARCH_SNIPPET);
+  const from = Math.max(0, start - SEARCH_SNIPPET_BEFORE);
+  const to = Math.min(text.length, end + SEARCH_SNIPPET_AFTER);
   const line = text.slice(from, to).replace(/\s+/gu, ' ').trim();
   return `${from > 0 ? '…' : ''}${line}${to < text.length ? '…' : ''}`;
 }
@@ -768,6 +770,7 @@ class CalendarStore {
       aiBlocked: this.aiBlocked?.message ?? null,
       aiProvider: this.aiProvider, collectorConnected: this.settings.collectorConnected === true,
       collectorFirstImportPending: this.settings.collectorFirstImportPending === true,
+      brityView: this.settings.brityView === 'classic' ? 'classic' : this.settings.brityView === 'one' ? 'one' : null,
       profile: this.settings.profile ?? null,
       rulesUpdate: this.rulesUpdate ? { ...this.rulesUpdate } : null,
       rangePending: this.inbox.status === 'ready' ? this.rangePending().length : 0,
@@ -1575,6 +1578,18 @@ class CalendarStore {
     return this.serialize(async () => {
       const chatRooms = rooms.map(({ key, label }) => ({ key, label }));
       await this.saveSettings({ ...this.settings, chatRooms });
+      return this.snapshot();
+    });
+  }
+
+  // 수집기가 쪽지를 읽은 브리티 뷰 모드(classic·one). 클래식이면 앱이 원 뷰로 바꾸라고 안내한다(2026-11-19).
+  setBrityView(view) {
+    if (view !== 'classic' && view !== 'one') throw new CalendarError('설정 값을 확인해 주세요.');
+    return this.serialize(async () => {
+      if (this.settings.brityView === view) return this.snapshot();
+      const settings = { ...this.settings, brityView: view };
+      await writeJson(this.settingsPath, settings);
+      this.settings = settings;
       return this.snapshot();
     });
   }

@@ -98,6 +98,9 @@ $newestRow = $null
 # OCR can misread a digit; a list time later than now would hide newer read notes, so it is not remembered
 $latestPlausible = (Get-Date).AddMinutes(5).ToString('yyyy-MM-dd HH:mm', $calendar)
 
+# GOE_TIMING=1 prints how long each step took (to stderr; for measuring, off in normal runs)
+$markClock = [Diagnostics.Stopwatch]::StartNew()
+function Mark([string]$What) { if ($env:GOE_TIMING) { [Console]::Error.WriteLine(('{0,6} ms  {1}' -f $markClock.ElapsedMilliseconds, $What)) } }
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
 . (Join-Path $PSScriptRoot 'goe-folder-state.ps1')
 $L = Get-Content (Join-Path $PSScriptRoot 'labels.json') -Raw -Encoding utf8 | ConvertFrom-Json
@@ -125,6 +128,16 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  public static void BringReplyToFront(IntPtr h) {
+    uint pid;
+    uint front = GetWindowThreadProcessId(GetForegroundWindow(), out pid), me = GetCurrentThreadId();
+    bool joined = front != 0 && front != me && AttachThreadInput(me, front, true);
+    try { if (IsIconic(h)) ShowWindow(h, 9); BringWindowToTop(h); SetForegroundWindow(h); }
+    finally { if (joined) AttachThreadInput(me, front, false); }
+  }
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
@@ -281,6 +294,123 @@ function Read-Window($h, [int]$k = 3) {
         @{ bmp = $bmp; lines = $lines }
     } catch { $bmp.Dispose(); throw }
 }
+# A cheap fingerprint of what the list shows (a small grey thumbnail of the list window), to see whether a
+# scroll still moves it. $null when it cannot be taken.
+function Get-ListLook([IntPtr]$List) {
+    try {
+        $r = Get-Rect $List; $w = $r.Rt - $r.L; $hh = $r.B - $r.T
+        if ($w -lt 10 -or $hh -lt 10) { return $null }
+        $bmp = New-Object System.Drawing.Bitmap $w, $hh
+        try {
+            $g = [Drawing.Graphics]::FromImage($bmp)
+            try { $dc = $g.GetHdc(); try { [void][GoeWin.W]::PrintWindow($List, $dc, 2) } finally { $g.ReleaseHdc($dc) } } finally { $g.Dispose() }
+            $small = New-Object System.Drawing.Bitmap $bmp, 24, 48
+            try {
+                $sb = [Text.StringBuilder]::new()
+                for ($y = 0; $y -lt 48; $y++) { for ($x = 0; $x -lt 24; $x++) { $c = $small.GetPixel($x, $y); [void]$sb.Append([char](65 + [int](($c.R + $c.G + $c.B) / 48))) } }
+                $sb.ToString()
+            } finally { $small.Dispose() }
+        } finally { $bmp.Dispose() }
+    } catch { $null }
+}
+# Scroll the note list by wheel ticks (positive = down, negative = up), without moving the mouse.
+function Scroll-List([int]$Ticks) {
+    $lp = [IntPtr](($lr.T + 100) * 65536 + ($lr.L + 150))
+    $delta = if ($Ticks -gt 0) { -120 } else { 120 }
+    for ($i = 0; $i -lt [Math]::Abs($Ticks); $i++) {
+        [void][GoeWin.W]::PostMessage($H.list, 0x020A, [IntPtr](($delta -band 0xFFFF) -shl 16), $lp); Start-Sleep -Milliseconds 15
+    }
+}
+function Reset-ListScroll {
+    # the list keeps its scroll position between visits, and Home/PageUp/wheel do not scroll it up.
+    # Clicking the scrollbar track just under the top arrow pages up: do it until the top is reached.
+    # Stop as soon as the list no longer moves (40 fixed clicks took 1.6 s of every run, 2026-11-19).
+    $lp = [IntPtr](22 * 65536 + 9)
+    $lastLook = $null
+    for ($batch = 0; $batch -lt 8; $batch++) {
+        for ($i = 0; $i -lt 5; $i++) { [void][GoeWin.W]::PostMessage($H.scroll, 0x0201, [IntPtr]1, $lp); [void][GoeWin.W]::PostMessage($H.scroll, 0x0202, [IntPtr]0, $lp); Start-Sleep -Milliseconds 12 }
+        Start-Sleep -Milliseconds 40
+        $look = Get-ListLook $folderProof.Pane.List
+        if ($null -ne $look -and $look -eq $lastLook) { break }
+        $lastLook = $look
+    }
+}
+# Only the list's time column (a narrow strip, about a fifth of a full-window OCR). Used to scroll quickly toward
+# an old note for reply / download again (2026-11-19: 14 full pages, 29 of 36 s, for a 9-day-old note).
+# Returns the times top to bottom, or $null when the column is not known or nothing was read.
+function Read-ListTimes([switch]$Rows) {
+    if (-not $script:timeColX) { return $null }
+    $r = Get-Rect $main; $w = $r.Rt - $r.L; $hh = $r.B - $r.T
+    $bmp = New-Object System.Drawing.Bitmap $w, $hh
+    try {
+        $g = [Drawing.Graphics]::FromImage($bmp)
+        try { $dc = $g.GetHdc(); try { [void][GoeWin.W]::PrintWindow($main, $dc, 2) } finally { $g.ReleaseHdc($dc) } } finally { $g.Dispose() }
+        $x0 = [Math]::Max(0, $script:timeColX - 12); $x1 = [Math]::Min($w, $listRight - 2)
+        $y0 = [Math]::Max(0, $listTop + 5); $y1 = [Math]::Min($hh, $listBottom - 50)
+        if ($x1 - $x0 -lt 30 -or $y1 - $y0 -lt 30) { return $null }
+        $view = Read-OcrRegion $bmp ([Drawing.Rectangle]::new($x0, $y0, $x1 - $x0, $y1 - $y0)) 3
+        $found = @($view.result.Lines | ForEach-Object {
+            $dt = Parse-ListTime $_.Text
+            if ($dt) { [pscustomobject]@{ datetime = $dt; y = $y0 + [int](@($_.Words)[0].BoundingRect.Y / $view.scaleY) } }
+        })
+        if (!$found.Count) { return }
+        if (-not $Rows) { return @($found | ForEach-Object datetime) }
+        # On the candidate row read the sender and title too. Keep the other rows for navigation only.
+        $k = if ($script:rowScale) { $script:rowScale } else { 1.0 }
+        $candidates = @($found | Where-Object { Test-SameNoteRow $_ $retryNote })
+        # Resolve ties, a missing target time, and attachment retries with the full row reader.
+        # It recovers missed time cells, distinguishes senders and reads the attachment clip.
+        if ($candidates.Count -gt 1 -or !$Reply -or
+            (!$candidates.Count -and ($found.datetime | Sort-Object)[0] -le $retryNote.datetime)) { return }
+        $sender = ''
+        $title = ''
+        if ($candidates.Count) {
+            $t = $candidates[0]
+            $y = [Math]::Max(0,$t.y - [int](12 * $k))
+            $right = [Math]::Min($x0, $bmp.Width)
+            $height = [Math]::Min([int](62 * $k), $bmp.Height - $y)
+            if ($right -le $listLeft -or $height -lt 8) { return }
+            $area = [Drawing.Rectangle]::new($listLeft, $y, $right - $listLeft, $height)
+            $senderView = Read-OcrRegion $bmp $area 3
+            foreach ($line in $senderView.result.Lines) {
+                $offset = $y + @($line.Words)[0].BoundingRect.Y / $senderView.scaleY - $t.y
+                if (!$title -and [Math]::Abs($offset) -lt 6 * $k) { $title = $line.Text }
+                if (!$sender -and $offset -gt 10 * $k -and $offset -lt 35 * $k) { $sender = Clean-Sender $line.Text }
+            }
+            if (!$sender -or !$retryNote.sender -or !(Test-SameNoteRow @{datetime=$t.datetime; sender=$sender} $retryNote)) {
+                Mark 'candidate sender needs full list OCR'
+                return
+            }
+        }
+        foreach ($t in $found) {
+            $top = $t.y - [int][Math]::Round(16 * $k)
+            [pscustomobject]@{
+                datetime = $t.datetime; titleOcr = $title; sender = $(
+                    if ($candidates.Count -and $t.y -eq $candidates[0].y) { $sender })
+                unread = ((Count-Yellow $bmp ($listRight - [int](56 * $k)) ($listRight - [int](29 * $k)) ($top + [int](40 * $k)) ($top + [int](64 * $k))) -gt (40 * $k * $k))
+                attach = $false
+                clickY = $top + [int][Math]::Round(35 * $k) - $listTop
+            }
+        }
+    } finally { $bmp.Dispose() }
+}
+# The time column's place and the row scale from the last full read, so a reply can start from the time column.
+function Save-ListLayout {
+    try {
+        $mrNow = Get-Rect $main
+        [IO.Directory]::CreateDirectory($Inbox) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $Inbox 'goe-layout.json'), (@{ colX = $script:timeColX; rowScale = $script:rowScale; width = $mrNow.Rt - $mrNow.L; listTop = $listTop } | ConvertTo-Json -Compress))
+    } catch {}
+}
+function Use-ListLayout {
+    try {
+        $saved = Get-Content -LiteralPath (Join-Path $Inbox 'goe-layout.json') -Raw -ErrorAction Stop | ConvertFrom-Json
+        $mrNow = Get-Rect $main
+        if ($saved.width -ne $mrNow.Rt - $mrNow.L -or $saved.listTop -ne $listTop -or -not $saved.colX) { return $false }
+        $script:timeColX = [int]$saved.colX; $script:rowScale = [double]$saved.rowScale
+        $true
+    } catch { $false }
+}
 function Read-OcrRegion($bmp, [Drawing.Rectangle]$area, [int]$requestedScale, [switch]$Mono) {
     # A full-width 4K window at 3x exceeds the Windows OCR limit. Keep integer zoom when it fits.
     $limit = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension / [double][Math]::Max($area.Width, $area.Height)
@@ -410,6 +540,7 @@ if (-not $mainEl) {
 }
 $pidCond = New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, $proc.Id)
 $main = [IntPtr]$mainEl.Current.NativeWindowHandle
+Mark 'found GOE window'
 
 # A hidden (tray) window exposes no controls to UI Automation. The connection check stops here; a real run
 # shows it without activating it before looking for the buttons, and Hide-Main / Restore-Main put it back.
@@ -463,6 +594,7 @@ if (-not $Inspect) {
     $ocr = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('ko'))
     if (-not $ocr) { $result.status = 'list-unreadable'; $result.reason = 'no-korean-ocr'; Publish-Result $result.reason; return }
 }
+Mark 'ocr ready'
 $wasMin = [GoeWin.W]::IsIconic($main); $wasHidden = -not [GoeWin.W]::IsWindowVisible($main)
 # While a tray window is read it is parked right of all screens, so the teacher does not see GOE pop up on
 # every automatic run (2026-11-17). PrintWindow and UI Automation still read it there. Its place is written to
@@ -600,7 +732,6 @@ function DoubleClick($h, $x, $y) {
 function Get-NoteWindow {
     $AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object { $_.Current.ClassName -eq $L.childClass -and $_.Current.Name -eq $L.noteWindow } | Select-Object -First 1
 }
-$keepNote = $false
 function Format-Body([string]$Text) { ($Text -replace '\s+', ' ').Trim() }
 # A list row that may be the saved note: same day, within a minute, and a sender that differs by at most
 # a couple of letters (all OCR). The caller confirms with the exact body.
@@ -621,14 +752,22 @@ function Open-GoeReply($NoteEl, $Elements) {
     $before = @{}
     foreach ($w in $AE::RootElement.FindAll($TS::Children, $pidCond)) { $before[[int64]$w.Current.NativeWindowHandle] = $true }
     Click $button.Current.NativeWindowHandle
+    $sendName = [System.Windows.Automation.PropertyCondition]::new($AE::NameProperty, $L.sendButton)
     for ($i = 0; $i -lt 50; $i++) {
         Start-Sleep -Milliseconds 100
         $new = @($AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object {
             !$before.ContainsKey([int64]$_.Current.NativeWindowHandle) -and [GoeWin.W]::IsWindowVisible([IntPtr]$_.Current.NativeWindowHandle)
         })
-        if ($new.Count) {
-            $h = [IntPtr]$new[0].Current.NativeWindowHandle
+        foreach ($window in $new) {
+            if ($window.Current.ClassName -ne $L.childClass) { continue }
+            $send = $window.FindFirst($TS::Descendants, $sendName)
+            if (!$send -or $send.Current.ClassName -ne 'Button') { continue }
+            $h = [IntPtr]$window.Current.NativeWindowHandle
             [void][GoeWin.W]::SetForegroundWindow($h)
+            for ($attempt = 0; $attempt -lt 2 -and [GoeWin.W]::GetForegroundWindow() -ne $h; $attempt++) {
+                [GoeWin.W]::BringReplyToFront($h)
+                Start-Sleep -Milliseconds 120
+            }
             if ([GoeWin.W]::GetForegroundWindow() -eq $h) { return 'opened' }
             return 'opened-background'
         }
@@ -780,11 +919,85 @@ function Test-AttachmentPrefix([string]$Label, [string]$FileName, [double]$Error
     $false
 }
 
+# Edit distance in C#: the GOE folder is often Downloads with hundreds of files, too slow in a PowerShell loop.
+# Clipped labels are compared with the start of each file name, full labels with the whole name.
+function Get-OcrDistance([string]$Label, [string]$Stem, [int]$Limit, [bool]$Whole) {
+    if (-not ('GoeText' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+public static class GoeText {
+  public static int Distance(string p, string s, int limit, bool whole) {
+    int n = p.Length;
+    if (s.Length < n - limit || (whole && s.Length > n + limit)) return int.MaxValue;
+    int m = whole ? s.Length : Math.Min(s.Length, n + limit);
+    int[] prev = new int[m + 1], cur = new int[m + 1];
+    for (int j = 0; j <= m; j++) prev[j] = j;
+    for (int i = 1; i <= n; i++) {
+      cur[0] = i;
+      for (int j = 1; j <= m; j++) {
+        int c = p[i - 1] == s[j - 1] ? 0 : 1;
+        cur[j] = Math.Min(Math.Min(prev[j] + 1, cur[j - 1] + 1), prev[j - 1] + c);
+      }
+      int[] t = prev; prev = cur; cur = t;
+    }
+    if (whole) return prev[m];
+    int best = int.MaxValue;
+    for (int j = Math.Max(0, n - limit); j <= m; j++) if (prev[j] < best) best = prev[j];
+    return best;
+  }
+}
+'@
+    }
+    [GoeText]::Distance($Label, $Stem, $Limit, $Whole)
+}
+# Last resort for one label: the file whose name is closest, within 30% of the letters, and clearly closer than
+# any other (3 letters or more). A long official name came back with 10 of 58 letters wrong (2026-11-19), past
+# the 15% the other checks allow; the files of one document differ in a few letters, hence the margin.
+function Find-ClosestAttachment([string]$Label, $Pool) {
+    $clipped = ($Label -replace '\s+', '') -match '(?:\.{2,}|\u2026)$'
+    $core = ($Label -replace '(?:\.{2,}|\u2026)\s*$', '').Trim()
+    $ext = if (!$clipped -and $core -match '(\.[A-Za-z][A-Za-z0-9]{1,6})$') { $Matches[1] } else { '' }
+    $stem = if ($ext) { $core.Substring(0, $core.Length - $ext.Length) } else { $core }
+    $p = ($stem -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant()
+    if ($p.Length -lt 8) { return }
+    $limit = [int][Math]::Floor($p.Length * 0.3)
+    $scored = @(foreach ($c in $Pool) {
+        if ($ext -and $c.Extension -ne $ext) { continue }
+        $s = ([IO.Path]::GetFileNameWithoutExtension($c.Name) -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant()
+        $d = Get-OcrDistance $p $s $limit (!$clipped)
+        if ($d -le $limit) { [pscustomobject]@{ file = $c; d = $d } }
+    }) | Sort-Object d
+    $scored = @($scored)
+    if (!$scored.Count -or ($scored.Count -gt 1 -and $scored[1].d -lt $scored[0].d + 3)) { return }
+    $scored[0].file
+}
+
+# GOE saves a note's attachments in "<sender id>_<yyyyMMddHHmmss>0009" (seen 2026-11-16..19); the time is the
+# note's send time for a note sent directly (a forwarded note keeps the original's time, so this only breaks a
+# tie or fills in when names and sizes are of no use). $script:noteTimes holds the list and window times.
+$noteTimes = @()
+function Test-NoteFolder($File) {
+    if (!$script:noteTimes -or $File.Key -notmatch '^[A-Za-z0-9._-]+_(\d{12})\d{6}\\') { return $false }
+    try { $t = [datetime]::ParseExact($Matches[1], 'yyyyMMddHHmm', [Globalization.CultureInfo]::InvariantCulture) } catch { return $false }
+    [bool]($script:noteTimes | Where-Object { [Math]::Abs(($_ - $t).TotalMinutes) -le 1 })
+}
+# All files of the one GOE folder that carries this note's time, when there is exactly one such folder and it
+# holds exactly the expected number of files.
+function Find-NoteFolderFiles($State, [int]$Count) {
+    if ($Count -le 0) { return @() }
+    $own = @($State.Values | Where-Object { $_.Length -gt 0 -and (Test-NoteFolder $_) })
+    $folders = @($own | ForEach-Object { Split-Path -Parent $_.Key } | Sort-Object -Unique)
+    if ($folders.Count -ne 1 -or $own.Count -ne $Count) { return @() }
+    @($own | Sort-Object Name)
+}
+
 # Match the attachment names read from the note window to new or changed files. A name matches one file
 # or none: exact name, the same name with "(1)" added by GOE, or the start of a name GOE clipped with "...".
 function Select-Attachments($Candidates, [string[]]$Names) {
     $picked = [ordered]@{}
-    foreach ($label in $Names) {
+    foreach ($raw in $Names) {
+        $label = Repair-OcrName $raw
+        if (!$label) { continue }
         $pool = @($Candidates | Where-Object { !$picked.Contains($_.Key) })
         $expected = $label -replace '\s+', ''
         if ($expected.EndsWith('...')) {
@@ -801,7 +1014,9 @@ function Select-Attachments($Candidates, [string[]]$Names) {
             # ("<x>-ra-seu-eun" for "-on", 2026-11-18)
             if (!$found.Count -and $extension) { $found = @($pool | Where-Object { Test-SimilarName $label $_.Name }) }
         }
+        if (!$found.Count) { $found = @(Find-ClosestAttachment $label $pool) }
         if ($found.Count -gt 1) { $found = @($found | Where-Object { !(Test-FromInternet $_) }) }
+        if ($found.Count -gt 1) { $own = @($found | Where-Object { Test-NoteFolder $_ }); if ($own.Count -eq 1) { $found = $own } }
         if ($found.Count -eq 1) { $picked[$found[0].Key] = $found[0] }
     }
     @($picked.Values)
@@ -819,6 +1034,11 @@ function Get-DownloadBatch($Before, $After, $Previous, [int]$Count, [string[]]$N
         # Names unreadable: accept only when exactly the expected number of files appeared and nothing else changed.
         $plain = @($candidates | Where-Object { !(Test-FromInternet $_) })
         if ($plain.Count -eq $Count -and $changed.Count -eq $Count) { $files = $plain }
+        # something else changed in a busy folder at the same time: the files in GOE's folder for this note
+        elseif ($script:noteTimes) {
+            $own = @($plain | Where-Object { Test-NoteFolder $_ })
+            if ($own.Count -eq $Count) { $files = $own }
+        }
     }
     if ($Count -gt 0 -and $files.Count -eq $Count -and !($files | Where-Object { !(Test-SameDownloadFile $_ $Previous[$_.Key]) })) {
         return @{ status = 'complete'; files = $files }
@@ -841,7 +1061,20 @@ function Get-SavedAttachmentCount($Note) {
     $paths.Count
 }
 
+# OCR puts characters a file name cannot hold into names ("x|sx" for xlsx, "Z*Ei"), which made the path
+# functions throw and the whole attachment match fail (2026-11-19, a 10-file note). It also reads the file-type
+# icon in front of a name as one letter. Clean both before a name is used or saved.
+function Repair-OcrName([string]$Name) {
+    $n = ($Name -replace '\|', 'l' -replace '[<>:"/\\?*\x00-\x1f]', '').Trim()
+    if ($n -match '^\S\s+\S') { $n = $n -replace '^\S\s+', '' }
+    $n
+}
 function Read-AttachmentNames($Lines, $Header, [int]$Count, $NextRow) {
+    # "|" for l first, so an extension like "x|sx" is still seen as one
+    $clean = @($Lines | ForEach-Object { [pscustomobject]@{ x = $_.x; y = $_.y; t = ([string]$_.t -replace '\|', 'l') } })
+    @(Read-AttachmentNamesRaw $clean $Header $Count $NextRow | ForEach-Object { Repair-OcrName $_ } | Where-Object { $_ })
+}
+function Read-AttachmentNamesRaw($Lines, $Header, [int]$Count, $NextRow) {
     if (-not $Header) { return }
     $sizeSuffix = '\s*[\(\[]?\s*[\d.,]+\s*(?:KB|MB|GB|B)\s*[\)\]]?\s*$'
     # A wide note window lays several files side by side in one row, so read every line between the header and
@@ -885,12 +1118,23 @@ function Read-AttachmentBand($Bmp, $Header, $NextRow, [int]$Count) {
 function Read-AttachmentSizes($Lines, $Header, [int]$Count) {
     if (-not $Header) { return }
     $lastY = $Header.y + 50 + 32 * [Math]::Max(0, $Count - 1)
-    foreach ($line in $Lines | Where-Object { $_.y -ge $Header.y + 20 -and $_.y -le $lastY -and $_.x -lt 110 }) {
-        if ($line.t -notmatch '^(?<name>.+?)\s*[\(\[]?\s*(?<value>\d[\d,]*(?:\.(?<dec>\d+))?)\s*(?<unit>KB|MB|GB|B)\s*[\)\]]?\s*$') { continue }
+    $band = @($Lines | Where-Object { $_.y -ge $Header.y + 20 -and $_.y -le $lastY })
+    $sizeOnly = '^\s*[\(\[]?\s*\d[\d,]*(?:\.\d+)?\s*(?:KB|MB|GB|B)\s*[\)\]]?\s*$'
+    foreach ($line in $band) {
+        $text = $line.t
+        if ($text -match $sizeOnly) {
+            # OCR can read the size as a line of its own beside the name ("96 KB" right of "(picture1).png",
+            # 2026-11-18): give it the name on the same row
+            $nameLine = $band | Where-Object { $_.t -notmatch $sizeOnly -and $_.x -lt $line.x -and [Math]::Abs($_.y - $line.y) -le 8 } |
+                Sort-Object { [Math]::Abs($_.y - $line.y) } | Select-Object -First 1
+            if (!$nameLine) { continue }
+            $text = $nameLine.t + ' ' + $text
+        } elseif ($line.x -ge 110) { continue }
+        if ($text -notmatch '^(?<name>.+?)\s*[\(\[]?\s*(?<value>\d[\d,]*(?:\.(?<dec>\d+))?)\s*(?<unit>KB|MB|GB|B)\s*[\)\]]?\s*$') { continue }
         $unit = @{ B = 1; KB = 1024; MB = 1048576; GB = 1073741824 }[$Matches.unit.ToUpperInvariant()]
         $step = [Math]::Pow(10, -$Matches.dec.Length) * $unit
         [pscustomobject]@{
-            name = $Matches.name.Trim()
+            name = Repair-OcrName $Matches.name
             size = [double]::Parse(($Matches.value -replace ',', ''), [Globalization.CultureInfo]::InvariantCulture) * $unit
             tolerance = $step + 1
         }
@@ -913,13 +1157,21 @@ function Get-EditDistance([string]$A, [string]$B) {
 
 # OCR may misread a letter or two (e.g. "20272.28" for "2027.2.28", or one Hangul syllable).
 function Test-SimilarName([string]$Label, [string]$FileName) {
-    $expected = $Label -replace '\s+', ''
-    if ($expected.EndsWith('...')) { return Test-AttachmentPrefix $expected $FileName }
-    if ([IO.Path]::GetExtension($expected) -ne [IO.Path]::GetExtension($FileName)) { return $false }
-    $a = ([IO.Path]::GetFileNameWithoutExtension($expected) -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant()
-    $b = ([IO.Path]::GetFileNameWithoutExtension($FileName) -replace '\(\d+\)$' -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant()
-    if (!$a -or !$b) { return $false }
-    (Get-EditDistance $a $b) -le [Math]::Max(1, [Math]::Floor($a.Length * 0.2))
+    # OCR reads the file-type icon in front of the name as one letter ("<x> (picture1).png", 2026-11-18): also
+    # try the label without a one-letter first word
+    $labels = @($Label -replace '\|', 'l' -replace '[<>:"/\\?*\x00-\x1f]', '')
+    if ($labels[0] -match '^\s*\S\s+\S') { $labels += ($labels[0] -replace '^\s*\S\s+', '') }
+    foreach ($one in $labels) {
+        $expected = $one -replace '\s+', ''
+        if ($expected.EndsWith('...')) { if (Test-AttachmentPrefix $expected $FileName) { return $true }; continue }
+        if ([IO.Path]::GetExtension($expected) -ne [IO.Path]::GetExtension($FileName)) { continue }
+        # l, I and | are the same stroke to OCR as 1; O as 0
+        $a = ([IO.Path]::GetFileNameWithoutExtension($expected) -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant() -replace '[LI]', '1' -replace 'O', '0'
+        $b = ([IO.Path]::GetFileNameWithoutExtension($FileName) -replace '\(\d+\)$' -replace '[^\p{L}\p{Nd}]', '').ToUpperInvariant() -replace '[LI]', '1' -replace 'O', '0'
+        if (!$a -or !$b) { continue }
+        if ((Get-EditDistance $a $b) -le [Math]::Max(1, [Math]::Floor($a.Length * 0.2))) { return $true }
+    }
+    $false
 }
 
 # GOE silently skips an attachment whose file name already exists in its folder (seen 2026-11-16), which is
@@ -934,6 +1186,7 @@ function Find-ExistingAttachments($State, $Sizes, [string[]]$Taken) {
             [Math]::Abs($_.Length - $entry.size) -le $entry.tolerance -and (Test-SimilarName $entry.name $_.Name)
         })
         if ($found.Count -gt 1) { $found = @($found | Where-Object { !(Test-FromInternet $_) }) }
+        if ($found.Count -gt 1) { $own = @($found | Where-Object { Test-NoteFolder $_ }); if ($own.Count -eq 1) { $found = $own } }
         if ($found.Count -ne 1) { return @() }
         $picked[$found[0].Key] = $found[0]
     }
@@ -1006,11 +1259,17 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = @{}
     $stableSince = -1
+    $lastChange = -1
     do {
         Start-Sleep -Milliseconds 300
         if (Goe-IsForeground) { return @{ status = 'review' } }
         if ((Get-PhysicalDirectory $Directory) -ne $Directory) { return @{ status = 'review' } }
         $current = Download-State $Directory
+        # any file appearing or growing since the last look: a large attachment on a slow school network is
+        # still coming in, so keep waiting past 15 s (up to 2 minutes) while it does (2026-11-19)
+        if ($previous.Count -and @($current.Values | Where-Object { !(Test-SameDownloadFile $previous[$_.Key] $_) -and !(Test-SameDownloadFile $before[$_.Key] $_) }).Count) {
+            $lastChange = $timer.ElapsedMilliseconds
+        }
         $batch = Get-DownloadBatch $before $current $previous $Count $Names
         if ($batch.status -eq 'complete') {
             if ($stableSince -lt 0) { $stableSince = $timer.ElapsedMilliseconds }
@@ -1019,7 +1278,8 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
             }
         } else { $stableSince = -1 }
         $previous = $current
-    } while ($timer.Elapsed.TotalSeconds -lt 15)
+        $growing = $lastChange -ge 0 -and $timer.ElapsedMilliseconds - $lastChange -lt 5000
+    } while ($timer.Elapsed.TotalSeconds -lt 15 -or ($growing -and $timer.Elapsed.TotalSeconds -lt 120))
     $Sizes = @($Sizes | Where-Object { $_ })
     if ($Sizes.Count -eq $Count) {
         # some or all attachments were skipped because a file of that name was already there
@@ -1037,6 +1297,10 @@ function Receive-Downloads($Elements, [string]$Directory, [int]$Count, [string[]
     $changedAny = @($current.Values | Where-Object { !(Test-SameDownloadFile $before[$_.Key] $_) })
     if (!$changedAny.Count) {
         $old = @(Find-ExistingBatch $current $Count $Names)
+        if ($old.Count -eq $Count) { return @{ status = 'complete'; files = $old; directory = $Directory } }
+        # names and sizes no help (a common name such as "(picture1).png" in 16 folders): GOE's own folder for
+        # this note, named by the send time
+        $old = @(Find-NoteFolderFiles $current $Count)
         if ($old.Count -eq $Count) { return @{ status = 'complete'; files = $old; directory = $Directory } }
     }
     if ($batch.activity -or $stableSince -ge 0) { return @{ status = 'review'; step = 'files-unmatched' } }
@@ -1316,6 +1580,8 @@ function Read-Rows([int]$ocrScale = 3) {
     $colX = 0; $cellH = S 24
     if ($timeLines.Count) {
         $colX = [int](@($timeLines | ForEach-Object { $_.x } | Sort-Object)[[int][Math]::Floor($timeLines.Count / 2)])
+        $script:timeColX = $colX
+        if (-not $script:layoutSaved -and $timeLines.Count -ge 3) { Save-ListLayout; $script:layoutSaved = $true }
         $filled = [Collections.Generic.List[object]]::new()
         $slots = [Collections.Generic.List[int]]::new()
         if ($timeLines[0].y - $rowPitch -ge $listTop + 5) { $slots.Add([int]($timeLines[0].y - $rowPitch)) }
@@ -1376,6 +1642,7 @@ $seen = @{}
 $seenRows = [Collections.Generic.List[object]]::new()
 $opened = [Collections.Generic.List[object]]::new()
 $ownedNote = $null
+Mark 'controls found'
 try {
     # (a window both hidden and minimized was already parked as a tray window above)
     if ($wasMin -and -not $script:parked) {
@@ -1407,10 +1674,12 @@ try {
         Start-Sleep -Milliseconds 400
     }
 
-    Click $H[$L.noteTab]; Start-Sleep -Milliseconds 300; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 300
+    # the folder state is checked (and waited for) right after, so short pauses are enough here
+    Click $H[$L.noteTab]; Start-Sleep -Milliseconds 120; Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 120
     $inboxButtonEl = $AE::FromHandle($H[$L.inboxButton])
     $sentButtonEl = $AE::FromHandle($H[$L.sentButton])
     $state = Wait-NotAmbiguous { Get-GoeFolderState $inboxButtonEl $sentButtonEl }
+    Mark "folder state: $state"
     if ($state -eq 'sent' -and ($Force -or -not (Goe-IsForeground))) {
         # the inbox click did not take yet: press it once more
         Click $H[$L.inboxButton]; Start-Sleep -Milliseconds 400
@@ -1425,31 +1694,86 @@ try {
         $folderProof = @{ State = 'native'; Pane = (Wait-GoeNotePane $main) }
     } else { throw 'inbox-not-confirmed' }
     if (-not $folderProof.Pane) { throw 'inbox-not-confirmed' }
+    Mark "folder proof: $($folderProof.State)"
     $H.list = $folderProof.Pane.List
     $H.scroll = $folderProof.Pane.Scroll
-    # the list keeps its scroll position between visits, and Home/PageUp/wheel do not scroll it up.
-    # Clicking the scrollbar track just under the top arrow pages up: do it until the top is reached.
-    $lp = [IntPtr](22 * 65536 + 9)
-    for ($i = 0; $i -lt 40; $i++) { [void][GoeWin.W]::PostMessage($H.scroll, 0x0201, [IntPtr]1, $lp); [void][GoeWin.W]::PostMessage($H.scroll, 0x0202, [IntPtr]0, $lp); Start-Sleep -Milliseconds 30 }
+    Reset-ListScroll
     $mr = Get-Rect $main; $lr = Get-Rect $H.list; $ir = Get-Rect $H[$L.inboxButton]; $sr = Get-Rect $H[$L.sentButton]
     $listTop = $lr.T - $mr.T; $listBottom = $lr.B - $mr.T; $listLeft = $lr.L - $mr.L; $listRight = $lr.Rt - $mr.L
     $timeMinX = $listLeft + [int](($listRight - $listLeft) * 0.4)  # debug output only
 
+    Mark 'inbox confirmed, list at top'
     $view = $null; $retryUntil = $null; $listOcrScale = 3
-    do {
+    # Reply / download again with a known layout: the first page from the time column alone (about 0.4 s instead of
+    # a full-window OCR). Only when the inbox was proven by its own pane; anything unread is still skipped.
+    if ($retryNote -and (Use-ListLayout) -and (Get-GoeScanFolder) -eq 'inbox') {
+        Start-Sleep -Milliseconds 150
+        $quick = @(Read-ListTimes -Rows | Where-Object { $_ })
+        if ($quick.Count) { $view = @{ inbox = $true; readable = $true; visual = $false; rows = $quick }; Mark "first page from the time column ($($quick.Count) rows)" }
+    }
+    if (-not $view) { do {
         # The same small header can be legible at 2x but misread at 3x.
         if ($view -and -not $view.readable) { $listOcrScale = if ($listOcrScale -eq 3) { 2 } else { 3 } }
         Start-Sleep -Milliseconds 300
         $view = Read-Rows $listOcrScale
         if (-not $retryUntil) { $retryUntil = (Get-Date).AddSeconds(4) }
-    } while (-not $view.readable -and (Get-Date) -lt $retryUntil)
+    } while (-not $view.readable -and (Get-Date) -lt $retryUntil) }
     if (-not $view.inbox) { throw 'inbox-not-confirmed' }
     if (-not $view.readable) { throw 'list-unreadable' }
+    Mark "first page read ($(@($view.rows).Count) rows)"
+
+    # Reply / download again: the note's time is known, so go there first reading only the time column and moving
+    # about a page per step, then read rows normally from there. A step that goes past the note's time goes back up
+    # (2026-11-19, "8 s is not good enough, the old one far too slow").
+    if ($retryNote -and @($view.rows).Count) {
+        $target = $retryNote.datetime
+        $times = @($view.rows | ForEach-Object { $_.datetime } | Where-Object { $_ })
+        $prevMin = ($times | Sort-Object)[0]; $prevMax = ($times | Sort-Object)[-1]
+        $visible = [Math]::Max(4, $times.Count)
+        $ticks = 6; $moves = 0
+        while ($prevMin -gt $target -and $moves -lt $MaxPages) {
+            Scroll-List $ticks; Start-Sleep -Milliseconds 200; $moves++
+            $new = @(Read-ListTimes | Where-Object { $_ })
+            if (!$new.Count) { break }
+            $newMin = ($new | Sort-Object)[0]; $newMax = ($new | Sort-Object)[-1]
+            Mark "  step $moves ($ticks ticks): $($new.Count) times $newMax .. $newMin"
+            if ($newMin -eq $prevMin -and $newMax -eq $prevMax) { break }   # end of the list
+            # Rows skipped between two steps are all newer than what is now shown; that only matters when the note
+            # could be among them, i.e. when its time is above the newest row now shown.
+            if ($newMax -lt $target) {
+                # moved past the note: go back half a step and read from there
+                Scroll-List (-[int][Math]::Ceiling($ticks / 2)); Start-Sleep -Milliseconds 200
+                break
+            }
+            $moved = @($new | Where-Object { $_ -lt $prevMin }).Count
+            if ($moved -gt 0) {
+                $perTick = $moved / $ticks
+                $ticks = [Math]::Min(40, [Math]::Max(6, [int][Math]::Floor(($visible - 2) / $perTick)))
+            }
+            $prevMin = $newMin; $prevMax = $newMax
+        }
+        Mark "seek: $moves steps, last step $ticks ticks"
+        if ($moves) {
+            $view = Read-Rows $listOcrScale
+            if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
+            if (-not $view.readable) { throw 'list-unreadable' }
+            # the note must not sit above the rows now shown
+            for ($up = 0; $up -lt 3 -and @($view.rows).Count -and (@($view.rows | ForEach-Object { $_.datetime }) | Sort-Object)[-1] -lt $target; $up++) {
+                Scroll-List (-[Math]::Max(6, [int]($ticks / 2))); Start-Sleep -Milliseconds 300
+                $view = Read-Rows $listOcrScale
+                if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
+                if (-not $view.readable) { throw 'list-unreadable' }
+            }
+            Mark "rows read at the note's time ($(@($view.rows).Count) rows)"
+        }
+    }
 
     if (-not $ListOnly) { [void][IO.Directory]::CreateDirectory($notesDir) }
     $dlDir = $null
     $checkedDownloadDir = $false
 
+    # If the time-column shortcut misses (OCR or unread-first order), start a full scan once.
+    $retryFullScan = $retryNote -and ($quick.Count -gt 0 -or $moves -gt 0)
     $page = 0; $stop = $false; $prevBody = ''
     while (-not $stop) {
         foreach ($r in $view.rows) {
@@ -1497,6 +1821,7 @@ try {
                 $current = Read-Rows $listOcrScale
                 if (-not $current.inbox -or -not ($current.rows | Where-Object { $_.clickY -eq $r.clickY -and (Row-Key $_) -eq $key })) { throw 'inbox-lost-while-paging' }
             } elseif ((Get-GoeScanFolder) -ne 'inbox') { throw 'inbox-lost-while-paging' }
+            Mark "open row $($r.datetime)"
             DoubleClick $H.list 150 $r.clickY
             $n = $null; $t0 = Get-Date
             while (-not $n -and ((Get-Date) - $t0).TotalSeconds -lt 4) { Start-Sleep -Milliseconds 100; $n = Get-NoteWindow }
@@ -1520,6 +1845,19 @@ try {
             $body = ''; $t0 = Get-Date
             do { $body = [GoeWin.W]::Text([IntPtr]$re.Current.NativeWindowHandle); if ($body -and $body -ne $prevBody) { break }; Start-Sleep -Milliseconds 80 } while (((Get-Date) - $t0).TotalSeconds -lt 2)
             $prevBody = $body
+            Mark 'note body read'
+            if ($Reply -and $retryNote) {
+                # a reply needs only the exact body to know it is the right note: no OCR of the note window (1.2 s)
+                if ($body -and (Format-Body $body) -ceq (Format-Body $retryNote.body)) {
+                    $result.reply = Open-GoeReply $n $els
+                    Mark "reply $($result.reply)"
+                    # Leave the matched note available when GOE cannot show the compose window.
+                    $stop = $true; $ownedNote = $null
+                    break
+                }
+                Close-Note $ownedNote; $ownedNote = $null
+                continue
+            }
             if (!$body -and !$retryNote) {
                 # an empty body is saved as nothing: keep the placeholder and read it again next time
                 $result.unknown++
@@ -1589,6 +1927,9 @@ try {
 
             # the time is read twice (list row and note window); both are OCR, so flag when they disagree
             $sentDt = Parse-SentTime $sentLine
+            # both readings of the send time (list and note window, both OCR) for GOE's per-note folder
+            $script:noteTimes = @(@($r.datetime, $sentDt) | Where-Object { $_ } | Sort-Object -Unique | ForEach-Object {
+                [datetime]::ParseExact($_, 'yyyy-MM-dd HH:mm', $calendar) })
             $dtCheck = if (-not $sentDt) { 'note-time-unread' } elseif ($sentDt -eq $r.datetime) { 'match' } else { 'mismatch' }
             if ($sentDt -and [datetime]::ParseExact($sentDt, 'yyyy-MM-dd HH:mm', $calendar) -lt $attachmentCutoff) { $expired = $true }
             # After the storage period the list row keeps its clip icon but the file list is empty and the header
@@ -1604,19 +1945,13 @@ try {
                 wasUnread = $r.unread; openedByAssistant = $true; collectedAt = (Get-Date).ToString('s')
                 title = $title; sender = $r.sender; org = ''; datetime = $r.datetime
                 recipients = $recLine; files = $fileNames; saved = @(); body = $body
-                ocr = [pscustomobject]@{ sentLine = $sentLine; attachLine = $attLine; listTitle = $r.titleOcr }
+                ocr = [pscustomobject]@{ sentLine = $sentLine; attachLine = $attLine; listTitle = $r.titleOcr
+                    attachSizes = @($fileSizes | ForEach-Object { [pscustomobject]@{ name = $_.name; size = [int64]$_.size } }) }
             }
             # the saved note is found by its exact body (the id also hashes the OCR'd sender, which can differ)
             $sameNote = $retryNote -and $note.verified -and ((Format-Body $body) -ceq (Format-Body $retryNote.body))
             if ($sameNote) { $id = $RetryId; $notePath = Join-Path $notesDir ($id + '.json') }
-            if ($Reply -and $sameNote) {
-                # leave the note (and the reply window) open for the teacher
-                $result.reply = Open-GoeReply $n $els
-                $keepNote = $true
-                $stop = $true
-            } elseif ($Reply -and $retryNote) {
-                # another note with the same time and sender: keep looking
-            } elseif ($sameNote) {
+            if ($sameNote) {
                 $result.attached = Get-SavedAttachmentCount $retryNote
                 if ($expired) {
                     $result.attachStatus = 'expired'
@@ -1668,11 +2003,23 @@ try {
                 $result.imported++
                 $opened.Add($note)
             }
-            if (!$keepNote -and [GoeWin.W]::IsWindow($nh)) { Close-Note $ownedNote }
+            if ([GoeWin.W]::IsWindow($nh)) { Close-Note $ownedNote }
             $ownedNote = $null
             if ($stop) { break }
         }
-        if ($stop -or $page -ge $MaxPages) { break }
+        if ($stop) { break }
+        if ($retryFullScan) {
+            if ((Goe-IsForeground) -or (Get-NoteWindow)) { throw 'folder-busy' }
+            $retryFullScan = $false
+            Reset-ListScroll
+            $view = Read-Rows $listOcrScale
+            if (!$view.inbox) { throw 'inbox-lost-while-paging' }
+            if (!$view.readable) { throw 'list-unreadable' }
+            $seen.Clear()
+            Mark 'target not confirmed, resuming normal scan from top'
+            continue
+        }
+        if ($page -ge $MaxPages) { break }
         if (-not $Force -and (Goe-IsForeground)) { $result.status = 'busy'; $result.busyReason = 'in-goe'; break }
         # PageDown leaves a half-cut row at the top that OCR misses: scroll ~4 rows with the wheel so pages overlap
         $before = ($view.rows | ForEach-Object { Row-Key $_ }) -join [Environment]::NewLine
@@ -1680,6 +2027,7 @@ try {
         for ($i = 0; $i -lt 6; $i++) { [void][GoeWin.W]::PostMessage($H.list, 0x020A, [IntPtr]((-120 -band 0xFFFF) -shl 16), $wlp); Start-Sleep -Milliseconds 60 }
         Start-Sleep -Milliseconds 600; $page++
         $view = Read-Rows $listOcrScale
+        Mark "page $page read ($(@($view.rows).Count) rows, oldest $(@($view.rows)[-1].datetime))"
         if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
         if (-not $view.readable) { throw 'list-unreadable' }
         if ((($view.rows | ForEach-Object { Row-Key $_ }) -join [Environment]::NewLine) -eq $before) { break }

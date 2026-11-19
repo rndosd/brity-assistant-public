@@ -106,6 +106,8 @@ function Invoke-Tick {
     $out = (& powershell.exe @a | Out-String)
     # reason=<code> from the collector: why notes could not be read, shown by the calendar (2026-11-18).
     $why = if ($out -match 'reason=([a-z][a-z-]{1,40})') { ' reason=' + $Matches[1] } else { '' }
+    # view=classic|one: which Brity view the notes were read in (2026-11-19, the calendar asks for One view).
+    if ($out -match '(?m)^view=(classic|one)\s*$') { $why += ' view=' + $Matches[1] }
     if ($out -notmatch 'opened=(\d+)') { return ('error: ' + (Norm $out)) }
     if ([int]$Matches[1] -eq 0) { return 'no-new-notes' }
     $j = Get-Content (Join-Path $inbox 'latest.json') -Raw -Encoding utf8 | ConvertFrom-Json

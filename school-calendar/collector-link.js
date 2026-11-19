@@ -63,7 +63,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
     if (mode === 'RangePreview') options.timeout = 180_000;
     if (mode === 'ChatRooms') options.maxBuffer = 512 * 1024;
     // 답장: 옛 쪽지는 목록을 내려 가며 찾는다.
-    if (reply) options.timeout = 90_000;
+    // 2026-11-19 실제 GOE: 9일 지난 쪽지를 찾는 데 37초. 몇 주 지난 쪽지도 끊기지 않게 기간 세기와 같은 3분.
+    if (reply) options.timeout = 180_000;
     const child = execFile(powershell, args, options, (error, stdout) => {
       if (error) {
         if (!goe) return resolve(unavailable);
@@ -96,6 +97,8 @@ function runCollector(mode, { scriptsDir, chatDirectory, roomKeys, signal, force
         }
         if (goe && (result.busyReason === 'note-open' || result.busyReason === 'in-goe')) value.busyReason = result.busyReason;
         if (!goe && !chatMode && BRITY_REASONS.has(result.reason)) value.brityReason = result.reason;
+        // 브리티 뷰 모드: 쪽지를 실제로 읽었을 때만 알린다(2026-11-19 클래식 뷰면 원 뷰로 바꾸라고 안내).
+        if (!goe && !chatMode && (result.view === 'classic' || result.view === 'one')) value.brityView = result.view;
         if (mode === 'Range' || mode === 'RangePreview') {
           Object.assign(value, {
             visible: count(result.visible), matched: count(result.matched), fresh: count(result.fresh), unknown: count(result.unknown),

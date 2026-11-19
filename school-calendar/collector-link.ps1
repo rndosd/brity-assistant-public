@@ -15,8 +15,14 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-function Write-Result([string]$Status, $InboxDir = $null, [bool]$Managed = $false, [int]$Imported = 0, [int]$Unverified = 0, [string]$Reason = '') {
-    [pscustomobject]@{ status = $Status; inboxDir = $InboxDir; managed = $Managed; imported = $Imported; unverified = $Unverified; reason = $Reason } | ConvertTo-Json -Compress
+function Write-Result([string]$Status, $InboxDir = $null, [bool]$Managed = $false, [int]$Imported = 0, [int]$Unverified = 0, [string]$Reason = '', [string]$View = '') {
+    [pscustomobject]@{ status = $Status; inboxDir = $InboxDir; managed = $Managed; imported = $Imported; unverified = $Unverified; reason = $Reason; view = $View } | ConvertTo-Json -Compress
+}
+
+# The collector says view=classic|one once it has read a note (2026-11-19): the calendar asks for One view.
+function Get-View($lines) {
+    foreach ($line in @($lines)) { if ("$line" -match '(?:^|\s)view=(classic|one)(?:\s|$)') { return $Matches[1] } }
+    return ''
 }
 
 # The collector says why it could not read Brity as reason=<code> (collect-notes.ps1, watch.ps1).
@@ -105,6 +111,7 @@ try {
                 $result.matched = [int]$Matches[1]; $result.remaining = [int]$Matches[2]
             }
         }
+        $result.view = Get-View $output
         [pscustomobject]$result | ConvertTo-Json -Compress
         return
     }
@@ -151,8 +158,8 @@ try {
     }
     if ($Force -and (Get-Command -Name $watch).Parameters.ContainsKey('AllowInMessenger')) { $watchArgs.AllowInMessenger = $true }
     $output = @(& $watch @watchArgs 2>$null)
-    $count = @($output -match '^collected=\d+ unverified=\d+( reason=[a-z-]+)?$') | Select-Object -First 1
-    if ($count -match '^collected=(\d+) unverified=(\d+)') { Write-Result 'ready' $inbox $true ([int]$Matches[1]) ([int]$Matches[2]) (Get-Reason $count) }
+    $count = @($output -match '^collected=\d+ unverified=\d+( reason=[a-z-]+)?( view=[a-z]+)?$') | Select-Object -First 1
+    if ($count -match '^collected=(\d+) unverified=(\d+)') { Write-Result 'ready' $inbox $true ([int]$Matches[1]) ([int]$Matches[2]) (Get-Reason $count) (Get-View $count) }
     elseif ($output -contains 'no-new-notes') { Write-Result 'ready' $inbox $true }
     elseif ($output -contains 'skipped-user-in-messenger') { Write-Result 'in-use' $inbox $true }
     elseif ($output -contains 'messenger-not-running') { Write-Result 'offline' }
