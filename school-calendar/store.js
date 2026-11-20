@@ -803,6 +803,7 @@ class CalendarStore {
       profile: this.settings.profile ?? null,
       ...this.schoolView(),
       deadlineAlerts: this.settings.deadlineAlerts !== false,
+      showMeal: this.settings.showMeal !== false,
       rulesUpdate: this.rulesUpdate ? { ...this.rulesUpdate } : null,
       rangePending: this.inbox.status === 'ready' ? this.rangePending().length : 0,
       backlogPending: this.inbox.status === 'ready' ? this.backlogPending().length : 0,
@@ -1459,6 +1460,15 @@ class CalendarStore {
 
   markAlerted(day) {
     return this.serialize(() => this.saveSettings({ ...this.settings, alertedDay: day }));
+  }
+
+  // 오늘 급식 보이기(설정, 기본 켬). 끄면 나이스에 급식을 묻지 않는다.
+  setShowMeal(enabled) {
+    if (typeof enabled !== 'boolean') throw new CalendarError('급식 설정을 확인해 주세요.');
+    return this.serialize(async () => {
+      await this.saveSettings({ ...this.settings, showMeal: enabled });
+      return this.snapshot();
+    });
   }
 
   setDeadlineAlerts(enabled) {

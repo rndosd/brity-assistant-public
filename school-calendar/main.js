@@ -837,6 +837,7 @@ function bindHandlers() {
     return changed(snapshot());
   });
   bind('deadline-alerts', async enabled => changed(await store.setDeadlineAlerts(enabled)));
+  bind('show-meal', async enabled => changed(await store.setShowMeal(enabled)));
   bind('repeat', async (id, every) => changed(await store.setRepeat(id, every)));
   bind('repeat-skip', async id => {
     await store.skipOccurrence(id);

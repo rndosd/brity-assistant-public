@@ -117,4 +117,9 @@ test('저장소: 학교를 고르고 받은 학사일정을 남기며, 학교를
   assert.deepEqual(store.snapshot().schoolEvents, []);
   await store.setSchool(null);
   assert.equal(store.snapshot().school, null);
+  // 오늘 급식 보이기: 기본 켬, 설정에서 끈다.
+  assert.equal(store.snapshot().showMeal, true);
+  await store.setShowMeal(false);
+  assert.equal(store.snapshot().showMeal, false);
+  assert.throws(() => store.setShowMeal('no'), /급식/);
 });

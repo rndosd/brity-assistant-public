@@ -727,11 +727,17 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 /* 스킨(:root[data-skin=…] .day-number)보다 앞서도록 :root를 붙인다. */
 :root .day.school-off { background-image: repeating-linear-gradient(135deg, #0000 0 6px, #8f887a26 6px 7px); }
 :root .day.school-off .day-number, :root[data-skin] .day.school-off .day-number { color: var(--red); }
-.today-meal { display: block; width: 100%; border: 0; background: transparent; padding: 0; text-align: left; font: inherit; font-size: 12px; color: var(--ink-2); margin: -2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.today-meal[aria-expanded="true"] { white-space: normal; line-height: 1.5; }
-.today-meal .meal-kcal { display: none; color: var(--ink-3); }
-.today-meal[aria-expanded="true"] .meal-kcal { display: inline; }
+/* 오늘 급식(2026-11-20 달력 위로 옮김): 달 이름 옆 한 줄(넘치면 …), 누르면 아래로 작은 창. */
+.calendar-header { position: relative; }
+.header-meal { position: relative; flex: 0 1 auto; min-width: 0; max-width: 46%; padding-bottom: 3px; }
+.today-meal { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); padding: 2px 10px; text-align: left; font: inherit; font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.today-meal:hover, .today-meal[aria-expanded="true"] { border-color: var(--ink-3); color: var(--ink); }
 .meal-label { font-weight: 700; color: var(--ink); }
+.meal-pop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 210px; padding: 10px 14px; background: var(--sheet); border: 1px solid var(--rule-strong); box-shadow: 0 6px 18px #0000001f; font-size: 13px; }
+.meal-pop-title { font-weight: 700; margin: 0 0 6px; }
+.meal-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.meal-kcal, .meal-source { margin: 6px 0 0; font-size: 11.5px; color: var(--ink-3); }
+.meal-source { margin-top: 2px; }
 .school-search { display: flex; align-items: flex-end; gap: 8px; }
 .school-search .field { flex: 1 1 auto; }
 .school-results { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }

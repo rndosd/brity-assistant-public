@@ -65,8 +65,6 @@
         <input type="search" id="list-search" placeholder="업무·쪽지 검색" title="제목·보낸 사람·내용·첨부 이름으로 찾습니다 (Ctrl+F)" autocomplete="off" maxlength="100">
       </div>
       <p class="today-line"><span id="today-label"></span></p>
-      <!-- 오늘 급식(나이스): 한 줄로 보이고 누르면 펼쳐 전체 메뉴를 보여 준다. -->
-      <button type="button" class="today-meal" id="today-meal" aria-expanded="false" hidden></button>
       <!-- 접는 목록 대신 탭. 탭마다 건수가 늘 보여서 다른 목록에 쌓인 것을 놓치지 않는다. -->
       <div class="list-tabs" role="tablist" aria-label="목록 고르기">
         <button type="button" role="tab" data-view="todo" id="tab-todo" aria-controls="view-todo">
@@ -106,6 +104,11 @@
       <div class="calendar-header">
         <h2 class="month-number" id="month-title" aria-live="polite"><span id="month-value"></span><span class="month-unit">월</span></h2>
         <p class="year" id="year-label"></p>
+        <!-- 오늘 급식(나이스, 2026-11-20 사용자 "너무 꽉 차니까 캘린더 상단에"): 달 이름 옆 한 줄, 누르면 메뉴를 한 줄에 하나씩. 설정에서 끈다. -->
+        <div class="header-meal" id="meal-box" hidden>
+          <button type="button" class="today-meal" id="today-meal" aria-expanded="false" aria-controls="meal-pop"></button>
+          <div class="meal-pop" id="meal-pop" hidden></div>
+        </div>
         <ul class="legend" aria-label="표시 기호">
           <li><span class="box" aria-hidden="true"></span>마감</li>
           <li><span class="disc" aria-hidden="true"></span>일정</li>
@@ -484,10 +487,11 @@
       <!-- 학교(나이스, 2026-11-19): 학교를 한 번 고르면 학사일정을 달력에, 오늘 급식을 날짜 줄 아래에 보여 준다. -->
       <fieldset class="settings-section" id="school-settings" data-settings-tab="fetch">
         <legend>우리 학교 (나이스)</legend>
-        <p class="small-note section-note">학교를 고르면 나이스의 학사일정을 달력에, 오늘 급식을 날짜 아래에 보여 줍니다. 나이스에는 학교 이름과 날짜만 보냅니다.</p>
+        <p class="small-note section-note">학교를 고르면 나이스의 학사일정을 달력에, 오늘 급식을 달력 위에 보여 줍니다. 나이스에는 학교 이름과 날짜만 보냅니다.</p>
         <div id="school-chosen" hidden>
           <p class="school-name-line"><strong id="school-name"></strong> <span class="small-note" id="school-office"></span></p>
           <p class="small-note" id="school-state" role="status"></p>
+          <label class="check-option"><input type="checkbox" id="show-meal">달력 위에 오늘 급식 보이기</label>
           <div class="ai-actions">
             <button type="button" class="button" id="school-refresh">학사일정 다시 받기</button>
             <button type="button" class="button text-button small" id="school-change">학교 바꾸기</button>

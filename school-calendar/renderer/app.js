@@ -2085,6 +2085,7 @@ function sync(snapshot) {
   renderUpdate();
   renderSchool();
   $('deadline-alerts').checked = snapshot.deadlineAlerts !== false;
+  $('show-meal').checked = snapshot.showMeal !== false;
   redraw();
   if (state.selectedChat && state.chatLoaded) renderChatOriginal(state.chatLoaded);
   void refreshDetail();
@@ -3113,32 +3114,50 @@ $('school-refresh').addEventListener('click', async () => {
   }
 });
 
-$('today-meal').addEventListener('click', () => {
-  const open = $('today-meal').getAttribute('aria-expanded') !== 'true';
+// 오늘 급식 칸: 누르면 메뉴를 한 줄에 하나씩 보이는 작은 창. 바깥을 누르거나 Esc면 닫힌다.
+function setMealOpen(open) {
   $('today-meal').setAttribute('aria-expanded', String(open));
+  $('meal-pop').hidden = !open;
+}
+$('today-meal').addEventListener('click', () => setMealOpen($('meal-pop').hidden));
+document.addEventListener('click', event => { if (!$('meal-box').contains(event.target)) setMealOpen(false); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('meal-pop').hidden) setMealOpen(false); });
+$('show-meal').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  try {
+    sync(await api.setShowMeal(enabled));
+  } catch (error) {
+    event.target.checked = !enabled;
+    setMessage('school-message', error.message, true);
+  }
 });
 
-// 오늘 급식: 왼쪽 날짜 줄 아래 한 줄. 학교가 없거나 급식이 없는 날(주말·방학)은 숨긴다.
+// 오늘 급식: 달력 위 달 이름 옆 한 줄(2026-11-20 왼쪽 목록에서 옮김). 학교가 없거나 설정에서 껐거나
+// 급식이 없는 날(주말·방학)은 숨긴다. 끄면 나이스에 묻지도 않는다.
 async function loadMeal() {
   const school = state.snapshot.school;
+  const enabled = !!school && state.snapshot.showMeal !== false;
   const today = key(new Date());
-  const line = $('today-meal');
-  const wanted = school ? `${school.office}-${school.code}-${today}` : '';
+  const box = $('meal-box');
+  const wanted = enabled ? `${school.office}-${school.code}-${today}` : '';
   if (state.mealKey === wanted) return;
   state.mealKey = wanted;
-  if (!school) { line.hidden = true; return; }
+  if (!enabled) { box.hidden = true; setMealOpen(false); return; }
   try {
     const result = await api.meal(today);
     if (state.mealKey !== wanted) return;
     const meal = result?.meals?.find(item => item.kind === '중식') || result?.meals?.[0];
-    line.hidden = !meal;
+    box.hidden = !meal;
     if (!meal) return;
-    line.replaceChildren(element('span', 'meal-label', meal.kind === '중식' ? '급식' : meal.kind), ' ', element('span', 'meal-items', meal.items.join(' · ')),
-      ...(meal.kcal ? [' ', element('span', 'meal-kcal', meal.kcal)] : []));
-    line.title = `${meal.kind}${meal.kcal ? ` (${meal.kcal})` : ''}\n${meal.items.join('\n')}`;
+    $('today-meal').replaceChildren(element('span', 'meal-label', '오늘 급식'), ' ', element('span', 'meal-items', meal.items.join(' · ')));
+    $('today-meal').title = '누르면 메뉴 전체';
+    const list = element('ul', 'meal-list');
+    list.append(...meal.items.map(item => element('li', null, item)));
+    $('meal-pop').replaceChildren(element('p', 'meal-pop-title', `${meal.kind === '중식' ? '오늘 급식' : meal.kind} · ${shortDate(today)}`), list,
+      ...(meal.kcal ? [element('p', 'meal-kcal', meal.kcal)] : []), element('p', 'meal-source', `${school.name} · 나이스`));
   } catch {
     // 못 받았으면 숨기고 10분 뒤 다음 새로 고침 때 다시 묻는다(30초마다 묻지 않게).
-    line.hidden = true;
+    box.hidden = true;
     setTimeout(() => { if (state.mealKey === wanted) state.mealKey = ''; }, 600_000);
   }
 }

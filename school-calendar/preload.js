@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('calendar', {
   setDeadlineAlerts: enabled => invoke('calendar:deadline-alerts', enabled),
   testDeadlineAlert: () => invoke('calendar:deadline-alert-test'),
   setRepeat: (id, every) => invoke('calendar:repeat', id, every),
+  setShowMeal: enabled => invoke('calendar:show-meal', enabled),
   skipOccurrence: id => invoke('calendar:repeat-skip', id),
   stopRepeat: id => invoke('calendar:repeat-stop', id),
   connectAi: (provider, key) => invoke('calendar:ai-connect', provider, key),
