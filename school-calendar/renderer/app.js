@@ -342,6 +342,7 @@ function calendarItem(task, entry, index, today, dupes = []) {
   if (important) item.append(element('span', 'imp', '!'));
   // 시간은 제목 글줄 맨 앞에 넣는다. 칸이 좁으면 제목이 시간 뒤에 이어지다 다음 줄로 넘어간다.
   const title = element('span', 'item-title');
+  if (task.repeat) title.append(repeatMark(task));
   if (entry.time) title.append(timeTag(entry.time), ' ');
   title.append(entry.label);
   item.append(title);
@@ -402,6 +403,24 @@ function selectedReceived() {
   return start && task.dates.some(entry => start < entry.date) ? start : null;
 }
 
+// 학사일정을 날짜별로 묶는다. 담임 학년을 적어 두면 다른 학년만의 행사는 뺀다.
+// continued: 바로 앞날에도 같은 이름이 있었음(방학·재량휴업 이어짐) → 첫날과 월요일에만 이름을 쓴다.
+function schoolCalendar(events, profile) {
+  const grade = Number(profile?.grade);
+  const mine = Number.isInteger(grade) && grade >= 1 && grade <= 6 && profile?.workplace !== '교육청'
+    ? events.filter(event => !event.grades?.length || event.grades.length === 6 || event.grades.includes(grade)) : events;
+  const names = new Set(mine.map(event => `${event.date}|${event.name}`));
+  const days = new Map();
+  for (const event of mine) {
+    const continued = names.has(`${key(shift(fromKey(event.date), -1))}|${event.name}`);
+    if (!days.has(event.date)) days.set(event.date, { off: false, events: [] });
+    const day = days.get(event.date);
+    day.off ||= !!event.off;
+    day.events.push({ ...event, continued });
+  }
+  return days;
+}
+
 function renderMonth() {
   const today = key(new Date());
   const current = monthOf(state.month);
@@ -445,6 +464,7 @@ function renderMonth() {
   if (!state.dayKey.startsWith(`${String(year).padStart(4, '0')}-${String(month + 1).padStart(2, '0')}`)) {
     state.dayKey = today.startsWith(key(current).slice(0, 7)) ? today : key(current);
   }
+  const schoolDays = schoolCalendar(state.snapshot.schoolEvents || [], state.snapshot.profile);
   const days = [];
   for (let index = 0; index < weeks * 7; index++) {
     const date = shift(first, index);
@@ -461,6 +481,18 @@ function renderMonth() {
     hit.tabIndex = dateKey === state.dayKey ? 0 : -1;
     hit.append(element('span', 'day-number', date.getDate()));
     if (received && dateKey === received) hit.append(element('span', 'received', '받음'));
+    // 학사일정(나이스): 날짜 옆 흐린 글자. 쉬는 날은 칸을 흐리게. 방학처럼 며칠 이어지면 첫날과 월요일에만 이름.
+    const schoolDay = schoolDays.get(dateKey);
+    if (schoolDay) {
+      day.classList.toggle('school-off', schoolDay.off);
+      const names = schoolDay.events.filter(event => !event.continued || weekday(date) === 0).map(event => event.name);
+      if (names.length) {
+        const label = element('span', 'school-event', names.join(' · '));
+        label.title = schoolDay.events.map(event => `${event.name}${event.off ? ` (${event.off})` : ''}`).join('\n');
+        hit.append(label);
+        hit.setAttribute('aria-label', `${dateLabel.format(date)} · ${schoolDay.events.map(event => event.name).join(', ')} · Enter로 업무 추가`);
+      }
+    }
     // 날짜 칸의 빈 곳을 마우스로 누르면 열린 자세히만 닫는다(업무 추가 창은 열지 않음, 2026-11-15 사용자).
     // 업무 추가는 칸의 + 단추와 위쪽 '업무 추가'로 한다. 키보드로 칸을 고르고 Enter를 누르면 그 날짜에 추가한다.
     hit.addEventListener('click', event => {
@@ -659,6 +691,7 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
   const text = entry ? entry.label : task.title;
   pick.title = [entry && entry.label !== task.title ? `${text}\n${task.title}` : text, dupes.length ? `같은 업무 쪽지 ${dupes.length + 1}건` : ''].filter(Boolean).join('\n');
   pick.append(rowTitle(text));
+  if (task.repeat) pick.querySelector('.row-text')?.prepend(repeatMark(task));
   if (unread) markUnreadRow(row, pick);
   if (task.important || dupes.some(dupe => dupe.task.important)) { row.classList.add('important'); pick.append(element('span', 'imp-flag', '중요')); }
   if (dupes.length) pick.append(sameCountBadge(dupes.length + 1));
@@ -695,6 +728,18 @@ function displayTitle(text) {
     }
   }
   return `${tag}${rest}`.trim() || String(text).trim();
+}
+
+// 반복 표시 ↻: 마우스를 올리면 "매주 목 · 2/28까지".
+function repeatLine(task) {
+  const repeat = task.repeat;
+  return repeat ? `${taskModel.repeatLabel(repeat.every, repeat.start)} · ${shortDate(repeat.until)}까지` : '';
+}
+function repeatMark(task) {
+  const node = element('span', 'repeat-mark', '↻ ');
+  node.title = repeatLine(task);
+  node.setAttribute('aria-label', `반복 ${repeatLine(task)}`);
+  return node;
 }
 
 function rowTitle(text) {
@@ -1016,10 +1061,19 @@ function renderLists() {
   const pinnedTasks = tasks.filter(task => isPinned(task) && !checked.has(task.id))
     .sort((a, b) => (pinnedDue(a, today)?.date || '9999').localeCompare(pinnedDue(b, today)?.date || '9999') || a.title.localeCompare(b.title, 'ko'));
   for (const task of pinnedTasks) checked.add(task.id);
+  // 반복: 같은 반복에서 오늘 이후 가장 가까운 남은 회차 하나만 목록에 둔다(지난 안 끝낸 회차는 "지남"에 그대로).
+  const nextRepeat = new Map();
+  for (const task of tasks) {
+    const entry = task.repeat && task.dates?.[0];
+    if (!entry || (entry.kind === '까지' && entry.done) || entry.date < today) continue;
+    const best = nextRepeat.get(task.repeat.seriesId);
+    if (!best || entry.date < best.dates[0].date) nextRepeat.set(task.repeat.seriesId, task);
+  }
+  const laterRepeat = task => !!task.repeat && task.dates?.[0]?.date >= today && nextRepeat.get(task.repeat.seriesId) !== task;
   // 날짜 묶음은 할 일의 날짜 하나가 한 줄이다. 끝낸 까지와 지나간 그날은 빠진다.
   const rows = [];
   for (const task of tasks) {
-    if (task.type !== '할 일' || checked.has(task.id)) continue;
+    if (task.type !== '할 일' || checked.has(task.id) || laterRepeat(task)) continue;
     (task.dates || []).forEach((entry, index) => {
       if (entry.kind === '까지' ? entry.done : lastDay(entry) < today) return;
       rows.push({ task, entry, index });
@@ -1168,6 +1222,72 @@ function readOnlyDateRow(task, entry, index, today) {
   return row;
 }
 
+// 같은 반복에서 이 회차 뒤에 함께 바뀔 회차(끝냄·따로 고침·상시·쪽지 회차 빼고). 저장 쪽 repeatFollower와 같은 기준.
+function repeatFollowers(task) {
+  if (!task?.repeat) return [];
+  const date = task.dates?.[0]?.date || '';
+  return state.snapshot.tasks.filter(item => item.id !== task.id && item.repeat?.seriesId === task.repeat.seriesId &&
+    !item.repeat.edited && !item.noteId && !item.chatSource && !item.pinned && item.dates?.length === 1 &&
+    item.dates[0].done !== true && item.dates[0].date > date);
+}
+
+// 자세히의 반복 줄. 보기: "↻ 매주 목 · 2/28까지 · 남은 n회" + 이번만 건너뛰기·반복 그만. 날짜 고치기 중: 반복 고르기.
+function renderRepeat(task, dates) {
+  const repeat = task?.repeat;
+  const editing = !!state.editingDates;
+  if (state.repeatFor !== task?.id) {
+    state.repeatFor = task?.id;
+    state.editRepeat = repeat?.every ?? 'none';
+  }
+  $('repeat-line').hidden = editing || !repeat;
+  if (repeat && !editing) {
+    const today = key(new Date());
+    const left = state.snapshot.tasks.filter(item => item.repeat?.seriesId === repeat.seriesId && item.dates?.[0]?.date >= today &&
+      !(item.dates[0].kind === '까지' && item.dates[0].done)).length;
+    $('repeat-text').textContent = `↻ ${repeatLine(task)} · 남은 ${left}회`;
+    $('repeat-skip').hidden = !!task.noteId || !!task.chatSource;
+    $('repeat-skip').disabled = $('repeat-stop').disabled = state.saving || state.dirty;
+  }
+  const canEdit = editing && !!task && !task.candidate && state.editType === '할 일' && dates.length === 1 && dates[0].kind !== '기간';
+  $('repeat-edit').hidden = !canEdit;
+  $('repeat-select').value = state.editRepeat;
+  $('repeat-select').disabled = state.saving;
+}
+$('repeat-select').addEventListener('input', () => {
+  state.editRepeat = $('repeat-select').value;
+  markDirty();
+});
+$('repeat-skip').addEventListener('click', async () => {
+  const task = state.detail?.task;
+  if (!task?.repeat || state.saving || state.dirty) return;
+  if (!window.confirm(`${shortDate(task.dates[0].date)} 회차를 건너뛸까요? 이 회차만 지우고 다른 회차는 그대로 둡니다.`)) return;
+  try {
+    const next = await api.skipOccurrence(task.id);
+    state.dirty = false;
+    closeDetail();
+    sync(next);
+    notice('이번 회차를 건너뛰었습니다.');
+  } catch (error) {
+    if (task.id === state.selected) setMessage('detail-message', error.message, true);
+  }
+});
+$('repeat-stop').addEventListener('click', async () => {
+  const task = state.detail?.task;
+  if (!task?.repeat || state.saving || state.dirty) return;
+  // 이 회차는 남기고 뒤 회차만 지운다(저장 쪽 stopSeries와 같은 기준).
+  const left = repeatFollowers(task).length;
+  if (!window.confirm(`반복을 이 회차(${shortDate(task.dates[0].date)})까지만 할까요? 뒤 회차 ${left}개를 지웁니다. 끝낸 회차와 따로 고친 회차는 남습니다.`)) return;
+  try {
+    const next = await api.stopRepeat(task.id);
+    state.dirty = false;
+    if (!next.tasks.some(item => item.id === task.id)) closeDetail();
+    sync(next);
+    notice(`반복을 그만했습니다. 남은 회차 ${next.repeatRemoved}개를 지웠습니다.`);
+  } catch (error) {
+    if (task.id === state.selected) setMessage('detail-message', error.message, true);
+  }
+});
+
 function renderDateRows() {
   const task = state.detail?.task;
   const dates = editingDates();
@@ -1181,6 +1301,7 @@ function renderDateRows() {
   $('edit-dates').disabled = disabled;
   $('add-date').hidden = !state.editingDates || dates.length >= taskModel.MAX_DATES;
   $('add-date').disabled = disabled;
+  renderRepeat(task, dates);
   if (!state.editingDates) {
     const today = key(new Date());
     $('date-rows').replaceChildren(...dates.map((entry, index) => readOnlyDateRow(task, entry, index, today)));
@@ -1280,7 +1401,8 @@ function markDirty() {
 function refreshDraftState(task) {
   const savedType = isCandidate(task) ? task.candidate.suggestedType : task.type;
   state.dirty = state.editType !== savedType || $('edit-title').value !== task.title ||
-    $('edit-memo').value !== (task.memo || '') || JSON.stringify(editingDates()) !== JSON.stringify(task.dates || []);
+    $('edit-memo').value !== (task.memo || '') || JSON.stringify(editingDates()) !== JSON.stringify(task.dates || []) ||
+    (state.repeatFor === task.id && state.editRepeat !== (task.repeat?.every ?? 'none'));
   enableForm();
 }
 
@@ -1292,7 +1414,8 @@ function enableForm() {
   $('edit-memo').disabled = state.saving;
   for (const segment of $('type-seg').querySelectorAll('button')) {
     segment.setAttribute('aria-pressed', String(segment.dataset.type === type));
-    segment.disabled = state.saving || !!task?.candidate?.discarded || (segment.dataset.type !== '할 일' && !task?.noteId && !task?.chatSource);
+    // 직접 추가한 업무는 할 일·확인할 것 사이만 옮긴다(숨기기 대신 지우기).
+    segment.disabled = state.saving || !!task?.candidate?.discarded || (segment.dataset.type === '없음' && !task?.noteId && !task?.chatSource);
   }
   // 대화방 후보: 고친 내용은 '올리기'로 한 번에 올린다(변경 저장 대신).
   const candidate = isCandidate(task);
@@ -1311,6 +1434,8 @@ function enableForm() {
   $('pin').hidden = task?.type !== '할 일' || type !== '할 일' || !!task?.candidate;
   $('pin').disabled = state.saving || state.dirty;
   $('pin').setAttribute('aria-pressed', String(task?.pinned === true));
+  $('remove-task').hidden = !task || !!task.noteId || !!task.chatSource;
+  $('remove-task').disabled = state.saving;
   $('brity-reply').hidden = !state.messenger.supportsReply || state.demo || state.detail?.note?.verified !== true;
   $('save').disabled = !state.dirty || state.saving;
   $('save').hidden = !state.dirty || !!task?.candidate;
@@ -1958,9 +2083,12 @@ function sync(snapshot) {
   renderAutoRefresh();
   renderRange();
   renderUpdate();
+  renderSchool();
+  $('deadline-alerts').checked = snapshot.deadlineAlerts !== false;
   redraw();
   if (state.selectedChat && state.chatLoaded) renderChatOriginal(state.chatLoaded);
   void refreshDetail();
+  void loadMeal();
 }
 
 // 설정 "브리티에서 가져오기"의 쪽지 줄: 지금 가져오기 버튼과 마지막 확인.
@@ -2898,6 +3026,122 @@ $('downloads-choose').addEventListener('click', () => {
   }, '');
 });
 $('downloads-reset').addEventListener('click', () => void changeDownloads(api.resetDownloads, '기본 다운로드 폴더로 되돌렸습니다. 이미 복사한 첨부는 원래 자리에 남습니다.'));
+
+// 우리 학교(나이스): 설정에서 학교를 찾아 고른다. 고르면 학사일정은 main이 받아 snapshot.schoolEvents로 온다.
+function renderSchool() {
+  const school = state.snapshot.school;
+  const choosing = !school || !!state.changingSchool;
+  $('school-chosen').hidden = !school;
+  $('school-search-form').hidden = !choosing;
+  if (!choosing) $('school-results').hidden = true;
+  $('school-change').hidden = choosing;
+  if (!school) return;
+  $('school-name').textContent = school.name;
+  $('school-office').textContent = [school.officeName, school.level].filter(Boolean).join(' · ');
+  const when = school.fetchedAt ? messageDate.format(new Date(school.fetchedAt)) : '';
+  const status = state.schoolBusy ? '학사일정을 받는 중…'
+    : school.error ? school.error
+    : school.fetchedAt ? `학사일정 ${school.count}개 · ${when}에 받음`
+    : '학사일정을 받는 중…';
+  setMessage('school-state', status, !!school.error && !state.schoolBusy);
+  $('school-refresh').disabled = !!state.schoolBusy;
+}
+
+function schoolResultRow(item) {
+  const row = element('li', 'school-result');
+  const text = element('span', 'school-result-text');
+  text.append(element('strong', null, item.name), element('span', 'small-note', ` ${item.officeName} · ${item.address || item.level}`));
+  const pick = button('button small', '이 학교로');
+  pick.addEventListener('click', async () => {
+    pick.disabled = true;
+    try {
+      state.changingSchool = false;
+      sync(await api.setSchool(item));
+      $('school-results').hidden = true;
+      $('school-query').value = '';
+      setMessage('school-message', '');
+    } catch (error) {
+      pick.disabled = false;
+      setMessage('school-message', error.message, true);
+    }
+  });
+  row.append(text, pick);
+  return row;
+}
+
+$('school-search-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const query = $('school-query').value.trim();
+  $('school-search').disabled = true;
+  setMessage('school-message', '찾는 중…');
+  try {
+    const { schools, more } = await api.searchSchools(query);
+    $('school-results').replaceChildren(...schools.map(schoolResultRow));
+    $('school-results').hidden = !schools.length;
+    setMessage('school-message', !schools.length ? '찾은 학교가 없습니다. 이름을 다르게 적어 보세요(예: 가곡초).'
+      : more ? '앞의 몇 곳만 보입니다. 우리 학교가 없으면 이름을 더 길게 적어 주세요(예: 가곡초등학교).' : '');
+  } catch (error) {
+    setMessage('school-message', error.message, true);
+  } finally {
+    $('school-search').disabled = false;
+  }
+});
+$('school-change').addEventListener('click', () => {
+  state.changingSchool = true;
+  renderSchool();
+  $('school-query').focus();
+});
+$('school-clear').addEventListener('click', async () => {
+  if (!window.confirm('우리 학교를 지울까요? 달력의 학사일정과 급식이 사라집니다.')) return;
+  try {
+    state.changingSchool = false;
+    sync(await api.setSchool(null));
+  } catch (error) {
+    setMessage('school-message', error.message, true);
+  }
+});
+$('school-refresh').addEventListener('click', async () => {
+  state.schoolBusy = true;
+  renderSchool();
+  try {
+    sync(await api.refreshSchool());
+  } catch (error) {
+    setMessage('school-state', error.message, true);
+  } finally {
+    state.schoolBusy = false;
+    renderSchool();
+  }
+});
+
+$('today-meal').addEventListener('click', () => {
+  const open = $('today-meal').getAttribute('aria-expanded') !== 'true';
+  $('today-meal').setAttribute('aria-expanded', String(open));
+});
+
+// 오늘 급식: 왼쪽 날짜 줄 아래 한 줄. 학교가 없거나 급식이 없는 날(주말·방학)은 숨긴다.
+async function loadMeal() {
+  const school = state.snapshot.school;
+  const today = key(new Date());
+  const line = $('today-meal');
+  const wanted = school ? `${school.office}-${school.code}-${today}` : '';
+  if (state.mealKey === wanted) return;
+  state.mealKey = wanted;
+  if (!school) { line.hidden = true; return; }
+  try {
+    const result = await api.meal(today);
+    if (state.mealKey !== wanted) return;
+    const meal = result?.meals?.find(item => item.kind === '중식') || result?.meals?.[0];
+    line.hidden = !meal;
+    if (!meal) return;
+    line.replaceChildren(element('span', 'meal-label', meal.kind === '중식' ? '급식' : meal.kind), ' ', element('span', 'meal-items', meal.items.join(' · ')),
+      ...(meal.kcal ? [' ', element('span', 'meal-kcal', meal.kcal)] : []));
+    line.title = `${meal.kind}${meal.kcal ? ` (${meal.kcal})` : ''}\n${meal.items.join('\n')}`;
+  } catch {
+    // 못 받았으면 숨기고 10분 뒤 다음 새로 고침 때 다시 묻는다(30초마다 묻지 않게).
+    line.hidden = true;
+    setTimeout(() => { if (state.mealKey === wanted) state.mealKey = ''; }, 600_000);
+  }
+}
 $('downloads-open').addEventListener('click', async () => {
   try { await api.openDownloads(); }
   catch (error) { setMessage('downloads-status', error.message, true); }
@@ -2956,10 +3200,89 @@ function showCreate(date) {
   $('create-form').reset();
   $('create-due').value = date;
   $('create-kind').value = '까지';
+  $('create-extra-dates').replaceChildren();
   updateCreateEnd();
+  updateCreateOptions();
   setMessage('create-error', '');
   $('create-dialog').showModal();
 }
+
+// 업무 추가 창의 더 넣는 날짜 한 줄: 날짜 | 마감·일정 | 이름(비우면 제목) | 지우기.
+function createExtraRow() {
+  const row = element('li', 'create-extra');
+  const date = element('input');
+  date.type = 'date';
+  date.required = true;
+  date.min = '0001-01-01';
+  date.max = '9999-12-31';
+  date.value = $('create-due').value;
+  date.setAttribute('aria-label', '더 넣는 날짜');
+  const kind = element('select');
+  for (const [value, name] of [['까지', '마감'], ['그날', '일정']]) {
+    const option = element('option', null, name);
+    option.value = value;
+    kind.append(option);
+  }
+  kind.setAttribute('aria-label', '종류');
+  const label = element('input');
+  label.maxLength = taskModel.LABEL_MAX;
+  label.autocomplete = 'off';
+  label.placeholder = '달력에 표시할 이름 (비우면 제목)';
+  label.setAttribute('aria-label', '달력에 표시할 이름');
+  const remove = button('button text-button small', '지우기');
+  remove.addEventListener('click', () => { row.remove(); updateCreateOptions(); $('create-add-date').focus(); });
+  row.append(date, kind, label, remove);
+  return row;
+}
+function createExtraDates() {
+  return [...$('create-extra-dates').children].map(row => {
+    const [date, kind, label] = row.querySelectorAll('input, select');
+    return { date: date.value, kind: kind.value, label: label.value.trim() };
+  });
+}
+// 날짜는 모두 합쳐 셋까지. 상시는 할 일만.
+// 반복은 날짜 하나인 할 일(마감·일정)에만: 날짜를 더하거나 기간·확인할 것이면 반복 칸을 숨긴다.
+// 반복을 고르면 날짜 더하기·상시는 숨긴다(회차마다 따로 걸 수 있음).
+function updateCreateOptions() {
+  const reference = document.querySelector('input[name="create-type"]:checked')?.value === '알아 둘 것';
+  const extra = $('create-extra-dates').children.length;
+  const repeatable = !reference && !extra && $('create-kind').value !== '기간';
+  $('create-repeat-field').hidden = !repeatable;
+  if (!repeatable) $('create-repeat').value = 'none';
+  const repeating = $('create-repeat').value !== 'none';
+  $('create-add-date').hidden = repeating || extra >= taskModel.MAX_DATES - 1;
+  $('create-pinned-field').hidden = reference || repeating;
+  if (reference || repeating) $('create-pinned').checked = false;
+  updateRepeatHint();
+}
+// "매주 목 · 2/28까지 · 15회", 학사일정이 있으면 "학교 쉬는 날 3회 빼기".
+function updateRepeatHint() {
+  const every = $('create-repeat').value;
+  const due = $('create-due').value;
+  const show = every !== 'none' && taskModel.validDate(due);
+  $('create-repeat-hint').hidden = !show;
+  if (!show) return;
+  const until = taskModel.semesterEnd(due);
+  const dates = taskModel.repeatDates(every, due, until);
+  const off = new Set((state.snapshot.schoolEvents || []).filter(event => event.off).map(event => event.date));
+  const offCount = dates.filter(date => off.has(date)).length;
+  const skipping = offCount > 0 && $('create-skip-off').checked;
+  const count = dates.length - (skipping ? offCount : 0);
+  $('create-repeat-summary').textContent = `↻ ${taskModel.repeatLabel(every, due)} · ${shortDate(until)}까지 · ${count}회${dates.length >= taskModel.REPEAT_MAX ? ' (최대)' : ''}`;
+  $('create-skip-off-field').hidden = !offCount;
+  $('create-skip-off-label').textContent = `학교 쉬는 날 ${offCount}회 빼기`;
+}
+$('create-repeat').addEventListener('input', updateCreateOptions);
+$('create-skip-off').addEventListener('change', updateRepeatHint);
+$('create-due').addEventListener('input', updateRepeatHint);
+$('create-kind').addEventListener('input', updateCreateOptions);
+$('create-add-date').addEventListener('click', () => {
+  const row = createExtraRow();
+  $('create-extra-dates').append(row);
+  updateCreateOptions();
+  row.querySelector('input').focus();
+});
+document.querySelectorAll('input[name="create-type"]').forEach(input => input.addEventListener('change', updateCreateOptions));
 function updateCreateEnd() {
   const span = $('create-kind').value === '기간';
   $('create-end-field').hidden = !span;
@@ -2980,8 +3303,24 @@ async function saveDetail(type = state.editType) {
   enableForm();
   const dates = type === '없음' ? undefined : editingDates().map(({ date, end, label, kind, done, time }) => ({ date, label, kind, ...(time && { time }), ...(kind === '까지' && { done: done === true }), ...(kind === '기간' && { end }) }));
   const input = { title: $('edit-title').value, type, dates, memo: $('edit-memo').value, revision: state.revision };
+  // 반복 회차의 제목·날짜를 바꾸면 뒤 회차도 같이 바꿀지 묻는다(뒤에 함께 바뀔 회차가 있을 때만).
+  const saved = state.detail?.task;
+  const repeatWanted = state.repeatFor === id ? state.editRepeat : (saved?.repeat?.every ?? 'none');
+  if (saved?.repeat && dates?.length === 1 && repeatWanted === saved.repeat.every) {
+    const before = saved.dates[0];
+    const after = dates[0];
+    const changed = input.title !== saved.title || before.date !== after.date || before.kind !== after.kind ||
+      (before.time || '') !== (after.time || '') || before.label !== after.label;
+    const followers = repeatFollowers(saved).length;
+    if (changed && followers && window.confirm(`뒤 회차 ${followers}개도 같이 바꿀까요?\n\n확인: 이 회차와 뒤 회차 모두\n취소: 이 회차만`)) input.repeatScope = 'following';
+  }
   try {
     await api.update(id, input);
+    // 반복 고르기를 바꿨으면 이 회차부터 새로 건다(안 함이면 뒤 회차를 지우고 반복에서 뺀다).
+    if (type === '할 일' && dates?.length === 1 && dates[0].kind !== '기간' && repeatWanted !== (saved?.repeat?.every ?? 'none')) {
+      await api.setRepeat(id, repeatWanted);
+    }
+    state.repeatFor = null;
     if (id !== state.selected) return;
     state.dirty = false;
     const first = dates?.[0]?.date;
@@ -3071,7 +3410,11 @@ $('create-form').addEventListener('submit', async event => {
     const kind = $('create-kind').value;
     const task = await api.create({
       title: $('create-title').value, due: $('create-due').value, memo: $('create-memo').value,
-      kind, end: kind === '기간' ? $('create-end').value : undefined, time: $('create-time').value
+      kind, end: kind === '기간' ? $('create-end').value : undefined, time: $('create-time').value,
+      extraDates: createExtraDates(), type: document.querySelector('input[name="create-type"]:checked')?.value,
+      important: $('create-important').checked, pinned: $('create-pinned').checked,
+      repeat: $('create-repeat-field').hidden ? 'none' : $('create-repeat').value,
+      skipSchoolOff: !$('create-skip-off-field').hidden && $('create-skip-off').checked
     });
     $('create-dialog').close();
     state.month = fromKey(task.dates[0].date);
@@ -3364,6 +3707,44 @@ $('pin').addEventListener('click', async () => {
     enableForm();
   }
 });
+// 업무 지우기: 직접 추가한 업무만. 되돌릴 수 없어 한 번 묻는다.
+$('remove-task').addEventListener('click', async () => {
+  const task = state.detail?.task;
+  if (!task || state.saving || task.noteId || task.chatSource) return;
+  if (!window.confirm(`‘${task.title}’ 업무를 지울까요? 되돌릴 수 없습니다.`)) return;
+  $('remove-task').disabled = true;
+  try {
+    const next = await api.remove(task.id);
+    state.dirty = false;
+    closeDetail();
+    sync(next);
+    notice('업무를 지웠습니다.');
+  } catch (error) {
+    if (task.id === state.selected) setMessage('detail-message', error.message, true);
+    $('remove-task').disabled = false;
+  }
+});
+
+// 마감 알림 설정: 켜고 끄기와 시험 알림.
+$('deadline-alerts').addEventListener('change', async event => {
+  const enabled = event.target.checked;
+  try {
+    sync(await api.setDeadlineAlerts(enabled));
+    setMessage('deadline-alert-status', enabled ? '켰습니다.' : '껐습니다.');
+  } catch (error) {
+    event.target.checked = !enabled;
+    setMessage('deadline-alert-status', error.message, true);
+  }
+});
+$('deadline-alert-test').addEventListener('click', async () => {
+  try {
+    await api.testDeadlineAlert();
+    setMessage('deadline-alert-status', 'Windows 알림을 보냈습니다. 화면 오른쪽 아래를 확인해 주세요.');
+  } catch (error) {
+    setMessage('deadline-alert-status', error.message, true);
+  }
+});
+
 $('add-date').addEventListener('click', () => {
   const dates = editingDates();
   if (dates.length >= taskModel.MAX_DATES) return;
@@ -3381,6 +3762,7 @@ $('edit-dates').addEventListener('click', () => {
     state.editingDates = false;
     state.editDates = (task.dates || []).map(entry => ({ ...entry }));
     state.rowsDrawn = false;
+    state.repeatFor = null;
     refreshDraftState(task);
     return;
   }

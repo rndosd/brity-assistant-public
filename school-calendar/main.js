@@ -13,6 +13,7 @@ const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange
 const GOE_NOTE_ID = /^goe_\d{12}_[a-f0-9]{8}$/;
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
+const neis = require('./neis');
 const updater = require('./updater');
 const feedback = require('./feedback');
 const CHANGES = require('./CHANGES.json');
@@ -36,6 +37,8 @@ app.setPath('userData', profile);
 let window;
 let ready;
 let refreshInterval;
+let schoolInterval;
+let alertInterval;
 let updateInterval;
 let draining = false;
 let closing = false;
@@ -605,6 +608,79 @@ function changed(task) {
   return task;
 }
 
+// 학교(나이스): 학사일정은 학교를 고를 때·켤 때(일주일 지났거나 학년도가 바뀌면)·다시 받기를 누를 때 받는다. 급식은 그날 것만 1시간 기억한다.
+function neisOptions() {
+  const key = process.env.SCHOOL_CALENDAR_NEIS_KEY || store.settings?.neisKey;
+  return typeof key === 'string' && /^[A-Za-z0-9]{10,64}$/.test(key) ? { key } : {};
+}
+async function neisCall(work) {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof neis.NeisError) throw new CalendarError(error.message);
+    throw error;
+  }
+}
+let schoolRun = null;
+function refreshSchoolSchedule() {
+  schoolRun ??= (async () => {
+    const school = store.settings?.school;
+    if (!school) return;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const range = neis.schoolYearRange(today);
+    try {
+      const events = await neis.fetchSchedule(school, range.from, range.to, neisOptions());
+      await store.saveSchoolSchedule(school, events, range);
+    } catch (error) {
+      store.setSchoolError(error instanceof neis.NeisError ? error.message : '학사일정을 받지 못했습니다.');
+    }
+    publish();
+  })().finally(() => { schoolRun = null; });
+  return schoolRun;
+}
+// 마감 알림: 하루 한 번 Windows 알림. 누르면 앱 창을 앞으로. 알릴 것이 없는 날은 띄우지 않는다.
+function alertLines({ dueToday, dueTomorrow, eventsToday }) {
+  const names = list => list.slice(0, 3).map(item => `${item.time ? `${item.time} ` : ''}${item.label}`).join(', ') + (list.length > 3 ? ` 외 ${list.length - 3}` : '');
+  return [
+    dueToday.length && `오늘 마감 ${dueToday.length}: ${names(dueToday)}`,
+    eventsToday.length && `오늘 일정 ${eventsToday.length}: ${names(eventsToday)}`,
+    dueTomorrow.length && `내일 마감 ${dueTomorrow.length}: ${names(dueTomorrow)}`
+  ].filter(Boolean);
+}
+function showDeadlineAlert(digest, test = false) {
+  const lines = alertLines(digest);
+  if (!Notification.isSupported()) throw new CalendarError('이 PC에서는 Windows 알림을 쓸 수 없습니다.');
+  if (!lines.length && !test) return false;
+  const note = new Notification({
+    title: `${messenger.appName} · 오늘 할 일`, icon: path.join(__dirname, 'assets', 'app.png'),
+    body: lines.length ? lines.join('\n') : '오늘·내일 마감과 오늘 일정이 없습니다. (시험 알림)'
+  });
+  note.on('click', () => {
+    if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+  });
+  note.show();
+  return true;
+}
+async function checkDeadlineAlert() {
+  const digest = store.alertDue();
+  if (!digest) return;
+  await store.markAlerted(digest.day);
+  showDeadlineAlert(digest);
+}
+
+const meals = new Map();
+async function todayMeal(date) {
+  const school = store.settings?.school;
+  if (!school || !taskModel.validDate(date)) return null;
+  const cacheKey = `${school.office}-${school.code}-${date}`;
+  const cached = meals.get(cacheKey);
+  if (cached && Date.now() - cached.at < 3_600_000) return cached.value;
+  const value = { date, meals: await neisCall(() => neis.fetchMeals(school, date, neisOptions())) };
+  meals.set(cacheKey, { at: Date.now(), value });
+  return value;
+}
+
 async function retryNoteAttachments(id) {
   if (!goeEdition || demo || closing || pausingCollector || store.inboxOverride) {
     throw new CalendarError('현재는 GOE 첨부를 다시 받을 수 없습니다.');
@@ -744,6 +820,36 @@ function bindHandlers() {
   bind('important', async (id, important) => changed(await store.setImportant(id, important)));
   bind('replied', async (id, replied) => changed(await store.setReplied(id, replied)));
   bind('profile', async input => changed(await store.setProfile(input)));
+  bind('school-search', name => neisCall(() => neis.searchSchools(name, neisOptions())));
+  bind('school-set', async school => {
+    const value = school ? await neisCall(() => neis.schoolValue(school)) : null;
+    const next = changed(await store.setSchool(value));
+    if (value) void refreshSchoolSchedule();
+    return next;
+  });
+  bind('school-refresh', async () => {
+    await refreshSchoolSchedule();
+    return snapshot();
+  });
+  bind('meal', date => todayMeal(date));
+  bind('remove', async id => {
+    await store.remove(id);
+    return changed(snapshot());
+  });
+  bind('deadline-alerts', async enabled => changed(await store.setDeadlineAlerts(enabled)));
+  bind('repeat', async (id, every) => changed(await store.setRepeat(id, every)));
+  bind('repeat-skip', async id => {
+    await store.skipOccurrence(id);
+    return changed(snapshot());
+  });
+  bind('repeat-stop', async id => {
+    const result = await store.stopSeries(id);
+    return { ...changed(snapshot()), repeatRemoved: result.removed };
+  });
+  bind('deadline-alert-test', () => {
+    const day = offset => { const date = new Date(); date.setDate(date.getDate() + offset); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
+    return showDeadlineAlert(store.deadlineDigest(day(0), day(1)), true);
+  });
   bind('refine', async id => {
     if (demo) throw new CalendarError('샘플에 준비된 정리 내용을 볼 수 있습니다.');
     if (store.aiProvider === 'none') throw new CalendarError('설정에서 AI를 먼저 연결해 주세요.');
@@ -1085,7 +1191,16 @@ if (!app.requestSingleInstanceLock()) {
     void ready.then(() => {
       scheduleAutoRefresh();
       if (store.snapshot().autoRefresh.notes.enabled) void pollCollector();
+      if (store.schoolNeedsRefresh()) void refreshSchoolSchedule();
     }).catch(() => {});
+    schoolInterval = setInterval(() => {
+      void ready.then(() => { if (store.schoolNeedsRefresh()) return refreshSchoolSchedule(); }).catch(() => {});
+    }, 3_600_000);
+    // 마감 알림: 켤 때와 10분마다 본다(하루 한 번만 띄움). 샘플에서는 띄우지 않는다.
+    if (!demo) {
+      void ready.then(() => setTimeout(() => void checkDeadlineAlert().catch(() => {}), 20_000)).catch(() => {});
+      alertInterval = setInterval(() => void ready.then(checkDeadlineAlert).catch(() => {}), 600_000);
+    }
     if (updatesEnabled) {
       void ready.then(() => setTimeout(() => void checkUpdate(), 15_000)).catch(() => {});
       updateInterval = setInterval(() => void checkUpdate(), UPDATE_EVERY);
@@ -1100,6 +1215,8 @@ if (!app.requestSingleInstanceLock()) {
     if (closing) return;
     closing = true;
     clearInterval(refreshInterval);
+    clearInterval(schoolInterval);
+    clearInterval(alertInterval);
     clearInterval(updateInterval);
     clearInterval(noteTimer);
     clearInterval(chatTimer);

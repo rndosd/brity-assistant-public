@@ -721,3 +721,41 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 @media (max-width: 560px) { .font-choice { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 .skin-name small { color: var(--ink-2); font-size: 11.5px; }
 @media (max-width: 560px) { .skin-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* 우리 학교(나이스, 2026-11-19): 학사일정은 날짜 옆 흐린 글자, 쉬는 날은 칸을 살짝 흐리게·날짜 빨강. 오늘 급식은 날짜 줄 아래 한 줄. */
+.school-event { min-width: 0; flex: 1 1 auto; font-size: 11px; line-height: 18px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 스킨(:root[data-skin=…] .day-number)보다 앞서도록 :root를 붙인다. */
+:root .day.school-off { background-image: repeating-linear-gradient(135deg, #0000 0 6px, #8f887a26 6px 7px); }
+:root .day.school-off .day-number, :root[data-skin] .day.school-off .day-number { color: var(--red); }
+.today-meal { display: block; width: 100%; border: 0; background: transparent; padding: 0; text-align: left; font: inherit; font-size: 12px; color: var(--ink-2); margin: -2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.today-meal[aria-expanded="true"] { white-space: normal; line-height: 1.5; }
+.today-meal .meal-kcal { display: none; color: var(--ink-3); }
+.today-meal[aria-expanded="true"] .meal-kcal { display: inline; }
+.meal-label { font-weight: 700; color: var(--ink); }
+.school-search { display: flex; align-items: flex-end; gap: 8px; }
+.school-search .field { flex: 1 1 auto; }
+.school-results { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.school-result { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--rule); }
+.school-result-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.school-name-line { margin: 0 0 4px; }
+
+/* 업무 추가 창 넓히기(2026-11-19): 더 넣는 날짜, 유형·중요·상시, 자세히의 업무 지우기, 마감 알림 설정. */
+.create-extra-dates { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.create-extra-dates:empty { display: none; }
+.create-extra { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 4fr) auto; gap: 6px; align-items: center; }
+.create-extra input, .create-extra select { width: 100%; min-width: 0; }
+#create-add-date { justify-self: start; }
+.create-options { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.create-type { display: inline-flex; border: 1px solid var(--rule-strong); }
+.create-type label { display: inline-flex; align-items: center; padding: 3px 10px; cursor: pointer; font-size: 13px; }
+.create-type input { position: absolute; opacity: 0; pointer-events: none; }
+.create-type label:has(input:checked) { background: var(--ink); color: var(--sheet); }
+.create-type label:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 1px; }
+.check-option { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+.danger-text { color: var(--red); justify-self: start; }
+
+/* 반복(2026-11-20): 꼬리표 앞 ↻, 업무 추가 창의 회차 미리보기, 자세히의 반복 줄. */
+.repeat-mark { font-weight: 400; opacity: .75; }
+.create-repeat-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: -4px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.repeat-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.repeat-edit { margin-top: 8px; max-width: 160px; }

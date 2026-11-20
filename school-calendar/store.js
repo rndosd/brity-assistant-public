@@ -36,7 +36,7 @@ const BACKUP_DATA_FOLDERS = ['chats'];
 const BACKUP_INBOX_FILES = ['state.json', 'latest.json', 'digest.md'];
 const BACKUP_INBOX_FOLDERS = ['notes', 'files'];
 // 이 PC에만 맞는 설정은 백업에서 빼고, 되돌릴 때 지금 PC의 값을 쓴다.
-const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'anthropicKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'codexExecutable', 'claudeExecutable', 'seenVersion'];
+const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'anthropicKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'codexExecutable', 'claudeExecutable', 'seenVersion', 'alertedDay'];
 const BEFORE_RESTORE = '되돌리기 전 백업';
 const AUTO_MINUTES = [5, 10, 30, 60, 120];
 // 지금까지 배포한 정리 기준(rules-seed.md)의 지문. 설치된 파일이 이 가운데 하나면 선생님이 고치지 않은 것이다.
@@ -366,6 +366,28 @@ async function fileDigest(file) {
   return hash.digest('hex');
 }
 
+// 반복(2026-11-19 설계, 반복-업무-설계.md 줄인 1차안): 회차마다 실제 업무를 만들고 repeat.seriesId로 묶는다.
+// 날짜 줄(종류·시간·이름)은 그대로 두고 날짜만 바꾼다.
+function repeatOccurrences({ title, memo, entry, important }, every, start, until, seriesId = randomUUID(), skip = []) {
+  const kept = [...new Set(skip.filter(date => date !== start))].sort();
+  const { done, ...shape } = entry;
+  return model.repeatDates(every, start, until, kept).map(date => ({
+    ...newTask(null, title, [{ ...shape, date, ...(shape.kind === '까지' && { done: false }) }]),
+    memo, ...(important && { important: true }), repeat: { seriesId, every, start, until, skip: kept }
+  }));
+}
+
+// 반복 그만·이후 모두에서 지우거나 함께 바꿔도 되는 회차: 끝내지 않았고, 따로 고치지 않았고,
+// 쪽지·대화방에서 온 것도 아니고, 상시를 걸지 않은 것.
+function repeatFollower(task) {
+  return !!task.repeat && !task.repeat.edited && !task.noteId && !task.chatSource && !task.pinned &&
+    task.dates?.length === 1 && task.dates[0].done !== true;
+}
+
+function dayShift(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 function newTask(noteId, title, dates = [], autoPending = false) {
   return {
     id: randomUUID(), noteId, title, type: '할 일', dates, done: false, reply: false, replied: false, uncertain: false,
@@ -474,6 +496,8 @@ class CalendarStore {
     this.tasksPath = path.join(this.dataDir, 'tasks.json');
     this.settingsPath = path.join(this.dataDir, 'settings.json');
     this.messageViewsPath = path.join(this.dataDir, 'message-views.json');
+    this.schoolSchedulePath = path.join(this.dataDir, 'school-schedule.json');
+    this.schoolSchedule = null;
     this.rulesPath = path.join(this.dataDir, '정리-기준.md');
     this.ruleSeed = ruleSeed;
     this.tasks = [];
@@ -538,6 +562,11 @@ class CalendarStore {
     } catch (error) {
       if (error.code !== 'ENOENT') throw new CalendarError('메시지 읽음 기록을 읽지 못했습니다. message-views.json을 확인해 주세요.');
     }
+    // 학사일정: 나이스에서 받아 둔 것. 깨졌거나 없으면 빈 채로 두고 다음에 다시 받는다(백업하지 않음).
+    try {
+      const saved = await readJson(this.schoolSchedulePath);
+      if (saved && typeof saved.code === 'string' && Array.isArray(saved.events)) this.schoolSchedule = saved;
+    } catch {}
     if (this.ruleSeed) {
       await fs.copyFile(this.ruleSeed, this.rulesPath, constants.COPYFILE_EXCL).catch(error => {
         if (error.code !== 'EEXIST') throw error;
@@ -772,6 +801,8 @@ class CalendarStore {
       collectorFirstImportPending: this.settings.collectorFirstImportPending === true,
       brityView: this.settings.brityView === 'classic' ? 'classic' : this.settings.brityView === 'one' ? 'one' : null,
       profile: this.settings.profile ?? null,
+      ...this.schoolView(),
+      deadlineAlerts: this.settings.deadlineAlerts !== false,
       rulesUpdate: this.rulesUpdate ? { ...this.rulesUpdate } : null,
       rangePending: this.inbox.status === 'ready' ? this.rangePending().length : 0,
       backlogPending: this.inbox.status === 'ready' ? this.backlogPending().length : 0,
@@ -782,6 +813,58 @@ class CalendarStore {
         enabled: !!this.downloadsDir, warning: this.downloadWarning || null
       }
     };
+  }
+
+  // 학교(나이스): 설정에서 고른 학교와 받아 둔 학사일정. 학교를 바꾸면 받아 둔 일정은 버린다.
+  schoolView() {
+    const school = this.settings.school ?? null;
+    const saved = school && this.schoolSchedule?.code === school.code && this.schoolSchedule?.office === school.office ? this.schoolSchedule : null;
+    return {
+      school: school ? { ...school, fetchedAt: saved?.fetchedAt ?? null, count: saved?.events.length ?? 0, error: this.schoolError ?? null } : null,
+      schoolEvents: saved?.events ?? []
+    };
+  }
+
+  // 한 번 받으면 PC에 남아 계속 쓴다(사용자 2026-11-20 "한 번 받으면 계속 쓸 수 있다는 거").
+  // 학교가 고친 것을 따라가려고 일주일에 한 번만 다시 받고, 학년도가 바뀌면(받아 둔 범위 밖이면) 바로 받는다.
+  schoolNeedsRefresh(now = Date.now(), maxAge = 7 * 24 * 3_600_000) {
+    const { school } = this.schoolView();
+    if (!school) return false;
+    if (!school.fetchedAt) return true;
+    const date = new Date(now);
+    const today = localDay(date);
+    const saved = this.schoolSchedule;
+    if (saved?.from && saved?.to && (today < saved.from || today > saved.to)) return true;
+    return now - Date.parse(school.fetchedAt) > maxAge;
+  }
+
+  setSchool(school) {
+    return this.serialize(async () => {
+      const settings = { ...this.settings };
+      if (school) settings.school = school;
+      else delete settings.school;
+      await writeJson(this.settingsPath, settings);
+      this.settings = settings;
+      this.schoolError = null;
+      return this.snapshot();
+    });
+  }
+
+  saveSchoolSchedule(school, events, range) {
+    return this.serialize(async () => {
+      const current = this.settings.school;
+      // 받는 동안 학교를 바꿨으면 버린다.
+      if (!current || current.code !== school.code || current.office !== school.office) return this.snapshot();
+      const saved = { office: school.office, code: school.code, from: range.from, to: range.to, fetchedAt: new Date().toISOString(), events };
+      await writeJson(this.schoolSchedulePath, saved);
+      this.schoolSchedule = saved;
+      this.schoolError = null;
+      return this.snapshot();
+    });
+  }
+
+  setSchoolError(message) {
+    this.schoolError = message || null;
   }
 
   setProfile(input) {
@@ -1064,18 +1147,116 @@ class CalendarStore {
       if (!due) throw new CalendarError('날짜를 선택해 주세요.');
       // 종류(마감·일정·기간)와 끝 날짜·시간·교시는 날짜 고치기와 같은 규칙으로 확인한다.
       const kind = model.DATE_KINDS.includes(input?.kind) ? input.kind : '까지';
+      // 유형: 할 일(기본) 또는 확인할 것(알아 둘 것). 숨기기는 직접 추가에 쓰지 않는다.
+      const type = input?.type === '알아 둘 것' ? '알아 둘 것' : '할 일';
+      // 더 넣는 날짜(선택, 2026-11-19): 마감·일정만, 모두 합쳐 셋까지. 이름을 비우면 제목.
+      const extra = Array.isArray(input?.extraDates) ? input.extraDates : [];
+      if (extra.length > model.MAX_DATES - 1) throw new CalendarError(`날짜는 ${model.MAX_DATES}개까지 넣을 수 있습니다.`);
       let dates;
       try {
         dates = model.normalizeDates([{
           date: due, label: title.slice(0, model.LABEL_MAX), kind, done: false,
           ...(kind === '기간' && { end: input?.end }), time: input?.time
-        }], title, true);
+        }, ...extra.map(item => ({
+          date: dueValue(item?.date), kind: item?.kind === '그날' ? '그날' : '까지', done: false,
+          label: (typeof item?.label === 'string' && item.label.trim() ? item.label : title).slice(0, model.LABEL_MAX), time: item?.time
+        }))], title, true);
       } catch {
         throw new CalendarError(kind === '기간' ? '끝 날짜는 시작 날짜보다 뒤로 골라 주세요.' : '날짜를 확인해 주세요.');
       }
-      const task = { ...newTask(null, title, dates), memo: memoValue(input?.memo) };
+      const memo = memoValue(input?.memo);
+      // 반복: 할 일, 날짜 하나, 기간 아님일 때만. 첫 회차부터 학기 끝(또는 받은 끝 날짜)까지 회차마다 업무를 만든다.
+      const every = input?.repeat ?? 'none';
+      if (every !== 'none') {
+        if (!model.REPEAT_EVERY.includes(every)) throw new CalendarError('반복을 확인해 주세요.');
+        if (!model.canRepeat({ type, dates })) throw new CalendarError('반복은 날짜가 하나인 할 일(마감·일정)에만 걸 수 있습니다.');
+        const until = input?.until ? dueValue(input.until) : model.semesterEnd(due);
+        if (!until || until < due) throw new CalendarError('반복 끝 날짜를 확인해 주세요.');
+        const skip = input?.skipSchoolOff === true ? this.schoolOffDays(due, until) : [];
+        const added = repeatOccurrences({ title, memo, entry: dates[0], important: input?.important === true }, every, due, until, randomUUID(), skip);
+        if (!added.length) throw new CalendarError('반복할 날짜가 없습니다. 날짜와 끝 날짜를 확인해 주세요.');
+        await this.commit([...this.tasks, ...added]);
+        return this.taskView(added[0]);
+      }
+      const task = {
+        ...newTask(null, title, dates), type, memo,
+        ...(input?.important === true && { important: true }),
+        ...(input?.pinned === true && type === '할 일' && { pinned: true })
+      };
       await this.commit([...this.tasks, task]);
       return this.taskView(task);
+    });
+  }
+
+  // 받아 둔 학사일정의 쉬는 날(휴업일·공휴일). 반복 회차를 뺄 때 쓴다.
+  schoolOffDays(from, to) {
+    return [...new Set((this.schoolView().schoolEvents || []).filter(event => event.off && event.date >= from && event.date <= to).map(event => event.date))];
+  }
+
+  seriesTasks(seriesId) {
+    return this.tasks.filter(task => task.repeat?.seriesId === seriesId);
+  }
+
+  // 반복 바꾸기(자세히): 이 회차를 첫 회차로 새 반복을 건다. 이미 반복이면 이 회차 뒤 따라오는 회차를 지우고 다시 만든다.
+  // every가 'none'이면 이 회차 뒤 따라오는 회차를 지우고 이 업무는 반복에서 뺀다. 앞 회차는 이 회차 전날에 끝난다.
+  setRepeat(id, every) {
+    if (every !== 'none' && !model.REPEAT_EVERY.includes(every)) throw new CalendarError('반복을 확인해 주세요.');
+    return this.serialize(async () => {
+      const task = this.getTask(id);
+      if (!model.canRepeat(task)) throw new CalendarError('반복은 날짜가 하나인 할 일(마감·일정)에만 걸 수 있습니다.');
+      const old = task.repeat;
+      if ((old?.every ?? 'none') === every) return this.taskView(task);
+      const date = task.dates[0].date;
+      const drop = new Set(old ? this.seriesTasks(old.seriesId).filter(item => item.id !== task.id && item.dates[0].date > date && repeatFollower(item)).map(item => item.id) : []);
+      const before = model.addDays(date, -1);
+      let tasks = this.tasks.filter(item => !drop.has(item.id)).map(item => old && item.id !== task.id && item.repeat?.seriesId === old.seriesId && item.dates[0].date < date
+        ? { ...item, repeat: { ...item.repeat, until: before } } : item);
+      let current;
+      let added = [];
+      if (every === 'none') {
+        const { repeat, ...plain } = task;
+        current = { ...plain, revision: task.revision + 1 };
+      } else {
+        const until = old?.until && old.until > date ? old.until : model.semesterEnd(date);
+        const [first, ...rest] = repeatOccurrences({ title: task.title, memo: task.memo || '', entry: task.dates[0] }, every, date, until, randomUUID(), old?.skip ?? []);
+        current = { ...task, repeat: first.repeat, revision: task.revision + 1 };
+        // 남아 있는(끝냄·따로 고침) 옛 회차와 같은 날은 새로 만들지 않는다.
+        const kept = new Set(tasks.filter(item => old && item.repeat?.seriesId === old.seriesId && item.id !== task.id).map(item => item.dates[0].date));
+        added = rest.filter(item => !kept.has(item.dates[0].date));
+      }
+      tasks = tasks.map(item => item.id === task.id ? current : item);
+      await this.commit([...tasks, ...added]);
+      return this.taskView(current);
+    });
+  }
+
+  // 이번 회차 건너뛰기: 그 회차를 지우고, 같은 반복의 skip에 날짜를 더해 다시 생기지 않게 한다.
+  skipOccurrence(id) {
+    return this.serialize(async () => {
+      const task = this.getTask(id);
+      if (!task.repeat) throw new CalendarError('반복 업무가 아닙니다.');
+      if (task.noteId || task.chatSource) throw new CalendarError('쪽지·대화방에서 온 회차는 건너뛸 수 없습니다. 끝냄으로 표시해 주세요.');
+      const date = task.dates[0].date;
+      await this.commit(this.tasks.filter(item => item.id !== id).map(item => item.repeat?.seriesId === task.repeat.seriesId
+        ? { ...item, repeat: { ...item.repeat, skip: [...new Set([...(item.repeat.skip || []), date])].sort() } } : item));
+      return { skipped: date };
+    });
+  }
+
+  // 반복 그만: 연 회차는 남기고 그 뒤 회차(끝냄·따로 고침·상시는 남김)를 지우고, 남은 회차의 끝 날짜를 줄인다.
+  // (2026-11-20 샘플 확인: 오늘부터 모두 지우면 보고 있던 회차까지 사라져 헷갈렸다.)
+  stopSeries(id) {
+    return this.serialize(async () => {
+      const task = this.getTask(id);
+      if (!task.repeat) throw new CalendarError('반복 업무가 아닙니다.');
+      const date = task.dates[0].date;
+      const series = this.seriesTasks(task.repeat.seriesId);
+      const drop = new Set(series.filter(item => item.id !== task.id && item.dates[0].date > date && repeatFollower(item)).map(item => item.id));
+      const remaining = series.filter(item => !drop.has(item.id)).map(item => item.dates[0].date).sort();
+      const until = remaining.at(-1) ?? date;
+      await this.commit(this.tasks.filter(item => !drop.has(item.id)).map(item => item.repeat?.seriesId === task.repeat.seriesId
+        ? { ...item, repeat: { ...item.repeat, until } } : item));
+      return { removed: drop.size };
     });
   }
 
@@ -1088,8 +1269,9 @@ class CalendarStore {
       });
       if (isCandidate(task)) throw new CalendarError('대화방 후보는 올리기나 버리기로 정해 주세요.');
       if (task.chatSource && !CANDIDATE_TYPES.includes(updates.type)) throw new CalendarError('대화방 업무는 할 일이나 알아 둘 것으로 두어 주세요.');
-      if (!task.noteId && !task.chatSource && (updates.type !== '할 일' || !updates.dates.length)) {
-        throw new CalendarError('직접 추가한 업무에는 날짜를 입력해 주세요.');
+      // 직접 추가한 업무: 할 일·확인할 것이고 날짜가 있어야 한다. 필요 없으면 숨기기 대신 지운다.
+      if (!task.noteId && !task.chatSource && (!CANDIDATE_TYPES.includes(updates.type) || !updates.dates.length)) {
+        throw new CalendarError(updates.type === '없음' ? '직접 추가한 업무는 숨기지 않고 지웁니다. 아래 ‘업무 지우기’를 눌러 주세요.' : '직접 추가한 업무에는 날짜를 입력해 주세요.');
       }
       if (input?.revision !== undefined && input.revision !== task.revision) throw new CalendarError('업무가 바뀌었습니다. 상세를 다시 열어 주세요.');
       if (updates.type === '없음') updates.dates = task.dates || [];
@@ -1103,7 +1285,33 @@ class CalendarStore {
       if (updates.type !== '할 일') updates.pinned = false;
       if (!updates.reply) updates.replied = false;
       updates.done = updates.type === '할 일' && !updates.dates.length ? task.done === true : false;
-      return this.replace(task, { ...updates, uncertain: false, refineFailure: undefined, revision: task.revision + 1, autoPending: false });
+      const next = { ...task, ...updates, uncertain: false, refineFailure: undefined, revision: task.revision + 1, autoPending: false };
+      if (!task.repeat) return this.replace(task, next);
+      // 반복 회차: 날짜가 하나가 아니게 되거나 기간·확인할 것이 되면 반복에서 뺀다.
+      if (!model.canRepeat(next)) {
+        // replace는 {...task, ...updates}라 지우기(delete)로는 옛 값이 남는다. undefined로 덮어 저장에서 빠지게 한다.
+        next.repeat = undefined;
+        return this.replace(task, next);
+      }
+      const oldEntry = task.dates[0];
+      const newEntry = next.dates[0];
+      const changed = task.title !== next.title || oldEntry.date !== newEntry.date || oldEntry.kind !== newEntry.kind ||
+        (oldEntry.time || '') !== (newEntry.time || '') || oldEntry.label !== newEntry.label;
+      const memoChanged = input?.memo !== undefined && (task.memo || '') !== next.memo;
+      if (input?.repeatScope !== 'following') {
+        if (changed) next.repeat = { ...task.repeat, edited: true };
+        return this.replace(task, next);
+      }
+      // 이 회차부터 모두: 뒤 회차(끝낸 것·따로 고친 것 빼고)에 같은 변경을 옮긴다. 날짜는 같은 만큼 민다.
+      const shift = dayShift(oldEntry.date, newEntry.date);
+      const { done, ...shape } = newEntry;
+      const followers = new Map(this.tasks.filter(item => item.id !== task.id && item.repeat?.seriesId === task.repeat.seriesId &&
+        item.dates[0].date > oldEntry.date && repeatFollower(item)).map(item => [item.id, {
+        ...item, title: next.title, ...(memoChanged && { memo: next.memo }),
+        dates: [{ ...shape, date: model.addDays(item.dates[0].date, shift), ...(shape.kind === '까지' && { done: false }) }], revision: item.revision + 1
+      }]));
+      await this.commit(this.tasks.map(item => item.id === task.id ? next : followers.get(item.id) ?? item));
+      return this.taskView(next);
     });
   }
 
@@ -1225,6 +1433,49 @@ class CalendarStore {
       await this.commit(this.tasks.map(item => item.id === task.id ? next : item));
       await this.recordChoice(task, '되살림');
       return this.taskView(next);
+    });
+  }
+
+  // 마감 알림(2026-11-19): 하루 한 번, 아침 8시가 지나 처음 확인할 때 오늘·내일 마감과 오늘 일정을 모아 알린다.
+  // 설정에서 끌 수 있다(기본 켜짐). 알릴 것이 없으면 그날은 조용히 넘어간다.
+  deadlineDigest(today, tomorrow) {
+    const open = this.tasks.filter(task => task.type === '할 일' && !task.candidate);
+    const pick = test => open.flatMap(task => (task.dates || []).filter(test).map(entry => ({ id: task.id, label: entry.label, time: entry.time || '' })));
+    return {
+      dueToday: pick(entry => entry.kind === '까지' && !entry.done && entry.date === today),
+      dueTomorrow: pick(entry => entry.kind === '까지' && !entry.done && entry.date === tomorrow),
+      eventsToday: pick(entry => entry.kind === '그날' && entry.date === today)
+    };
+  }
+
+  alertDue(now = new Date()) {
+    if (this.settings.deadlineAlerts === false || now.getHours() < 8) return null;
+    const today = localDay(now);
+    if (this.settings.alertedDay === today) return null;
+    const next = new Date(now);
+    next.setDate(next.getDate() + 1);
+    return { day: today, ...this.deadlineDigest(today, localDay(next)) };
+  }
+
+  markAlerted(day) {
+    return this.serialize(() => this.saveSettings({ ...this.settings, alertedDay: day }));
+  }
+
+  setDeadlineAlerts(enabled) {
+    if (typeof enabled !== 'boolean') throw new CalendarError('알림 설정을 확인해 주세요.');
+    return this.serialize(async () => {
+      await this.saveSettings({ ...this.settings, deadlineAlerts: enabled });
+      return this.snapshot();
+    });
+  }
+
+  // 업무 지우기: 직접 추가한 업무만(쪽지·대화방 업무는 원문이 있어 숨기기로 내린다). 되돌릴 수 없다.
+  remove(id) {
+    return this.serialize(async () => {
+      const task = this.getTask(id);
+      if (task.noteId || task.chatSource) throw new CalendarError('쪽지·대화방에서 온 업무는 지우지 않고 ‘숨기기’로 내려 주세요.');
+      await this.commit(this.tasks.filter(item => item.id !== id));
+      return { removed: id };
     });
   }
 
@@ -1435,7 +1686,19 @@ class CalendarStore {
   }
 
   buildSearchItems() {
-    return this.tasks.map(task => {
+    // 반복은 같은 반복에서 가장 가까운 남은 회차 하나만(없으면 마지막 회차) 찾기에 올린다.
+    const today = localDay(new Date());
+    const shown = new Map();
+    for (const task of this.tasks) {
+      if (!task.repeat) continue;
+      const date = task.dates?.[0]?.date || '';
+      const open = date >= today && task.dates?.[0]?.done !== true;
+      const best = shown.get(task.repeat.seriesId);
+      const better = !best || (open && (!best.open || date < best.date)) || (!open && !best.open && date > best.date);
+      if (better) shown.set(task.repeat.seriesId, { id: task.id, date, open });
+    }
+    const visible = new Set([...shown.values()].map(item => item.id));
+    return this.tasks.filter(task => !task.repeat || visible.has(task.id)).map(task => {
       const note = this.notes.get(task.noteId);
       const room = task.chatSource?.roomTitle || '';
       return {

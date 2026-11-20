@@ -148,7 +148,73 @@ const taskModel = (() => {
     return value.split(/[,;]/).map(part => part.trim()).filter(Boolean).length || null;
   }
 
-  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, boxes, finished, isPinned, pinnedDue, recipientCount };
+  // 반복(2026-11-19, 반복-업무-설계.md 줄인 1차안): 매주·격주·매월. 요일·날짜는 첫 회차 날짜를 따른다.
+  // 회차마다 실제 업무를 만들고 repeat.seriesId로 묶는다. 끝은 학기 끝, 최대 60회.
+  const REPEAT_EVERY = ['week', '2weeks', 'month'];
+  const REPEAT_MAX = 60;
+  const REPEAT_WEEKDAYS = '일월화수목금토';
+
+  function utc(value) {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+  function dayKey(date) {
+    return date.toISOString().slice(0, 10);
+  }
+  function addDays(value, days) {
+    const date = utc(value);
+    date.setUTCDate(date.getUTCDate() + days);
+    return dayKey(date);
+  }
+  function monthLast(year, month) {
+    return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  }
+
+  // 학기 끝: 3~8월이면 8월 31일, 9~12월이면 다음 해 2월 말, 1~2월이면 그해 2월 말.
+  function semesterEnd(start) {
+    const year = Number(start.slice(0, 4));
+    const month = Number(start.slice(5, 7));
+    if (month >= 3 && month <= 8) return `${year}-08-31`;
+    const endYear = month >= 9 ? year + 1 : year;
+    return `${endYear}-02-${String(monthLast(endYear, 1)).padStart(2, '0')}`;
+  }
+
+  // 첫 회차부터 끝 날짜까지의 회차 날짜. 매월 31일처럼 없는 날은 그 달 마지막 날로 한다.
+  function repeatDates(every, start, until, skip = []) {
+    if (!REPEAT_EVERY.includes(every) || !validDate(start) || !validDate(until) || until < start) return [];
+    const skipped = new Set(skip);
+    const result = [];
+    const first = utc(start);
+    for (let step = 0; result.length < REPEAT_MAX; step++) {
+      let value;
+      if (every === 'month') {
+        const year = first.getUTCFullYear();
+        const month = first.getUTCMonth() + step;
+        const date = new Date(Date.UTC(year, month, 1));
+        date.setUTCDate(Math.min(first.getUTCDate(), monthLast(date.getUTCFullYear(), date.getUTCMonth())));
+        value = dayKey(date);
+      } else {
+        value = addDays(start, step * (every === '2weeks' ? 14 : 7));
+      }
+      if (value > until) break;
+      if (!skipped.has(value)) result.push(value);
+    }
+    return result;
+  }
+
+  // 화면 이름: "매주 목", "격주 목", "매월 19일".
+  function repeatLabel(every, start) {
+    if (!validDate(start)) return '';
+    if (every === 'month') return `매월 ${Number(start.slice(8, 10))}일`;
+    const weekday = REPEAT_WEEKDAYS[utc(start).getUTCDay()];
+    return every === '2weeks' ? `격주 ${weekday}` : every === 'week' ? `매주 ${weekday}` : '';
+  }
+
+  // 반복할 수 있는 업무: 할 일, 날짜 하나, 기간이 아님.
+  function canRepeat(task) {
+    return !!task && task.type === '할 일' && !task.candidate && Array.isArray(task.dates) && task.dates.length === 1 && task.dates[0].kind !== '기간';
+  }
+
+  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat };
 })();
 
 if (typeof module !== 'undefined') module.exports = taskModel;
