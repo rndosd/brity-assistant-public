@@ -11,7 +11,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
-const { checkable } = require('./renderer/task-model');
+const { checkable, manualLoose } = require('./renderer/task-model');
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar.app.created', 'openid', 'email'];
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -97,7 +97,7 @@ function desiredEvents(tasks, from = seoulToday()) {
     if (task.type !== '할 일' && task.type !== '알아 둘 것') continue;
     const which = task.type === '할 일' ? 'todo' : 'info';
     (task.dates || []).forEach((entry, index) => {
-      if (!entry?.date || lastDay(entry) < from) return;
+      if (!entry?.date || manualLoose(task, entry) || lastDay(entry) < from) return;
       const key = `${task.id}:${index}`;
       out.push({ key, which, body: { ...eventBody(task, entry), extendedProperties: { private: { schoolCalendarKey: key } } } });
     });

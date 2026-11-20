@@ -307,7 +307,7 @@
       <!-- 날짜 고치기와 같은 칸: 날짜 | 종류, (기간이면) 끝 날짜, 시간·교시(선택) -->
       <div class="create-date-row">
         <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
-        <label class="field">종류<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option></select></label>
+        <label class="field">종류<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
         <label class="field" id="create-end-field" hidden>끝 날짜<input id="create-end" type="date" required max="9999-12-31" disabled></label>
         <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 예: 6교시"></label>
         <!-- 반복(2026-11-20): 요일·날짜는 위 날짜를 따른다. 끝은 학기 끝. 날짜 하나인 할 일에만. -->

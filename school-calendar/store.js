@@ -1147,20 +1147,22 @@ class CalendarStore {
   create(input) {
     return this.serialize(async () => {
       const title = titleValue(input?.title);
-      const due = dueValue(input?.due);
+      const loose = input?.kind === '기한 없음';
+      const due = loose ? localDay(new Date()) : dueValue(input?.due);
       if (!due) throw new CalendarError('날짜를 선택해 주세요.');
       // 종류(마감·일정·기간)와 끝 날짜·시간·교시는 날짜 고치기와 같은 규칙으로 확인한다.
-      const kind = model.DATE_KINDS.includes(input?.kind) ? input.kind : '까지';
+      const kind = loose ? '그날' : model.DATE_KINDS.includes(input?.kind) ? input.kind : '까지';
       // 유형: 할 일(기본) 또는 확인할 것(알아 둘 것). 숨기기는 직접 추가에 쓰지 않는다.
       const type = input?.type === '알아 둘 것' ? '알아 둘 것' : '할 일';
       // 더 넣는 날짜(선택, 2026-11-19): 마감·일정만, 모두 합쳐 셋까지. 이름을 비우면 제목.
       const extra = Array.isArray(input?.extraDates) ? input.extraDates : [];
+      if (loose && (type !== '할 일' || extra.length)) throw new CalendarError('기한 없음은 다른 날짜가 없는 할 일에만 쓸 수 있습니다.');
       if (extra.length > model.MAX_DATES - 1) throw new CalendarError(`날짜는 ${model.MAX_DATES}개까지 넣을 수 있습니다.`);
       let dates;
       try {
         dates = model.normalizeDates([{
           date: due, label: title.slice(0, model.LABEL_MAX), kind, done: false,
-          ...(kind === '기간' && { end: input?.end }), time: input?.time
+          ...(kind === '기간' && { end: input?.end }), ...(loose ? { received: true } : { time: input?.time })
         }, ...extra.map(item => ({
           date: dueValue(item?.date), kind: item?.kind === '그날' ? '그날' : '까지', done: false,
           label: (typeof item?.label === 'string' && item.label.trim() ? item.label : title).slice(0, model.LABEL_MAX), time: item?.time
@@ -1458,11 +1460,11 @@ class CalendarStore {
   // 설정에서 끌 수 있다(기본 켜짐). 알릴 것이 없으면 그날은 조용히 넘어간다.
   deadlineDigest(today, tomorrow) {
     const open = this.tasks.filter(task => task.type === '할 일' && !task.candidate);
-    const pick = test => open.flatMap(task => (task.dates || []).filter(test).map(entry => ({ id: task.id, label: entry.label, time: entry.time || '' })));
+    const pick = test => open.flatMap(task => (task.dates || []).filter(entry => test(entry, task)).map(entry => ({ id: task.id, label: entry.label, time: entry.time || '' })));
     return {
       dueToday: pick(entry => entry.kind === '까지' && !entry.done && entry.date === today),
       dueTomorrow: pick(entry => entry.kind === '까지' && !entry.done && entry.date === tomorrow),
-      eventsToday: pick(entry => entry.kind === '그날' && !entry.done && entry.date === today)
+      eventsToday: pick((entry, task) => entry.kind === '그날' && !entry.done && entry.date === today && !model.manualLoose(task, entry))
     };
   }
 

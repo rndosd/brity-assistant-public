@@ -374,7 +374,7 @@ function calendarItem(task, entry, index, today, dupes = [], expanded = false) {
   item.title = [entry.label, task.title !== entry.label ? task.title : null,
     entry.kind === '까지' ? `${shortDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}까지` : entry.time, task.chatSource?.time,
     isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : seen ? '확인함' : past ? '지난 일정' : '',
-    type === 'loose' ? `기한 없음 · ${shortDate(entry.date)} 받음` : '',
+    type === 'loose' ? `기한 없음 · ${shortDate(entry.date)} ${taskModel.manualLoose(task, entry) ? '등록' : '받음'}` : '',
     dupes.length ? `같은 업무 쪽지 ${all.length}건` : ''].filter(Boolean).join(' · ');
   // 받은 날이 지나 오늘 칸에 따라온 기한 없는 할 일은 받은 지 며칠째인지 붙인다.
   const age = type === 'loose' && !done && entry.date < today ? looseAge(entry, today) : 0;
@@ -1331,7 +1331,7 @@ function renderRepeat(task, dates) {
     $('repeat-skip').hidden = !!task.noteId || !!task.chatSource;
     $('repeat-skip').disabled = $('repeat-stop').disabled = state.saving || state.dirty;
   }
-  const canEdit = editing && !!task && !task.candidate && state.editType === '할 일' && dates.length === 1 && dates[0].kind !== '기간';
+  const canEdit = editing && !!task && taskModel.canRepeat({ ...task, type: state.editType, dates });
   $('repeat-edit').hidden = !canEdit;
   $('repeat-select').value = state.editRepeat;
   $('repeat-select').disabled = state.saving;
@@ -3552,11 +3552,20 @@ function createExtraDates() {
 function updateCreateOptions() {
   const reference = document.querySelector('input[name="create-type"]:checked')?.value === '알아 둘 것';
   const extra = $('create-extra-dates').children.length;
-  const repeatable = !reference && !extra && $('create-kind').value !== '기간';
+  const kind = $('create-kind');
+  const option = $('create-loose-option');
+  option.hidden = option.disabled = reference || extra > 0;
+  if (kind.value === '기한 없음' && option.disabled) kind.value = '그날';
+  const loose = kind.value === '기한 없음';
+  for (const input of [$('create-due'), $('create-time')]) {
+    input.disabled = loose;
+    input.closest('label').hidden = loose;
+  }
+  const repeatable = !reference && !extra && !loose && kind.value !== '기간';
   $('create-repeat-field').hidden = !repeatable;
   if (!repeatable) $('create-repeat').value = 'none';
   const repeating = $('create-repeat').value !== 'none';
-  $('create-add-date').hidden = repeating || extra >= taskModel.MAX_DATES - 1;
+  $('create-add-date').hidden = loose || repeating || extra >= taskModel.MAX_DATES - 1;
   $('create-pinned-field').hidden = reference || repeating;
   if (reference || repeating) $('create-pinned').checked = false;
   updateRepeatHint();
@@ -3711,8 +3720,8 @@ $('create-form').addEventListener('submit', async event => {
   try {
     const kind = $('create-kind').value;
     const task = await api.create({
-      title: $('create-title').value, due: $('create-due').value, memo: $('create-memo').value,
-      kind, end: kind === '기간' ? $('create-end').value : undefined, time: $('create-time').value,
+      title: $('create-title').value, due: $('create-due').disabled ? undefined : $('create-due').value, memo: $('create-memo').value,
+      kind, end: kind === '기간' ? $('create-end').value : undefined, time: $('create-time').disabled ? undefined : $('create-time').value,
       extraDates: createExtraDates(), type: document.querySelector('input[name="create-type"]:checked')?.value,
       important: $('create-important').checked, pinned: $('create-pinned').checked,
       repeat: $('create-repeat-field').hidden ? 'none' : $('create-repeat').value,

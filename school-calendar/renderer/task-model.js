@@ -248,11 +248,15 @@ const taskModel = (() => {
   }
 
   // 반복할 수 있는 업무: 할 일, 날짜 하나, 기간이 아님.
-  function canRepeat(task) {
-    return !!task && task.type === '할 일' && !task.candidate && Array.isArray(task.dates) && task.dates.length === 1 && task.dates[0].kind !== '기간';
+  function manualLoose(task, entry) {
+    return task.type === '할 일' && !task.noteId && !task.chatSource && entry?.kind === '그날' && entry.received === true;
   }
 
-  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, checkable, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat };
+  function canRepeat(task) {
+    return !!task && task.type === '할 일' && !task.candidate && Array.isArray(task.dates) && task.dates.length === 1 && task.dates[0].kind !== '기간' && !manualLoose(task, task.dates[0]);
+  }
+
+  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, checkable, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat, manualLoose };
 })();
 
 if (typeof module !== 'undefined') module.exports = taskModel;

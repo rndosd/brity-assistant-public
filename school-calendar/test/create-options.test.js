@@ -41,6 +41,27 @@ test('업무 추가: 날짜 셋까지, 확인할 것, 중요·상시', async t =
   await assert.rejects(store.update(reference.id, { type: '없음' }), /지웁니다/);
 });
 
+test('기한 없이 직접 추가하면 등록일을 기준으로 완료 상태를 저장하고 일반 일정에서 제외한다', async t => {
+  const store = await makeStore(t);
+  const task = await store.create({ title: '피구 간식 답하기', kind: '기한 없음', due: '2035-12-20', time: '6교시' });
+  const [entry] = task.dates;
+  const now = new Date();
+  const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+  assert.equal(entry.date, today);
+  assert.equal(entry.received, true);
+  assert.equal(entry.time, undefined);
+  assert.equal(store.deadlineDigest(today, today).eventsToday.length, 0);
+  const { desiredEvents } = require('../google-calendar');
+  assert.equal(desiredEvents([task], today).length, 0);
+  await store.setDone(task.id, true, 0);
+  assert.equal(store.getTask(task.id).dates[0].done, true);
+  await store.setDone(task.id, false, 0);
+  assert.equal(store.getTask(task.id).dates[0].done, false);
+  for (const options of [{ repeat: 'week' }, { type: '알아 둘 것' }, { extraDates: [{ date: today }] }]) {
+    await assert.rejects(store.create({ title: '조건 확인', kind: '기한 없음', ...options }), /반복|기한 없음/);
+  }
+});
+
 test('업무 지우기: 직접 추가한 업무만 지운다', async t => {
   const store = await makeStore(t);
   const task = await store.create({ title: '지울 업무', due: '2026-12-01' });
