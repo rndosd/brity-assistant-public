@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, clipboard, safeStorage, dialog, Notification, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, safeStorage, dialog, Notification, Menu, Tray } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -16,6 +16,7 @@ const taskModel = require('./renderer/task-model');
 const neis = require('./neis');
 const updater = require('./updater');
 const feedback = require('./feedback');
+const { GoogleCalendarSync } = require('./google-calendar');
 const CHANGES = require('./CHANGES.json');
 const { spawn } = require('node:child_process');
 
@@ -98,10 +99,24 @@ const store = new CalendarStore({
   // 새로 설치하면 AI 연결 전이다. 연결 시험이 성공하면 자동 분류가 켜진다.
   aiDefault: process.env.SCHOOL_CALENDAR_AI_DEFAULT === 'codex' ? 'codex' : 'none'
 });
+// 구글 캘린더로 보내기(한 방향). 앱 번호 파일이 없는 판·샘플에서는 숨긴다(google-calendar.js).
+const googleCalendar = new GoogleCalendarSync({
+  dataDir,
+  clientFile: demo ? path.join(dataDir, 'no-google-client.json') : path.join(__dirname, 'google-client.json'),
+  protect: text => {
+    if (!safeStorage.isEncryptionAvailable()) throw new CalendarError('이 Windows 계정에서 구글 연결 정보를 보호해 저장할 수 없습니다.');
+    return safeStorage.encryptString(text).toString('base64');
+  },
+  unprotect: value => safeStorage.decryptString(Buffer.from(value, 'base64')),
+  openExternal: url => shell.openExternal(url),
+  getTasks: () => store.tasks,
+  onChange: () => publish()
+});
+store.onCommit = () => googleCalendar.schedule();
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, unverified: collector.unverified ?? 0, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null, brityReason: collector.status === 'in-use' ? null : collector.brityReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, google: googleCalendar.view(), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, unverified: collector.unverified ?? 0, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null, brityReason: collector.status === 'in-use' ? null : collector.brityReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -418,7 +433,7 @@ function notifyInUse() {
       : `${messenger.name}를 쓰는 중이라 새 쪽지를 가져오지 않았습니다. 이 알림을 누르면 지금 가져옵니다.`
   });
   note.on('click', () => {
-    if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.focus(); }
+    showWindow();
     void pollCollector(false, { manual: true, force: true });
   });
   note.show();
@@ -656,9 +671,7 @@ function showDeadlineAlert(digest, test = false) {
     title: `${messenger.appName} · 오늘 할 일`, icon: path.join(__dirname, 'assets', 'app.png'),
     body: lines.length ? lines.join('\n') : '오늘·내일 마감과 오늘 일정이 없습니다. (시험 알림)'
   });
-  note.on('click', () => {
-    if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
-  });
+  note.on('click', showWindow);
   note.show();
   return true;
 }
@@ -1058,6 +1071,35 @@ function bindHandlers() {
     feedbackSentAt = Date.now();
     return true;
   });
+  bind('google-connect', async () => {
+    try { await googleCalendar.connect(); } catch (error) { throw new CalendarError(error.message || '구글 캘린더에 연결하지 못했습니다.'); }
+    return snapshot();
+  });
+  bind('google-disconnect', async removeCalendars => {
+    try {
+      await googleCalendar.disconnect({ removeCalendars: removeCalendars === true });
+    } catch (error) {
+      throw new CalendarError(error.message || '구글 캘린더 연결을 끊지 못했습니다.');
+    }
+    return snapshot();
+  });
+  bind('google-sync', async () => {
+    if (!googleCalendar.view().connected) throw new CalendarError('먼저 구글 캘린더에 연결해 주세요.');
+    await googleCalendar.sync();
+    if (googleCalendar.view().error) throw new CalendarError(googleCalendar.view().error);
+    return snapshot();
+  });
+  // 시험 기간 테스터 신청: 의견 보내기와 같은 폼으로 이메일을 보낸다(개발자가 콘솔에 테스터로 등록).
+  bind('google-tester', async email => {
+    const value = String(email ?? '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 200) throw new CalendarError('구글 계정 이메일을 확인해 주세요.');
+    if (!feedback.feedbackAvailable()) throw new CalendarError('신청 보내기가 준비되지 않았습니다.');
+    if (Date.now() - feedbackSentAt < 20000) throw new CalendarError('방금 보냈습니다. 잠시 뒤 다시 보내 주세요.');
+    try { await feedback.sendFeedback(`[구글 캘린더 테스터 신청] ${value}`, feedbackInfo()); }
+    catch { throw new CalendarError('보내지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.'); }
+    feedbackSentAt = Date.now();
+    return true;
+  });
   bind('login-start', enabled => {
     if (!loginStartAvailable()) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 켤 수 있습니다.');
     app.setLoginItemSettings({ openAtLogin: !!enabled, path: launcherPath, args: [] });
@@ -1151,7 +1193,47 @@ function createWindow() {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, reply) => reply(false));
   window.webContents.on('context-menu', (_event, params) => showContextMenu(params));
+  // 창을 닫으면 끄지 않고 트레이로 숨긴다(2026-11-19 사용자). 자동 가져오기·분류는 계속 돈다.
+  // 끄기는 트레이 메뉴의 "종료"(또는 업데이트·Windows 종료)로만 한다.
+  window.on('close', event => {
+    if (closing || !tray) return;
+    event.preventDefault();
+    window.hide();
+    if (!trayHintShown && Notification.isSupported()) {
+      trayHintShown = true;
+      new Notification({ title: messenger.appName, icon: path.join(__dirname, 'assets', 'app.png'),
+        body: '캘린더는 꺼지지 않고 작업 표시줄 오른쪽 트레이에서 계속 새 쪽지를 가져옵니다. 끄려면 트레이 아이콘을 오른쪽 클릭해 "종료"를 누르세요.' }).show();
+    }
+  });
+  // Windows를 끄거나 로그아웃할 때는 막지 않는다.
+  window.on('query-session-end', () => { closing = true; });
+  window.on('session-end', () => { closing = true; });
   void window.loadFile(view);
+}
+
+let tray = null;
+let trayHintShown = false;
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (!window.isVisible()) window.show();
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
+function createTray() {
+  try {
+    tray = new Tray(path.join(__dirname, 'assets', 'app.ico'));
+  } catch {
+    tray = null; // 트레이를 못 만들면 예전처럼 닫으면 꺼진다.
+    return;
+  }
+  tray.setToolTip(messenger.appName);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '캘린더 열기', click: showWindow },
+    { type: 'separator' },
+    { label: '종료', click: () => app.quit() }
+  ]));
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
 }
 
 // 컴퓨터를 켜면 자동 실행(2026-11-15 사용자): Windows 시작 프로그램(이 사용자의 Run 목록)에 실행기를 등록한다.
@@ -1179,15 +1261,13 @@ if (process.platform === 'win32') app.setAppUserModelId(goeEdition ? 'kr.rndosd.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (window?.isMinimized()) window.restore();
-    window?.focus();
-  });
+  app.on('second-instance', showWindow);
   app.whenReady().then(() => {
     ready = (demo ? demo.seedDemo() : Promise.resolve()).then(() => store.init()).then(noteVersion).then(loadLastChatCollection).then(refresh);
     ready.catch(() => {});
     bindHandlers();
     createWindow();
+    createTray();
     // 자동 갱신이 켜져 있으면 켤 때 한 번 가져오고, 그 뒤로는 고른 주기마다 가져온다.
     void ready.then(() => {
       scheduleAutoRefresh();

@@ -1786,7 +1786,10 @@ function renderAttachments(id, note) {
 ${item.direct ? '누르면 첨부를 엽니다' : '누르면 폴더에서 보여 줍니다'}`;
       open.addEventListener('click', () => openAttachment(id, item.index, false));
       row.append(open);
-      if (!item.direct) row.append(element('span', 'small-note', '폴더에서 보기'));
+      const folder = button('button text-button small attachment-folder', '폴더 열기');
+      folder.setAttribute('aria-label', item.name + ' 저장 폴더 열기');
+      folder.addEventListener('click', () => openAttachment(id, item.index, true));
+      row.append(folder);
     }
     return row;
   });
@@ -2082,6 +2085,7 @@ function sync(snapshot) {
   renderCollector();
   renderAutoRefresh();
   renderRange();
+  renderGoogle();
   renderUpdate();
   renderSchool();
   $('deadline-alerts').checked = snapshot.deadlineAlerts !== false;
@@ -2509,7 +2513,7 @@ function renderAiConnected() {
 // 설정 묶음 탭(2026-11-15 사용자 "설정에 정보가 좀 많아졌는데"): AI · 가져오기 · 화면 · 백업·정보.
 // 연결 전에는 AI부터 열고, 그 뒤에는 이 PC에서 마지막에 본 묶음으로 연다. 다른 코드가 구역을 숨기기도 하므로(샘플의 백업 등)
 // 탭은 hidden 대신 off-tab 클래스로 가린다.
-const SETTINGS_TABS = ['ai', 'fetch', 'look', 'about'];
+const SETTINGS_TABS = ['ai', 'fetch', 'look', 'google', 'about'];
 let settingsTab = 'ai';
 try { const saved = localStorage.getItem('calendar-settings-tab'); if (SETTINGS_TABS.includes(saved)) settingsTab = saved; } catch {}
 
@@ -2584,6 +2588,8 @@ function openSettings(tab) {
   renderDownloads();
   renderBackup();
   renderRange();
+  setMessage('google-status', '');
+  renderGoogle();
   renderAiSettings();
   $('settings-dialog').showModal();
 }
@@ -2939,6 +2945,58 @@ $('range-classify').addEventListener('click', () => void rangeAction(async () =>
   const queued = await api.classifyRange();
   state.rangeMessage = true;
   setMessage('range-status', `${queued}건을 분류하고 있습니다.`);
+}));
+
+// 구글 캘린더에 보이기(한 방향). 연결·보내기는 main의 google-calendar.js가 하고 여기서는 상태만 그린다.
+function renderGoogle() {
+  const google = state.snapshot.google || {};
+  const available = !!google.available && !state.demo;
+  $('settings-tab-google').hidden = !available;
+  $('google-settings').hidden = !available;
+  if (!available) return;
+  const busy = !!google.busy || !!state.googleBusy;
+  let text;
+  if (google.connected) {
+    const when = google.lastSync ? new Date(google.lastSync).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+    text = (google.email ? google.email + '에 ' : '') + '연결됨 · 일정 ' + (google.counts?.events ?? 0) + '개' + (google.busy ? ' · 보내는 중…' : when ? ' · 마지막으로 보냄 ' + when : '');
+  } else text = google.busy ? '브라우저에서 구글 계정을 고르고 허용해 주세요.' : '아직 연결하지 않았습니다.';
+  $('google-state').textContent = google.error ? text + ' · ' + google.error : text;
+  $('google-state').classList.toggle('error', !!google.error);
+  $('google-connect').hidden = !!google.connected;
+  $('google-connect').disabled = busy;
+  $('google-sync').hidden = !google.connected;
+  $('google-sync').disabled = busy;
+  $('google-disconnect').hidden = !google.connected;
+  $('google-disconnect').disabled = busy;
+}
+async function googleAction(run) {
+  state.googleBusy = true;
+  renderGoogle();
+  try { await run(); }
+  catch (error) { setMessage('google-status', error.message, true); }
+  finally { state.googleBusy = false; renderGoogle(); }
+}
+$('google-connect').addEventListener('click', () => void googleAction(async () => {
+  setMessage('google-status', '브라우저에서 구글 계정을 고르고 허용해 주세요. 테스터로 등록된 계정만 연결됩니다.');
+  sync(await api.connectGoogle());
+  setMessage('google-status', '연결했습니다. 할 일과 확인할 것을 구글 캘린더로 보내고 있습니다.');
+}));
+$('google-sync').addEventListener('click', () => void googleAction(async () => {
+  setMessage('google-status', '보내는 중…');
+  sync(await api.syncGoogle());
+  setMessage('google-status', '구글 캘린더에 맞춰 두었습니다.');
+}));
+$('google-disconnect').addEventListener('click', () => void googleAction(async () => {
+  const remove = window.confirm('구글 캘린더의 “학교 할 일”·“학교 알림” 캘린더도 지울까요?\n\n확인: 캘린더까지 지우고 연결 끊기\n취소: 캘린더는 남겨 두고 연결만 끊기');
+  sync(await api.disconnectGoogle(remove));
+  setMessage('google-status', remove ? '연결을 끊고 구글의 학교 캘린더를 지웠습니다.' : '연결을 끊었습니다. 구글에 넣은 일정은 남아 있습니다.');
+}));
+$('google-tester-send').addEventListener('click', () => void googleAction(async () => {
+  const email = $('google-tester-email').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('google-tester-email').focus(); throw new Error('구글 계정 이메일을 적어 주세요.'); }
+  await api.applyGoogleTester(email);
+  $('google-tester-email').value = '';
+  setMessage('google-status', '신청을 보냈습니다. 등록되면 “구글 계정 연결”을 눌러 주세요.');
 }));
 
 function renderBackup() {

@@ -320,6 +320,7 @@
       <button type="button" role="tab" id="settings-tab-ai" data-tab-target="ai" aria-controls="settings-body">AI<span class="tab-dot" id="settings-ai-dot" title="아직 AI 연결 전" hidden></span></button>
       <button type="button" role="tab" id="settings-tab-fetch" data-tab-target="fetch" aria-controls="settings-body">가져오기</button>
       <button type="button" role="tab" id="settings-tab-look" data-tab-target="look" aria-controls="settings-body">화면</button>
+      <button type="button" role="tab" id="settings-tab-google" data-tab-target="google" aria-controls="settings-body" hidden>구글</button>
       <button type="button" role="tab" id="settings-tab-about" data-tab-target="about" aria-controls="settings-body">백업·정보</button>
     </div>
     <div class="settings-body" id="settings-body" role="tabpanel" tabindex="-1">
@@ -575,6 +576,31 @@
           <button type="button" class="button text-button small" id="downloads-open">폴더 열기 ↗</button>
         </div>
         <p class="small-note" id="downloads-status" role="status" hidden></p>
+      </fieldset>
+
+      <!-- 구글 캘린더에 보이기(한 방향, 2026-11-20). 앱 번호 파일이 있는 판에서만 보인다(google-calendar.js). -->
+      <fieldset class="settings-section" id="google-settings" data-settings-tab="google" hidden>
+        <legend>구글 캘린더에 보이기 <span class="tag-trial">시험 중</span></legend>
+        <p class="small-note section-note">앱의 할 일·확인할 것을 내 구글 캘린더의 “학교 할 일”·“학교 알림”에 보여 줍니다. 휴대폰 구글 캘린더에서 보고 알림을 받을 수 있습니다.</p>
+        <ul class="small-note google-points">
+          <li>앱의 업무가 <strong>구글 캘린더에 보이기만</strong> 합니다. 양방향 동기화는 되지 않아, 구글에서 고치거나 지운 것은 앱에 반영되지 않습니다. 고칠 때는 앱에서 고쳐 주세요.</li>
+          <li>앱에서 숨기면 구글에서도 사라지고, 끝낸 일은 ✓와 회색으로 남습니다.</li>
+          <li>업무 제목·날짜·시간을 구글로 보냅니다. 제목에 이름이 있으면 이름도 그대로 전송됩니다. 쪽지 원문·첨부·메모는 보내지 않습니다.</li>
+        </ul>
+        <div class="google-tester" id="google-tester-box">
+          <p class="small-note"><strong>지금은 시험 중이라 테스터로 등록된 구글 계정만 연결할 수 있습니다.</strong> 아래에 구글 계정 이메일을 보내 주시면 테스터로 등록해 드립니다(선착순 100명). 등록되면 “구글 계정 연결”을 눌러 주세요. 시험 기간에는 7일마다 다시 연결해야 할 수 있습니다.</p>
+          <div class="google-tester-row">
+            <label class="field"><span>구글 계정 이메일</span><input type="email" id="google-tester-email" maxlength="200" autocomplete="email" spellcheck="false" placeholder="예: teacher@gmail.com"></label>
+            <button type="button" class="button" id="google-tester-send">테스터 신청</button>
+          </div>
+        </div>
+        <p class="small-note google-state" id="google-state"></p>
+        <div class="ai-actions">
+          <button type="button" class="button primary" id="google-connect">구글 계정 연결</button>
+          <button type="button" class="button" id="google-sync" hidden>지금 보내기</button>
+          <button type="button" class="button text-button small" id="google-disconnect" hidden>연결 끊기</button>
+        </div>
+        <p class="small-note" id="google-status" role="status" hidden></p>
       </fieldset>
 
       <fieldset class="settings-section" id="backup-settings" data-settings-tab="about">

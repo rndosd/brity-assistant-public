@@ -18,3 +18,6 @@ outputs/
 
 # 실행기 빌드 결과(tools/launcher/build-launcher.ps1)
 /tools/launcher/out/
+
+# 구글 캘린더 앱 번호(배포 ZIP을 만들 때만 넣는다)
+**/google-client.json

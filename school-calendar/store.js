@@ -752,6 +752,7 @@ class CalendarStore {
     })) this.invalidateSearch();
     this.tasks = tasks;
     this.chatProgress = chatProgress;
+    this.onCommit?.(); // 구글 캘린더 보내기 예약(main.js)
   }
 
   getTask(id) {
