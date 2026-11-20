@@ -1,10 +1,11 @@
 ﻿# 실행기 만들기: powershell -ExecutionPolicy Bypass -File tools\launcher\build-launcher.ps1
-# 결과: tools\launcher\out\Brity Messenger Calendar.exe, Brity Messenger Calendar Sample.exe (아이콘은 school-calendar\assets\app.ico).
+# 결과: tools\launcher\out\에 메신저별 실행기와 샘플 실행기를 만든다.
 # Windows에 들어 있는 .NET Framework C# 컴파일러(csc.exe)를 쓴다. 따로 설치할 것은 없다.
 param([switch]$Goe)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-$icon = Join-Path (Split-Path -Parent (Split-Path -Parent $here)) 'school-calendar\assets\app.ico'
+$iconName = if ($Goe) { 'goe-app.ico' } else { 'app.ico' }
+$icon = Join-Path (Split-Path -Parent (Split-Path -Parent $here)) "school-calendar\assets\$iconName"
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path $csc)) { throw 'C# 컴파일러(csc.exe)를 찾지 못했습니다.' }

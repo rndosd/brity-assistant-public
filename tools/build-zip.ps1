@@ -101,9 +101,11 @@ function Copy-AppCode([string]$appOut) {
   Copy-Item -LiteralPath (Join-Path $buildStage 'mcp\CalendarMcp.exe') $appOut
   Copy-Guides $appOut
   Copy-Item (Join-Path $app 'renderer') $appOut -Recurse
-  # 앱 아이콘만(2026-11-17: 폴더째 복사해 앱과 무관한 홍보 이미지 5.6MB가 0.5.3에 섞였다).
+  $iconStem = if ($Goe) { 'goe-app' } else { 'app' }
   New-Item -ItemType Directory -Force (Join-Path $appOut 'assets') | Out-Null
-  foreach ($icon in 'app.ico','app.png','app.svg') { Copy-Item (Join-Path (Join-Path $app 'assets') $icon) (Join-Path $appOut 'assets') -ErrorAction Stop }
+  foreach ($extension in 'ico','png','svg') {
+    Copy-Item -LiteralPath (Join-Path $app "assets\$iconStem.$extension") -Destination (Join-Path $appOut "assets\app.$extension") -ErrorAction Stop
+  }
   Set-Content (Join-Path $appOut 'package.json') ('{"name":"school-calendar-portable","version":"' + $version + '","main":"portable-entry.cjs","private":true}') -Encoding ascii
 @'
 'use strict';
@@ -118,15 +120,13 @@ const seoryong = fs.existsSync(editionMarker);
 process.env.SCHOOL_CALENDAR_GOE = goe ? '1' : '0';
 process.env.SCHOOL_CALENDAR_SEORYONG = seoryong ? '1' : '0';
 process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE = seoryong ? fs.readFileSync(editionMarker, 'utf8').trim() : '';
-if (process.argv.includes('--brity') && !process.argv.includes('--demo')) {
+if (!process.argv.includes('--demo')) {
   process.env.SCHOOL_CALENDAR_DATA_DIR = path.join(root, 'calendar-data');
   process.env.SCHOOL_CALENDAR_DEFAULT_INBOX_DIR = path.join(root, 'collector', 'inbox');
   process.env.SCHOOL_CALENDAR_AUTOMATIC = '0';
   // 업데이트 버튼은 이 폴더(압축을 푼 곳)를 바꾼다.
   process.env.SCHOOL_CALENDAR_PORTABLE_ROOT = root;
   delete process.env.SCHOOL_CALENDAR_INBOX_DIR;
-} else {
-  process.argv.push('--demo');
 }
 require('./main');
 '@ | Set-Content (Join-Path $appOut 'portable-entry.cjs') -Encoding ascii

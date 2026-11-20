@@ -29,6 +29,8 @@ const messenger = goeEdition
 const launcherName = goeEdition ? 'GOE Messenger Calendar.exe' : 'Brity Messenger Calendar.exe';
 const view = path.join(__dirname, 'renderer', 'index.html');
 const demo = process.argv.includes('--demo') ? require('./demo') : null;
+const appUserModelId = (goeEdition ? 'kr.rndosd.goe-calendar' : 'kr.rndosd.school-calendar') + (demo ? '.sample' : '');
+const icoPath = path.join(__dirname, 'assets', 'app.ico');
 const dataDir = demo?.dataDir || path.resolve(process.env.SCHOOL_CALENDAR_DATA_DIR || path.join(__dirname, goeEdition ? 'data-goe' : 'data'));
 const sourceCollector = goeEdition ? path.join('collector', 'goe') : 'collector';
 const defaultInbox = process.env.SCHOOL_CALENDAR_DEFAULT_INBOX_DIR || path.join(__dirname, '..', sourceCollector, 'inbox');
@@ -1126,7 +1128,7 @@ function bindHandlers() {
     if (!launcherPath || !fs.existsSync(launcherPath)) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 바로 가기를 만들 수 있습니다.');
     const link = path.join(app.getPath('desktop'), `${messenger.appName}.lnk`);
     const ok = shell.writeShortcutLink(link, fs.existsSync(link) ? 'replace' : 'create', {
-      target: launcherPath, cwd: portableRoot, icon: launcherPath, iconIndex: 0, description: messenger.appName
+      target: launcherPath, cwd: portableRoot, icon: icoPath, iconIndex: 0, description: messenger.appName, appUserModelId
     });
     if (!ok) throw new CalendarError('바로 가기를 만들지 못했습니다.');
     return { link };
@@ -1220,9 +1222,14 @@ function createWindow() {
   window = new BrowserWindow({
     title: messenger.appName, width: 1320, height: 960, minWidth: 440, minHeight: 560,
     backgroundColor: '#f2f3ee',
-    icon: path.join(__dirname, 'assets', 'app.ico'),
+    icon: icoPath,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false }
   });
+  if (process.platform === 'win32' && launcherPath && fs.existsSync(launcherPath)) {
+    window.setAppDetails({
+      appId: appUserModelId, appIconPath: icoPath, relaunchCommand: `"${launcherPath}"`, relaunchDisplayName: messenger.appName
+    });
+  }
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, reply) => reply(false));
@@ -1255,7 +1262,7 @@ function showWindow() {
 }
 function createTray() {
   try {
-    tray = new Tray(path.join(__dirname, 'assets', 'app.ico'));
+    tray = new Tray(icoPath);
   } catch {
     tray = null; // 트레이를 못 만들면 예전처럼 닫으면 꺼진다.
     return;
@@ -1290,7 +1297,7 @@ function loginStartState() {
 }
 
 // 작업 표시줄에서 캘린더 아이콘으로 묶이게 한다.
-if (process.platform === 'win32') app.setAppUserModelId(goeEdition ? 'kr.rndosd.goe-calendar' : 'kr.rndosd.school-calendar');
+if (process.platform === 'win32') app.setAppUserModelId(appUserModelId);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
