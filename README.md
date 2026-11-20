@@ -44,4 +44,31 @@ GOE 메신저용 **GOE 메신저 캘린더**는 [rndosd/goe-messenger-calendar �
 - [Codex 연결 안내](school-calendar/Codex-연결-안내.html)
 - [캘린더 사용법과 백업](school-calendar/README.md)
 
+## 받은 쪽지로 AI에서 업무 시작하기
+
+쪽지에서 AI 업무 단추나 결과를 숨기려면 **설정 → AI → 외부 AI 업무 기능 표시**를 끕니다. 저장된 결과는 다시 켜면 볼 수 있습니다.
+
+1. 쪽지 **자세히 → 쪽지에서 처리 → AI로 보내기**에서 함께 보낼 첨부를 고르고 **AI로 보내기**를 누릅니다. 쪽지 원문과 고른 첨부의 사본을 공유합니다.
+2. 처음 한 번 **처음 쓰는 AI 앱에 연결**에서 앱을 선택하고 **MCP 설정 복사**를 눌러 그 앱의 MCP 설정에 추가합니다. 캘린더 업데이트나 설치 폴더 이동 뒤에도 같은 Windows 계정에서 기존 설정을 쓸 수 있습니다. 샘플 실행기는 가상 자료용 연결을 따로 씁니다.
+3. **요청 문장 복사**를 누르고 평소 쓰는 Codex나 Claude Code 채팅에 붙여 넣습니다. 원하는 일을 덧붙이면 공유한 자료로 작업한 뒤 초안이 원래 쪽지의 **AI 작업 결과**에 저장됩니다. 로컬 MCP를 쓸 수 없는 앱에서는 **공유 폴더 열기**로 업무.md와 첨부 사본을 직접 올릴 수 있습니다.
+
+캘린더에서 바로 시작하려면 **자세히 → 쪽지에서 처리 → 업무 맡기기**에서 Codex나 Claude Code를 고릅니다. 요청을 쓰고 첨부를 골라 맡기면 PC에 설치해 로그인한 프로그램이 초안을 작성합니다. 두 방식의 초안은 같은 쪽지의 **AI 작업 결과**에서 각각 열어 볼 수 있습니다.
+
+캘린더에서 Claude Code에 맡기려면 Claude Code 2.1.248 이상이 필요합니다. [Claude Code 명령줄 안내](https://code.claude.com/docs/en/cli-reference)
+
+| 쓰는 앱 | 처음 연결 |
+| --- | --- |
+| Codex | **Codex**를 골라 복사한 내용을 `~/.codex/config.toml`에 추가합니다. [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) |
+| Claude Code · Claude Desktop · Cursor | **공용 JSON**을 골라 복사한 뒤 그 앱의 로컬 MCP 설정에서 기존 `mcpServers` 안에 `calendar` 항목을 추가합니다. [Claude Code MCP](https://code.claude.com/docs/en/mcp) · [Cursor MCP](https://cursor.com/docs/context/mcp) |
+| Google Antigravity | **공용 JSON**을 골라 복사한 뒤 MCP 설정의 `mcpServers` 안에 `calendar` 항목을 추가합니다. [Antigravity MCP](https://antigravity.google/docs/mcp) |
+| Grok Build | **Grok Build**를 골라 복사한 내용을 `~/.grok/config.toml`에 추가합니다. [Grok Build MCP](https://docs.x.ai/build/features/mcp-servers) |
+| VS Code | **VS Code**를 골라 복사한 뒤 사용자 MCP 설정의 `servers` 안에 `calendar` 항목을 추가합니다. [VS Code MCP](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) |
+| Orca · Herdr | 같은 Windows PC에서 띄운 Codex나 Claude Code에 해당 에이전트의 MCP 설정을 추가합니다. [Orca](https://orca.dev/docs/cli/skills) · [Herdr](https://herdr.dev/tui/docs/agents/) |
+
+한 Windows 계정에서 브리티·GOE를 합쳐 업무 한 건을 공유합니다. 외부 에이전트가 초안을 돌려줄 때까지 공유를 유지해 주세요. 새 쪽지를 공유하거나 **공유 끝내기**를 누르면 현재 공유에서 자료를 가져오거나 새 결과를 등록할 수 없고, 이미 받은 초안은 쪽지 카드에 남습니다.
+
+업데이트 뒤 결과 저장 도구가 보이지 않으면 AI 앱을 닫고 캘린더를 다시 열어 연결 프로그램을 갱신한 뒤 AI 앱을 여세요. 기존 MCP 설정을 그대로 사용합니다. 예전 판에서 공유한 쪽지는 한 번 다시 공유해야 결과를 받을 수 있습니다.
+
+가져온 본문과 첨부는 AI 서비스로 전달될 수 있으니 공유 전에 내용을 확인해 주세요. 이미 전달한 내용은 AI 채팅에 남을 수 있습니다.
+
 소스 실행, 테스트, 배포 파일 생성은 [에이전트·유지보수 안내](AGENTS.md)에 있습니다.

@@ -59,6 +59,8 @@ test('마감 알림: 하루 한 번, 8시 뒤, 끝낸 것은 빼고 모은다', 
   await store.create({ title: '협의회', due: today, kind: '그날', time: '15:00' });
   const done = await store.create({ title: '이미 냄', due: today, kind: '까지' });
   await store.setDone(done.id, true, 0);
+  const doneEvent = await store.create({ title: '끝낸 일정', due: today, kind: '그날' });
+  await store.setDone(doneEvent.id, true, 0);
   await store.create({ title: '확인만', due: today, kind: '그날', type: '알아 둘 것' });
   assert.equal(store.alertDue(new Date(2026, 10, 20, 7, 30)), null);
   const digest = store.alertDue(new Date(2026, 10, 20, 8, 5));

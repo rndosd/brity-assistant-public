@@ -90,7 +90,7 @@ function Copy-Guides([string]$destination) {
 function Copy-AppCode([string]$appOut) {
   New-Item -ItemType Directory -Force $appOut | Out-Null
   $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','codex-cli.js','collector-link.js','demo.js','feedback.js','main.js','neis.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
-           'resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json'
+           'resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','mcp-share.js','codex-work.js','claude-work.js','note-work.js'
   if ($Goe) { $files += 'collector-link-goe.ps1' }
   else { $files += 'chat-journal.ps1','collect-chats.ps1','collector-link.ps1' }
   foreach ($f in $files) { Copy-Item (Join-Path $app $f) $appOut }
@@ -98,6 +98,7 @@ function Copy-AppCode([string]$appOut) {
   Copy-Item (Join-Path $app 'google-calendar.js') $appOut
   $googleClient = Join-Path $app 'google-client.json'
   if (Test-Path -LiteralPath $googleClient) { Copy-Item -LiteralPath $googleClient $appOut } else { Write-Warning 'google-client.json이 없어 이 판에서는 구글 캘린더 연결이 숨겨집니다.' }
+  Copy-Item -LiteralPath (Join-Path $buildStage 'mcp\CalendarMcp.exe') $appOut
   Copy-Guides $appOut
   Copy-Item (Join-Path $app 'renderer') $appOut -Recurse
   # 앱 아이콘만(2026-11-17: 폴더째 복사해 앱과 무관한 홍보 이미지 5.6MB가 0.5.3에 섞였다).
@@ -145,6 +146,7 @@ catch { Write-Warning "실행기를 만들지 못해 .cmd 로 둡니다: $($_.Ex
 # ---- 전체 ZIP ----
 New-Item -ItemType Directory -Path $buildStage | Out-Null
 try {
+& (Join-Path $PSScriptRoot 'launcher\build-mcp.ps1') -OutputDirectory (Join-Path $buildStage 'mcp')
 $root = Join-Path $stageRoot $packageFolder
 $runtime = Join-Path $root 'runtime'
 New-Item -ItemType Directory -Force $root | Out-Null

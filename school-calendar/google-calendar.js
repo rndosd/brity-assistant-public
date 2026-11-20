@@ -11,6 +11,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const http = require('node:http');
 const crypto = require('node:crypto');
+const { checkable } = require('./renderer/task-model');
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar.app.created', 'openid', 'email'];
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -50,7 +51,7 @@ function seoulToday() {
 }
 
 function eventBody(task, entry) {
-  const done = task.type === '할 일' && (entry.kind === '까지' ? entry.done === true : task.done === true);
+  const done = task.type === '할 일' && (checkable(entry) ? entry.done === true : task.done === true);
   const important = task.important === true || task.pinned === true;
   const hhmm = clock(entry.time);
   const label = entry.label || task.title;

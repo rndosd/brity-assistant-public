@@ -79,6 +79,9 @@
         <button type="button" role="tab" data-view="done" id="tab-done" aria-controls="view-done">
           <span class="tab-title">끝낸 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
         </button>
+        <button type="button" role="tab" data-view="past" id="tab-past" aria-controls="view-past">
+          <span class="tab-title">지난 일정</span> <span class="tab-counts"><b id="past-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="past-unread"></b></span></span>
+        </button>
         <button type="button" role="tab" data-view="hidden" id="tab-hidden" aria-controls="view-hidden">
           <span class="tab-title">숨기기</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
         </button>
@@ -90,6 +93,7 @@
       <div class="list-view" id="view-candidate" data-view="candidate" role="tabpanel" aria-labelledby="tab-candidate" hidden><div id="candidate-list"></div></div>
       <div class="list-view" id="view-reference" data-view="reference" role="tabpanel" aria-labelledby="tab-reference" hidden><ul class="rows refs" id="reference-list"></ul></div>
       <div class="list-view" id="view-done" data-view="done" role="tabpanel" aria-labelledby="tab-done" hidden><ul class="rows" id="done-list"></ul></div>
+      <div class="list-view" id="view-past" data-view="past" role="tabpanel" aria-labelledby="tab-past" hidden><ul class="rows" id="past-list"></ul></div>
       <div class="list-view" id="view-hidden" data-view="hidden" role="tabpanel" aria-labelledby="tab-hidden" hidden><ul class="rows" id="hidden-list"></ul></div>
       <section class="search-view" id="view-search" aria-label="검색 결과" hidden>
         <p class="search-status" id="search-status" role="status"></p>
@@ -112,6 +116,7 @@
         <ul class="legend" aria-label="표시 기호">
           <li><span class="box" aria-hidden="true"></span>마감</li>
           <li><span class="disc" aria-hidden="true"></span>일정</li>
+          <li title="날짜 없이 받은 할 일. 끝낼 때까지 오늘 칸에 따라옵니다"><span class="ring" aria-hidden="true"></span>기한 없음</li>
           <li><span class="bar" aria-hidden="true"></span>기간</li>
           <li class="ref-label">확인할 것</li>
           <li id="chat-candidate-legend"><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
@@ -164,34 +169,27 @@
         </div>
       </section>
       <div class="detail-content" id="detail-content" hidden>
-        <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
-          <div class="detail-section-heading"><h3 id="original-heading">쪽지 원문</h3><div class="ai-actions"><button type="button" class="button text-button small" id="copy-note" hidden>원문 복사</button><button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button></div></div>
-          <div class="paper">
-            <p class="original-title" id="original-title"></p>
-            <p class="small-note" id="original-review" hidden></p>
-            <div class="original-meta-row" id="original-meta-row">
-              <p class="small-note original-meta" id="original-meta"></p>
-              <span class="small-note" id="note-recipient-summary" hidden></span>
-              <p class="note-recipients" id="note-recipients" hidden>
-                <span id="note-recipient-list"></span>
-                <span class="small-note" id="note-recipient-limited" hidden>· 전체 명단은 브리티에서 확인</span>
-              </p>
+        <section class="detail-section" id="refine-section" aria-labelledby="refine-heading">
+          <div class="detail-section-heading"><h3 id="refine-heading">AI 정리</h3><button type="button" class="button text-button small" id="refine">다듬기</button></div>
+          <p class="formatted summary" id="refinement"></p>
+          <p class="small-note" id="refine-note" hidden></p>
+        </section>
+
+        <section class="detail-section note-actions" id="note-actions" aria-labelledby="note-actions-heading" hidden>
+          <div class="detail-section-heading">
+            <h3 id="note-actions-heading">쪽지에서 처리</h3>
+            <div class="ai-actions">
+              <button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button>
+              <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
+              <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
             </div>
-            <div id="reply-section" class="note-part" hidden>
-              <h4>회신</h4>
-              <p class="formatted original" id="reply-body"></p>
-            </div>
-            <div id="previous-note" class="note-part" hidden>
-              <h4>이전 쪽지</h4>
-              <p class="previous-subject" id="previous-subject"></p>
-              <p class="formatted original" id="previous-body"></p>
-            </div>
-            <p class="formatted original" id="original-body"></p>
-            <details class="raw-note" id="raw-note" hidden>
-              <summary>전체 원문 보기</summary>
-              <p class="formatted original" id="raw-note-body"></p>
-            </details>
           </div>
+        </section>
+
+        <section class="detail-section codex-work" id="codex-work-section" aria-labelledby="codex-work-heading" hidden>
+          <div class="detail-section-heading"><h3 id="codex-work-heading">AI 작업 결과</h3></div>
+          <p class="small-note" id="codex-work-status" role="status" hidden></p>
+          <ul class="codex-work-results" id="codex-work-results"></ul>
         </section>
 
         <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
@@ -204,12 +202,6 @@
           </div>
           <ul class="attachment-list" id="attachments"></ul>
           <p class="small-note" id="attachment-status" role="status" hidden></p>
-        </section>
-
-        <section class="detail-section" id="refine-section" aria-labelledby="refine-heading">
-          <div class="detail-section-heading"><h3 id="refine-heading">AI 정리</h3><button type="button" class="button text-button small" id="refine">다듬기</button></div>
-          <p class="formatted summary" id="refinement"></p>
-          <p class="small-note" id="refine-note" hidden></p>
         </section>
 
         <form class="edit-form" id="edit-form" tabindex="-1" aria-label="업무 편집">
@@ -267,6 +259,36 @@
             <button type="submit" class="button primary" id="save" disabled>변경 저장</button>
           </div>
         </form>
+
+        <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
+          <div class="detail-section-heading"><h3 id="original-heading" tabindex="-1">쪽지 원문</h3><button type="button" class="button text-button small" id="copy-note" hidden>원문 복사</button></div>
+          <div class="paper">
+            <p class="original-title" id="original-title"></p>
+            <p class="small-note" id="original-review" hidden></p>
+            <div class="original-meta-row" id="original-meta-row">
+              <p class="small-note original-meta" id="original-meta"></p>
+              <span class="small-note" id="note-recipient-summary" hidden></span>
+              <p class="note-recipients" id="note-recipients" hidden>
+                <span id="note-recipient-list"></span>
+                <span class="small-note" id="note-recipient-limited" hidden>· 전체 명단은 브리티에서 확인</span>
+              </p>
+            </div>
+            <div id="reply-section" class="note-part" hidden>
+              <h4>회신</h4>
+              <p class="formatted original" id="reply-body"></p>
+            </div>
+            <div id="previous-note" class="note-part" hidden>
+              <h4 id="previous-note-heading" tabindex="-1">이전 쪽지</h4>
+              <p class="previous-subject" id="previous-subject"></p>
+              <p class="formatted original" id="previous-body"></p>
+            </div>
+            <p class="formatted original" id="original-body"></p>
+            <details class="raw-note" id="raw-note" hidden>
+              <summary>전체 원문 보기</summary>
+              <p class="formatted original" id="raw-note-body"></p>
+            </details>
+          </div>
+        </section>
 
         <section class="detail-actions work-section" id="work-section" aria-label="채팅에서 이어서">
           <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note" title="Claude나 ChatGPT 채팅에 붙여 넣을 지시문을 복사합니다">채팅용 지시문 복사</button>
@@ -374,6 +396,15 @@
           <p class="small-note">바꾸면 지금 파일은 data 폴더에 '정리-기준.내가-고친-날짜.md'로 남습니다.</p>
         </div>
         <div class="ai-actions"><button type="button" class="button text-button small" id="rules">정리 기준 파일 열기 ↗</button></div>
+      </section>
+
+      <section class="settings-section" data-settings-tab="ai" aria-labelledby="mcp-settings-heading">
+        <h3 id="mcp-settings-heading">외부 AI 업무</h3>
+        <div class="setting-check">
+          <label class="check-field"><input type="checkbox" id="show-external-ai-work" aria-describedby="external-ai-work-help" checked>외부 AI 업무 기능 표시</label>
+          <p class="small-note" id="external-ai-work-help">AI로 보내기, 업무 맡기기, 작업 결과와 연결 설정을 화면에 표시합니다.</p>
+        </div>
+        <div class="ai-actions" id="mcp-settings-actions"><button type="button" class="button" id="mcp-settings-open" aria-haspopup="dialog">MCP 연결 설정</button></div>
       </section>
 
       <fieldset class="settings-section" id="profile-settings" data-settings-tab="ai">
@@ -671,6 +702,67 @@
       <div class="send-preview" id="send-preview" tabindex="0"></div>
       <p class="small-note" id="send-note">첨부 파일은 보내지 않습니다.</p>
       <div class="dialog-actions"><button type="button" class="button" id="send-cancel">보내지 않기</button><button type="button" class="button primary" id="send-confirm">보내고 다듬기</button></div>
+    </div>
+  </dialog>
+  <dialog id="mcp-dialog" aria-labelledby="mcp-heading">
+    <div class="dialog-body">
+      <h2 id="mcp-heading">AI로 보내기</h2>
+      <section class="mcp-section" id="mcp-draft" hidden>
+        <p class="mcp-title" id="mcp-note-title"></p>
+        <p class="small-note" id="mcp-draft-help">쪽지 원문과 선택한 첨부를 공유합니다. 연결한 AI가 가져오면 내용이 해당 AI 서비스에 전달될 수 있습니다.</p>
+        <div class="mcp-section" id="codex-work-field" hidden>
+          <label class="field">작업할 AI
+            <select id="work-agent-select">
+              <option value="codex">Codex</option>
+              <option value="claude">Claude Code</option>
+            </select>
+          </label>
+          <label class="field">맡길 일
+            <textarea id="codex-work-request" rows="3" maxlength="2000" placeholder="예) 첨부를 읽고 학부모 안내문 초안을 만들어 줘"></textarea>
+          </label>
+        </div>
+        <details>
+          <summary id="mcp-note-summary">공유할 원문 보기</summary>
+          <p class="send-preview" id="mcp-note-body" tabindex="0"></p>
+        </details>
+        <fieldset class="mcp-files" id="mcp-files">
+          <legend>함께 보낼 첨부</legend>
+          <div id="mcp-attachments"></div>
+        </fieldset>
+        <p class="small-note" id="mcp-replace-note">한 번에 한 쪽지를 공유합니다. 새 쪽지를 보내면 먼저 공유한 쪽지의 공유가 끝납니다.</p>
+      </section>
+      <section class="mcp-section mcp-current" id="mcp-current" aria-labelledby="mcp-current-heading" hidden>
+        <h3 id="mcp-current-heading">현재 공유 중</h3>
+        <p class="mcp-title" id="mcp-current-title"></p>
+        <ul class="mcp-current-files" id="mcp-current-files" hidden></ul>
+        <div class="ai-actions">
+          <button type="button" class="button primary" id="mcp-copy-prompt">요청 문장 복사</button>
+          <button type="button" class="button" id="mcp-open-folder">공유 폴더 열기</button>
+          <button type="button" class="button text-button small" id="mcp-revoke">공유 끝내기</button>
+        </div>
+        <p class="small-note">MCP 연결이 없는 AI 앱에는 공유 폴더의 업무.md와 첨부를 직접 올리세요.</p>
+      </section>
+      <details class="mcp-setup" id="mcp-setup">
+        <summary>처음 쓰는 AI 앱에 연결</summary>
+        <div class="mcp-section">
+          <label class="field">AI 앱
+            <select id="mcp-client">
+              <option value="json">Claude Code · Antigravity 등 (공용 JSON)</option>
+              <option value="codex">Codex</option>
+              <option value="grok">Grok Build</option>
+              <option value="vscode">VS Code</option>
+            </select>
+          </label>
+          <p class="small-note" id="mcp-client-help"></p>
+          <p class="small-note">Orca·Herdr에서 실행하는 AI는 그 AI의 설정을 사용합니다.</p>
+          <div class="ai-actions"><button type="button" class="button" id="mcp-copy-setup">MCP 설정 복사</button></div>
+        </div>
+      </details>
+      <p class="small-note" id="mcp-status" role="status" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="mcp-close" autofocus>닫기</button>
+        <button type="button" class="button primary" id="mcp-share-confirm" hidden>AI로 보내기</button>
+      </div>
     </div>
   </dialog>
   <dialog id="changes-dialog" aria-labelledby="changes-heading">

@@ -53,10 +53,16 @@ const taskModel = (() => {
         continue;
       }
       if (entry.kind === '까지') entry.done = item.done === true;
+      // 할 일의 그날도 끝냄 표시를 남길 수 있다(2026-11-20). 끝낸 것만 적는다.
+      else if (entry.kind === '그날' && item.done === true) entry.done = true;
+      // 받은 날에 놓은 기한 없는 할 일(코드가 채움, store.withReceivedDay)은 표시를 지킨다.
+      if (entry.kind === '그날' && item.received === true) entry.received = true;
       // 시간·교시는 선생님 입력(strict)에서만 받는다. AI 답에 있어도 버린다.
       const time = strict ? cleanTime(item.time) : '';
       if (time) entry.time = time;
-      if (result.some(other => other.date === entry.date && other.kind === entry.kind)) continue;
+      // 같은 날의 마감도 업무 이름이나 시각이 다르면 각각 저장한다.
+      if (result.some(other => other.date === entry.date && other.kind === entry.kind &&
+        (entry.kind !== '까지' || (other.label === entry.label && other.time === entry.time)))) continue;
       result.push(entry);
     }
     if (strict && result.length > MAX_DATES) throw new Error('dates');
@@ -113,10 +119,16 @@ const taskModel = (() => {
     throw new Error('result');
   }
 
-  // 체크할 수 있는 □ 목록. 까지 날짜마다 하나, 날짜 없는 할 일은 업무 전체에 하나.
+  // 할 일에서 끝냄을 표시할 수 있는 날짜: 까지와 그날(2026-11-20 사용자: 측정처럼 그날 하는 일도 끝낼 수 있게).
+  // 기간은 끝낼 칸이 없다. 그날의 끝냄은 선생님이 표시한다.
+  function checkable(entry) {
+    return entry?.kind === '까지' || entry?.kind === '그날';
+  }
+
+  // 체크할 수 있는 칸 목록. 까지·그날 날짜마다 하나, 날짜 없는 할 일은 업무 전체에 하나.
   function boxes(task) {
     if (task.type !== '할 일') return [];
-    const dated = (task.dates || []).map((entry, index) => ({ index, entry })).filter(({ entry }) => entry.kind === '까지')
+    const dated = (task.dates || []).map((entry, index) => ({ index, entry })).filter(({ entry }) => checkable(entry))
       .map(({ index, entry }) => ({ index, done: entry.done === true }));
     if (dated.length || (task.dates || []).length) return dated;
     return [{ index: null, done: task.done === true }];
@@ -214,7 +226,7 @@ const taskModel = (() => {
     return !!task && task.type === '할 일' && !task.candidate && Array.isArray(task.dates) && task.dates.length === 1 && task.dates[0].kind !== '기간';
   }
 
-  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat };
+  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, checkable, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat };
 })();
 
 if (typeof module !== 'undefined') module.exports = taskModel;

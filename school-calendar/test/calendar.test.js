@@ -6,6 +6,8 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { test } = require('node:test');
 const { CalendarStore } = require('../store');
+const { McpShare } = require('../mcp-share');
+const { NoteWork } = require('../note-work');
 const chatDecisions = require('../chat-decisions');
 const { buildWorkPrompt } = require('../work-prompt');
 
@@ -498,6 +500,93 @@ test('작업 카드에 원문이 있고 업무 시작을 반복해도 사본과 
   assert.equal(await fs.readFile(original, 'utf8'), '수집기 원본');
 });
 
+test('외부 AI 업무 표시 설정은 기존 자료에서 켜져 있으며 재실행 후에도 저장된다', async t => {
+  const { makeStore } = await setup(t);
+  const store = await makeStore();
+  assert.equal(store.snapshot().showExternalAiWork, true);
+  await store.setShowExternalAiWork(false);
+  const reopened = await makeStore();
+  assert.equal(reopened.snapshot().showExternalAiWork, false);
+  await reopened.setShowExternalAiWork(true);
+  assert.equal((await makeStore()).snapshot().showExternalAiWork, true);
+});
+
+test('MCP 공유는 고른 쪽지와 첨부 사본만 열고 공유 교체와 해제 때 이전 업무를 닫는다', async t => {
+  const { root, inboxDir, notes, makeStore } = await setup(t);
+  const shareFolder = path.join(root, 'mcp');
+  const connector = new McpShare(shareFolder, '가상 브리티');
+  const files = path.join(inboxDir, 'files', noteId);
+  await fs.mkdir(files, { recursive: true });
+  const saved = ['공유.txt', '미공유.txt'].map(name => ({ name, path: path.join(files, name) }));
+  await Promise.all(saved.map(item => fs.writeFile(item.path, item.name)));
+  await writeNote(notes, note(noteId, { title: '공유할 쪽지', saved }));
+  await writeNote(notes, note(otherId, { title: '다른 쪽지', body: '다른 쪽지 원문' }));
+  const store = await makeStore();
+  await store.refresh();
+  const tasks = store.snapshot().tasks;
+  const task = tasks.find(item => item.noteId === noteId);
+  const other = tasks.find(item => item.noteId === otherId);
+
+  assert.deepEqual(await connector.status(), { share: null });
+  const shared = await connector.publish(store, task.id, [{ index: 0, name: saved[0].name }]);
+  const bundle = await connector.bundle(shared.id);
+  assert.deepEqual(shared.attachments, [{ name: saved[0].name, storedName: saved[0].name }]);
+  assert.deepEqual(await fs.readdir(path.join(bundle, '첨부')), [saved[0].name]);
+  const card = await fs.readFile(path.join(bundle, '업무.md'), 'utf8');
+  assert.match(card, /시험 원문/);
+  assert.doesNotMatch(card, /다른 쪽지 원문|미공유/);
+  await assert.rejects(connector.publish(store, task.id, [{ index: 0, name: saved[1].name }]), /첨부가 바뀌었거나/);
+  assert.equal((await connector.status()).share.id, shared.id);
+
+  const reopened = new McpShare(shareFolder, '가상 GOE');
+  assert.equal((await reopened.status()).share.id, shared.id);
+  const replacement = await reopened.publish(store, other.id, []);
+  await assert.rejects(connector.revoke(shared.id), /공유한 업무가 바뀌었습니다/);
+  assert.equal((await connector.status()).share.id, replacement.id);
+  await assert.rejects(fs.stat(bundle), { code: 'ENOENT' });
+  await connector.revoke(replacement.id);
+  assert.deepEqual(await reopened.status(), { share: null });
+  assert.equal(await fs.readFile(saved[1].path, 'utf8'), saved[1].name);
+});
+
+test('외부 AI가 반환한 결과와 캘린더에서 맡긴 결과를 같은 쪽지에서만 다시 읽는다', async t => {
+  const { root, makeStore, notes } = await setup(t);
+  await writeNote(notes, note(noteId));
+  await writeNote(notes, note(otherId, { verified: false }));
+  const store = await makeStore();
+  const tasks = (await store.refresh()).tasks;
+  const selected = tasks.find(task => task.noteId === noteId);
+  const unverified = tasks.find(task => task.noteId === otherId);
+  const bridge = new McpShare(path.join(root, 'mcp'), '가상 브리티');
+  const options = { bridge, store, signal: new AbortController().signal, notify: () => {} };
+  const work = new NoteWork(options);
+  assert.throws(() => work.start(selected.id, { agent: 'claude', request: ' ', attachments: [] }), /맡길 일을/);
+  assert.throws(() => work.start(unverified.id, { agent: 'claude', request: '가상 초안', attachments: [] }), /원문이 확인된/);
+  assert.throws(() => work.start(selected.id, { agent: 'other', request: '가상 초안', attachments: [] }), /맡길 AI를/);
+  const share = await bridge.publish(store, selected.id, []);
+  assert.equal(share.taskId, selected.id);
+  await work.save(selected.id, { title: 'Codex 초안', content: 'Codex 결과' }, 'codex');
+  await work.save(selected.id, { title: 'Claude Code 초안', content: 'Claude Code 결과' }, 'claude');
+  const folder = await work.resultFolder(selected.id);
+  const id = 'a'.repeat(64);
+  await fs.writeFile(path.join(folder, `${id}.json`), JSON.stringify({
+    id, title: '외부 AI 초안', content: 'MCP 결과', completedAt: new Date().toISOString(), source: 'mcp'
+  }));
+  const legacy = 'c'.repeat(64);
+  await fs.writeFile(path.join(folder, `${legacy}.json`), JSON.stringify({
+    id: legacy, title: '이전 Codex 초안', content: '이전 MCP 결과', completedAt: new Date().toISOString(), source: 'codex-mcp'
+  }));
+  await fs.writeFile(path.join(folder, 'b'.repeat(64) + '.json'), '잘못된 결과');
+  await bridge.revoke(share.id);
+
+  const reopened = new NoteWork(options);
+  const { results } = await reopened.state(selected.id);
+  assert.deepEqual(Object.fromEntries(results.map(result => [result.source, result.content])), {
+    'codex-app': 'Codex 결과', 'claude-app': 'Claude Code 결과', mcp: 'MCP 결과', 'codex-mcp': '이전 MCP 결과'
+  });
+  assert.deepEqual(await reopened.state(unverified.id), { job: null, results: [] });
+});
+
 test('새 쪽지 첨부는 다운로드 폴더에 바로 복사하고 기존 파일은 덮어쓰지 않는다', async (t) => {
   const { root, inboxDir, notes, dataDir, makeStore } = await setup(t);
   const downloadsDir = path.join(root, 'Downloads');
@@ -847,7 +936,12 @@ test('날짜가 둘인 쪽지는 까지 날짜마다 따로 끝내고, 답장과
   let current = (await store.detail(id)).task;
   assert.equal(current.dates[0].done, true);
   assert.equal('done' in current.dates[1], false);
-  await assert.rejects(store.setDone(id, true, 1), /끝냄으로 표시할 칸이 없습니다/);
+  // 할 일의 그날도 끝낼 수 있다(2026-11-20). 끝낸 표시는 저장되고, 다시 열면 지운다.
+  await store.setDone(id, true, 1);
+  assert.equal((await store.detail(id)).task.dates[1].done, true);
+  await store.setDone(id, false, 1);
+  assert.equal((await store.detail(id)).task.dates[1].done === true, false);
+  await assert.rejects(store.setDone(id, true, 5), /끝냄으로 표시할 칸이 없습니다/);
   await store.setReplied(id, true);
   assert.equal((await store.detail(id)).task.replied, true);
 
@@ -861,6 +955,34 @@ test('날짜가 둘인 쪽지는 까지 날짜마다 따로 끝내고, 답장과
   assert.equal(record.aiAnswer.dates.length, 2);
   assert.deepEqual(record.correction.value, { type: '할 일', reply: false, dates: [{ date: '2026-11-15', label: '발표회', kind: '그날' }] });
   await assert.rejects(store.update(id, { type: '할 일', dates: [1, 2, 3, 4].map(day => ({ date: `2026-11-0${day}`, label: 'x', kind: '그날' })) }), /3개까지/);
+});
+
+test('같은 날 서로 다른 마감과 시각을 저장하고 재실행 뒤에도 각각 끝낼 수 있다', async t => {
+  const { makeStore, notes } = await setup(t);
+  await writeNote(notes, note(noteId));
+  const store = await makeStore();
+  await store.refresh();
+  const [{ id }] = store.snapshot().tasks;
+  const date = '2026-11-20';
+  const first = { date, kind: '까지', label: '계획안 제출' };
+  const second = { date, kind: '까지', label: '의견 회신' };
+  const { task } = await store.refine(id, async () => ({
+    type: '할 일', title: '계획안과 의견', dates: [first, second], uncertain: false
+  }));
+  assert.deepEqual(task.dates.map(entry => entry.label), [first.label, second.label]);
+  assert.equal(task.uncertain, false);
+
+  const savedDates = [
+    { ...first, time: '10:00', done: false },
+    { ...second, time: '15:30', done: false }
+  ];
+  await store.update(id, { dates: savedDates, revision: task.revision });
+  await store.setDone(id, true, 1);
+
+  const reopened = await makeStore();
+  assert.deepEqual((await reopened.detail(id)).task.dates, [savedDates[0], { ...savedDates[1], done: true }]);
+  await reopened.setDone(id, true, 0);
+  assert.deepEqual((await reopened.detail(id)).task.dates.map(entry => entry.done), [true, true]);
 });
 
 test('날짜 없는 할 일은 받은 날 그날에 놓고, 설정한 내 역할을 AI에 넘긴다', async (t) => {

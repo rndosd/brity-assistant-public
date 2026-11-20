@@ -86,8 +86,21 @@ contextBridge.exposeInMainWorld('calendar', {
   dismissWhatsNew: () => invoke('calendar:whats-new-dismiss'),
   changes: () => invoke('calendar:changes'),
   setShowPeriods: enabled => invoke('calendar:periods', enabled),
+  setShowExternalAiWork: enabled => invoke('calendar:external-ai-work-visibility', enabled),
   openRules: () => invoke('calendar:rules'),
   openAttachment: (id, index, reveal) => invoke('calendar:attachment', id, index, reveal),
+  mcpStatus: () => invoke('calendar:mcp-status'),
+  mcpShare: (id, attachments) => invoke('calendar:mcp-share', id, attachments),
+  mcpRevoke: id => invoke('calendar:mcp-revoke', id),
+  mcpOpen: id => invoke('calendar:mcp-open', id),
+  mcpCopySetup: format => invoke('calendar:mcp-copy-setup', format),
+  delegateAgentWork: (id, input) => invoke('calendar:agent-work-start', id, input),
+  noteAgentWork: id => invoke('calendar:agent-work-state', id),
+  onAgentWorkChanged: callback => {
+    const listener = (_event, id) => callback(id);
+    ipcRenderer.on('calendar:agent-work-changed', listener);
+    return () => ipcRenderer.removeListener('calendar:agent-work-changed', listener);
+  },
   retryGoeAttachments: id => invoke('calendar:goe-attachment-retry', id),
   copyWorkPrompt: id => invoke('calendar:copy-work', id),
   openLink: url => invoke('calendar:open-link', String(url ?? '')),

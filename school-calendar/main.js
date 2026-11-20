@@ -6,6 +6,8 @@ const path = require('node:path');
 const os = require('node:os');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 const { CalendarStore, CalendarError } = require('./store');
+const { McpShare } = require('./mcp-share');
+const { NoteWork } = require('./note-work');
 const { apiProviders, refineWithProvider, classifierSample, cleanReplyBody } = require('./ai-provider');
 const claudeCli = require('./claude-cli');
 const codexCli = require('./codex-cli');
@@ -86,6 +88,10 @@ function userDownloads() {
 }
 
 const downloadsDir = userDownloads();
+const mcpShare = new McpShare(process.env.SCHOOL_CALENDAR_MCP_DIR || path.join(
+  process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+  demo ? 'MessengerCalendar-MCP-Sample' : 'MessengerCalendar-MCP'
+), messenger.appName);
 const collectorOptions = {
   scriptsDir: path.dirname(defaultInbox),
   goe: goeEdition,
@@ -113,6 +119,14 @@ const googleCalendar = new GoogleCalendarSync({
   onChange: () => publish()
 });
 store.onCommit = () => googleCalendar.schedule();
+const noteWork = new NoteWork({
+  bridge: mcpShare, store, signal: lifetime.signal,
+  notify: taskId => {
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send('calendar:agent-work-changed', taskId);
+    }
+  }
+});
 
 function snapshot() {
   const saved = store.snapshot();
@@ -151,6 +165,7 @@ function checkUpdate(manual = false) {
 async function applyUpdate() {
   if (!updatesEnabled || update.status !== 'available' || !update.manifest) throw new CalendarError('지금 받을 수 있는 새 판이 없습니다.');
   if (collectorRun || brityReplyRun || draining) throw new CalendarError('쪽지를 가져오거나 정리하는 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  if (noteWork.pending().length) throw new CalendarError('AI가 맡은 일을 마친 뒤 업데이트해 주세요.');
   const manifest = update.manifest;
   update = { ...update, status: 'downloading', error: null };
   publish();
@@ -1125,10 +1140,29 @@ function bindHandlers() {
   bind('changes', () => ({ version: app.getVersion(), changes: updater.changesBetween(CHANGES, null, app.getVersion()).slice(0, 5) }));
   bind('rules-resolve', async choice => changed(await store.resolveRules(choice)));
   bind('periods', async enabled => changed(await store.setShowPeriods(enabled)));
+  bind('external-ai-work-visibility', async enabled => {
+    await store.setShowExternalAiWork(enabled);
+    return changed(snapshot());
+  });
   bind('rules', async () => {
     const error = await shell.openPath(store.rulesPath);
     if (error) throw new CalendarError('정리 기준 파일을 열 수 없습니다.');
   });
+  bind('mcp-status', () => mcpShare.status());
+  bind('mcp-share', (id, attachments) => mcpShare.publish(store, id, attachments));
+  bind('mcp-revoke', id => mcpShare.revoke(id));
+  bind('mcp-open', async id => {
+    const error = await shell.openPath(await mcpShare.bundle(id));
+    if (error) throw new CalendarError('공유한 업무 폴더를 열 수 없습니다.');
+  });
+  bind('mcp-copy-setup', async format => {
+    clipboard.writeText(await mcpShare.setup(format));
+  });
+  bind('agent-work-start', (id, input) => {
+    if (['downloading', 'installing'].includes(update.status)) throw new CalendarError('업데이트가 끝난 뒤 AI에 맡겨 주세요.');
+    return noteWork.start(id, input);
+  });
+  bind('agent-work-state', id => noteWork.state(id));
   bind('attachment', async (id, index, reveal) => {
     const attachment = await store.attachment(id, index);
     if (reveal === true || !attachment.direct) {
@@ -1263,6 +1297,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
+    if (fs.existsSync(mcpShare.command)) void mcpShare.installBridge().catch(() => {});
     ready = (demo ? demo.seedDemo() : Promise.resolve()).then(() => store.init()).then(noteVersion).then(loadLastChatCollection).then(refresh);
     ready.catch(() => {});
     bindHandlers();
@@ -1303,9 +1338,10 @@ if (!app.requestSingleInstanceLock()) {
     clearInterval(chatTimer);
     clearTimeout(retryTimer);
     lifetime.abort();
-    if (collectorRun || brityReplyRun || chatRun) {
+    const pending = [collectorRun, brityReplyRun, chatRun, ...noteWork.pending()].filter(Boolean);
+    if (pending.length) {
       event.preventDefault();
-      void Promise.allSettled([collectorRun, brityReplyRun, chatRun]).then(() => app.quit());
+      void Promise.allSettled(pending).then(() => app.quit());
     }
   });
 }

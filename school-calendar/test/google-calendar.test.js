@@ -60,6 +60,15 @@ function setup(tasks) {
 }
 
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+test('끝낸 일정은 구글에서도 완료로 표시하고 알림을 뺀다', () => {
+  const task = { type: '할 일', title: '협의', done: false };
+  const entry = { date: '2026-12-27', label: '협의', kind: '그날', time: '15:00' };
+  const event = eventBody(task, { ...entry, done: true });
+  assert.equal(event.summary, '✓협의');
+  assert.deepEqual(event.reminders.overrides, []);
+  assert.equal(eventBody({ ...task, done: true }, entry).summary, '협의');
+});
+
 const tasks = () => [
   { id: uuid(1), type: '할 일', title: '참여율 제출', done: false, dates: [{ date: '2026-12-27', label: '참여율 제출', kind: '까지', done: false }] },
   { id: uuid(2), type: '알아 둘 것', title: '보안 점검', done: false, dates: [{ date: '2026-12-30', label: '보안 점검', kind: '그날' }] },

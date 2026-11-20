@@ -8,7 +8,7 @@ const { daysBetween, receivedDay } = calendarPeriods;
 const WEEKDAYS = '일월화수목금토';
 // 한 주는 월요일에 시작해 일요일에 끝난다(2026-11-15 사용자). 달력 칸·기간 띠·목록의 이번 주가 같은 기준을 쓴다.
 const weekday = date => (date.getDay() + 6) % 7;
-const TYPE_ORDER = { span: 0, event: 0, task: 1, ref: 2 };
+const TYPE_ORDER = { span: 0, event: 0, task: 1, loose: 1, ref: 2 };
 const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '없음': '숨기기' };
 const aiNames = { claude: 'Claude Code CLI · Haiku', codex: 'Codex CLI', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
 const state = {
@@ -21,6 +21,8 @@ const state = {
 };
 const markingOpened = new Set();
 let noticeTimer;
+let agentWork = null;
+const workAgents = { codex: 'Codex', claude: 'Claude Code' };
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -78,7 +80,7 @@ function monthOf(date) {
 }
 
 // 화면 분류: 유형은 할 일 · 알아 둘 것 · 없음(숨김). 기호는 날짜마다 정한다: 까지 □, 그날 ●, 알아 둘 것은 기호 없음.
-const { boxes, finished, isPinned, pinnedDue, lastDay } = taskModel;
+const { checkable, boxes, finished, isPinned, pinnedDue, lastDay } = taskModel;
 const chatLabels = { task: '대화방', confirmed: '대화방 확정', changed: '대화방 변경', cancelled: '대화방 취소' };
 
 // 대화방 후보(분류할 것 탭). 아직 정하지 않은 것만 후보이고, 버린 후보는 숨긴 것에 둔다.
@@ -91,16 +93,35 @@ function candidateBadge(task) {
   return task.candidate?.change ? (task.chatSource?.action === 'cancelled' ? '대화방 취소 후보' : '대화방 변경 후보') : '대화방 후보';
 }
 
+// 기한 없는 할 일(○): AI가 날짜를 주지 않아 받은 날에 놓은 할 일(답장할 질문 등).
+// 마감·일정과 헷갈리지 않게 ○로 보이고, 끝낼 때까지 오늘 칸·오늘 묶음에 따라온다. 받은 날은 쪽지를 고르면 '받음'으로 보인다(2026-11-20 사용자).
+function looseEntry(task, entry) {
+  return task.type === '할 일' && entry?.kind === '그날' && entry.received === true;
+}
+
+// 끝내지 않은 기한 없는 할 일이 지금 뜨는 날: 받은 날이 지났으면 오늘.
+function rolledDay(task, entry, today) {
+  return looseEntry(task, entry) && entry.done !== true && entry.date < today ? today : entry.date;
+}
+
+// 받은 날부터 센 날수: 받은 날이 1일째.
+function looseAge(entry, today) {
+  return daysBetween(entry.date, today) + 1;
+}
+
 // 달력·목록에 뜨는 한 줄 = 업무의 날짜 하나.
 function markType(task, entry) {
   if (task.type !== '할 일') return 'ref';
   if (!entry) return 'task';
+  if (looseEntry(task, entry)) return 'loose';
   return entry.kind === '까지' ? 'task' : entry.kind === '기간' ? 'span' : 'event';
 }
 
+// 끝낸 일정(●)·기한 없는 할 일(○)은 끝낸 마감과 같은 칠한 체크로 보인다(2026-11-20).
 function mark(type, done = false) {
-  if (type === 'task') return element('span', `box${done ? ' on' : ''}`);
+  if (type === 'task' || ((type === 'event' || type === 'loose') && done)) return element('span', `box${done ? ' on' : ''}`);
   if (type === 'event') return element('span', 'disc');
+  if (type === 'loose') return element('span', 'ring');
   if (type === 'span') return element('span', 'bar');
   return element('span', 'nomark');
 }
@@ -123,6 +144,10 @@ function friendlyDates(text, year = new Date().getFullYear()) {
 
 function entryLate(task, entry, today = key(new Date())) {
   return task.type === '할 일' && entry?.kind === '까지' && !entry.done && entry.date < today;
+}
+
+function entryPastSchedule(task, entry, today) {
+  return !task.candidate && task.type === '할 일' && entry?.kind === '그날' && !looseEntry(task, entry) && entry.done !== true && entry.date < today;
 }
 
 function isLate(task, today = key(new Date())) {
@@ -261,10 +286,12 @@ function sameEntry(a, b) {
     markType(a.task, a.entry) === markType(b.task, b.entry) && isCandidate(a.task) === isCandidate(b.task) && sameWork(a.entry.label, b.entry.label);
 }
 // items: [{ task, entry, index }]. 묶음마다 가장 늦게 받은 쪽지를 대표로 두고 나머지는 dupes에 넣는다.
-function mergeSame(items) {
+function mergeSame(items, today) {
   const groups = [];
   for (const item of items) {
-    const group = groups.find(list => list.every(other => sameEntry(other, item)));
+    const past = today && entryPastSchedule(item.task, item.entry, today);
+    const group = groups.find(list => list.every(other => sameEntry(other, item) &&
+      (!today || entryPastSchedule(other.task, other.entry, today) === past)));
     if (group) group.push(item); else groups.push([item]);
   }
   return groups.map(list => {
@@ -322,32 +349,40 @@ function timeTag(time) {
 function calendarItem(task, entry, index, today, dupes = []) {
   const type = markType(task, entry);
   const all = [{ task, entry }, ...dupes];
-  const done = type === 'task' && all.every(item => item.entry.done === true);
+  const done = task.type === '할 일' && checkable(entry) && all.every(item => item.entry.done === true);
+  const past = entryPastSchedule(task, entry, today);
+  // 다 본 알아 둘 것도 끝낸 것처럼 ✓·줄 긋기로 확실히 표시한다(2026-11-20 사용자 "흐림으로만 하면 애매한데").
+  const seen = type === 'ref' && all.every(item => item.task.referenceSeen === true);
   const selected = all.some(item => item.task.id === state.selected);
   const important = all.some(item => item.task.important === true);
   const item = button(`item type-${type}`);
   item.classList.toggle('late', all.some(one => entryLate(one.task, one.entry, today)));
-  item.classList.toggle('done', done);
-  item.classList.toggle('past', entry.kind !== '까지' && lastDay(entry) < today);
+  item.classList.toggle('done', done || seen);
+  item.classList.toggle('past', entry.kind !== '까지' && !looseEntry(task, entry) && lastDay(entry) < today);
   item.classList.toggle('selected', selected);
   // 후보는 흐리게(점선 테두리) 미리 보인다. 분류할 것 탭을 안 열어도 놓치지 않게.
   item.classList.toggle('candidate', isCandidate(task));
   item.title = [task.title, entry.kind === '까지' ? `${shortDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}까지` : entry.time, task.chatSource?.time,
-    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : '',
+    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : seen ? '다 봄' : past ? '지난 일정' : '',
+    type === 'loose' ? `기한 없음 · ${shortDate(entry.date)} 받음` : '',
     dupes.length ? `같은 업무 쪽지 ${all.length}건` : ''].filter(Boolean).join(' · ');
+  // 받은 날이 지나 오늘 칸에 따라온 기한 없는 할 일은 받은 지 며칠째인지 붙인다.
+  const age = type === 'loose' && !done && entry.date < today ? looseAge(entry, today) : 0;
   item.setAttribute('aria-pressed', String(selected));
   item.dataset.focusKey = `calendar-${task.id}-${index}`;
   item.classList.toggle('important', important);
-  item.append(mark(type, done));
+  item.append(seen ? element('span', 'seen-mark', '✓') : mark(type, done));
   if (important) item.append(element('span', 'imp', '!'));
   // 시간은 제목 글줄 맨 앞에 넣는다. 칸이 좁으면 제목이 시간 뒤에 이어지다 다음 줄로 넘어간다.
   const title = element('span', 'item-title');
   if (task.repeat) title.append(repeatMark(task));
   if (entry.time) title.append(timeTag(entry.time), ' ');
+  if (age) title.append(element('span', 'item-time item-age', `${age}일째`), ' ');
   title.append(entry.label);
   item.append(title);
   if (dupes.length) item.append(sameCountBadge(all.length));
-  item.addEventListener('click', () => { if (selectTask(task.id, item.dataset.focusKey) !== false) revealInList(task.id); });
+  if (past) item.append(element('span', 'sr-only', '지난 일정'));
+  item.addEventListener('click', () => { if (selectTask(task.id, item.dataset.focusKey) !== false) revealInList(task.id, past ? index : null); });
   return item;
 }
 
@@ -396,11 +431,16 @@ function spanPiece(span, dateKey, weekFirst, today) {
   return piece;
 }
 
-function selectedReceived() {
+// 그날 칸에서 끝낸 마감과 다 본 알아 둘 것은 뒤로 보낸다.
+function closedEntry({ task, entry }) {
+  return entry.done === true || (task.type === '알아 둘 것' && task.referenceSeen === true);
+}
+
+function selectedReceived(today = key(new Date())) {
   const task = state.snapshot.tasks.find(item => item.id === state.selected);
   if (!task?.noteId || task.type === '없음' || !task.dates?.length) return null;
   const start = receivedDay(task.datetime || '');
-  return start && task.dates.some(entry => start < entry.date) ? start : null;
+  return start && task.dates.some(entry => start < rolledDay(task, entry, today)) ? start : null;
 }
 
 // 학사일정을 날짜별로 묶는다. 담임 학년을 적어 두면 다른 학년만의 행사는 뺀다.
@@ -432,15 +472,17 @@ function renderMonth() {
   const next = new Date(current);
   next.setMonth(month + 1);
   const weeks = Math.max(5, Math.ceil((weekday(current) + shift(next, -1).getDate()) / 7));
-  const received = selectedReceived();
+  const received = selectedReceived(today);
   const items = new Map();
   const spans = [];
   for (const task of state.snapshot.tasks) {
     if (task.type === '없음') continue;
     (task.dates || []).forEach((entry, index) => {
       if (entry.kind === '기간' && entry.end) { spans.push({ task, entry, index }); return; }
-      if (!items.has(entry.date)) items.set(entry.date, []);
-      items.get(entry.date).push({ task, entry, index });
+      // 끝내지 않은 기한 없는 할 일은 받은 날이 아니라 오늘 칸에 뜬다.
+      const day = rolledDay(task, entry, today);
+      if (!items.has(day)) items.set(day, []);
+      items.get(day).push({ task, entry, index, rolled: day !== entry.date });
     });
   }
   // 기간은 시작일~끝일 칸을 가로지르는 선. 겹치면 줄(lane)을 나누고, 같은 기간은 그 달 내내 같은 줄에 둔다.
@@ -526,10 +568,13 @@ function renderMonth() {
       lanes.append(span ? spanPiece(span, dateKey, weekday(date) === 0, today) : element('span', 'span-gap'));
     }
     const list = element('div', 'day-items');
-    const dayTasks = mergeSame(items.get(dateKey) || []).sort((a, b) => Number(isCandidate(a.task)) - Number(isCandidate(b.task)) ||
+    // 끝낸 것은 시간과 상관없이 그날 칸 맨 뒤로(2026-11-20). 오늘 칸에 따라온 기한 없는 할 일은 오늘 원래 항목 뒤로
+    // (쌓여도 오늘 일정이 가려지지 않고 +N으로 접힌다).
+    const dayTasks = mergeSame(items.get(dateKey) || [], today).sort((a, b) => Number(closedEntry(a)) - Number(closedEntry(b)) ||
+      Number(!!a.rolled) - Number(!!b.rolled) ||
+      Number(isCandidate(a.task)) - Number(isCandidate(b.task)) ||
       timeOrder(a.entry.time) - timeOrder(b.entry.time) ||
-      TYPE_ORDER[markType(a.task, a.entry)] - TYPE_ORDER[markType(b.task, b.entry)] ||
-      Number(a.entry.done === true) - Number(b.entry.done === true));
+      TYPE_ORDER[markType(a.task, a.entry)] - TYPE_ORDER[markType(b.task, b.entry)]);
     const MAX = 3;
     const shown = dayTasks.slice(0, MAX);
     const chosen = dayTasks.findIndex(groupSelected);
@@ -568,8 +613,10 @@ function monthDay(value) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-// 기간이 이미 시작했으면 오늘 묶음에 둔다(오늘도 그 기간 안이므로).
+// 기간이 이미 시작했으면 오늘 묶음에 둔다(오늘도 그 기간 안이므로). 끝내지 않은 기한 없는 할 일도 오늘 묶음.
+// (목록의 할 일 줄에서만 부르므로 유형은 할 일이다.)
 function activeDay(entry, today) {
+  if (entry.kind === '그날' && entry.received === true && entry.done !== true && entry.date < today) return today;
   return entry.kind === '기간' && entry.date < today && lastDay(entry) >= today ? today : entry.date;
 }
 
@@ -582,6 +629,8 @@ function spanText(entry, today) {
 function entryWhen(task, entry, today) {
   if (entry.kind === '기간' && entry.end) return spanText(entry, today);
   if (entryLate(task, entry, today)) return `${daysBetween(entry.date, today)}일 지남`;
+  // 기한 없는 할 일: 마감처럼 "지남"이 아니라 받은 지 며칠째인지(2026-11-20 사용자).
+  if (looseEntry(task, entry) && entry.done !== true && entry.date < today) return `${looseAge(entry, today)}일째`;
   return entry.date === today ? '오늘' : monthDay(entry.date);
 }
 
@@ -595,7 +644,8 @@ function longDate(value, withMonth = true) {
 function leadEntry(task, today) {
   const dates = task.dates || [];
   return dates.find(entry => entryLate(task, entry, today)) ||
-    dates.find(entry => lastDay(entry) >= today && !(entry.kind === '까지' && entry.done)) || dates[0] || null;
+    dates.find(entry => !(checkable(entry) && entry.done) && (lastDay(entry) >= today || looseEntry(task, entry))) ||
+    dates.find(entry => entryPastSchedule(task, entry, today)) || dates[0] || null;
 }
 
 function renderLead(task) {
@@ -607,14 +657,17 @@ function renderLead(task) {
   if (entry) {
     const when = entry.kind === '기간' && entry.end
       ? `${longDate(entry.date)}~${longDate(entry.end, entry.end.slice(0, 7) !== entry.date.slice(0, 7))}`
+      : looseEntry(task, entry) ? `${longDate(entry.date)} 받음`
       : `${longDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}${entry.kind === '까지' ? '까지' : ''}`;
     parts.push(element('span', 'lead-when', when), element('span', 'lead-sep', ' · '));
   }
   parts.push(element('span', 'lead-name', entry?.label || displayTitle(task.title)));
   const late = entryLate(task, entry, today);
-  const done = entry?.kind === '까지' ? entry.done === true : task.done === true;
+  const done = checkable(entry) ? entry.done === true : task.done === true;
   if (late) parts.push(element('span', 'lead-state', `${daysBetween(entry.date, today)}일 지남`));
-  else if (done) parts.push(element('span', 'lead-state', '끝냄'));
+  else if (done) parts.push(' ', element('span', 'lead-state', '끝냄'));
+  else if (looseEntry(task, entry)) parts.push(' ', element('span', 'lead-state', entry.date < today ? `기한 없음 · ${looseAge(entry, today)}일째` : '기한 없음'));
+  else if (entryPastSchedule(task, entry, today)) parts.push(' ', element('span', 'lead-state', '지난 일정'));
   lead.classList.toggle('late', late);
   lead.classList.toggle('done', !late && done);
   lead.replaceChildren(...parts);
@@ -624,7 +677,7 @@ function renderLead(task) {
 function whenText(task, today) {
   const late = (task.dates || []).find(entry => entryLate(task, entry, today));
   if (late) return entryWhen(task, late, today);
-  const next = (task.dates || []).find(entry => lastDay(entry) >= today) || task.dates?.[0];
+  const next = (task.dates || []).find(entry => lastDay(entry) >= today || (looseEntry(task, entry) && entry.done !== true)) || task.dates?.[0];
   if (next) return entryWhen(task, next, today);
   if (task.chatSource) return '';
   const received = receivedDay(task.datetime || '');
@@ -656,7 +709,10 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
     pick.dataset.focusKey = `${list}-pinned-${task.id}`;
     return row;
   }
-  const type = entry ? markType(task, entry) : task.type !== '할 일' ? 'ref' : boxes(task).length ? 'task' : 'event';
+  // 업무 전체 줄: 마감이 있거나 날짜 없는 할 일이면 □, 기한 없는 할 일만 있으면 ○, 일정만 있으면 ●(끝내면 칠한 체크).
+  const type = entry ? markType(task, entry) : task.type !== '할 일' ? 'ref'
+    : !task.dates?.length || task.dates.some(item => item.kind === '까지') ? 'task'
+    : task.dates.every(item => looseEntry(task, item)) ? 'loose' : 'event';
   const row = element('li', `row type-${type}`);
   const rowKey = entry ? `${task.id}-${index}` : task.id;
   const doneNow = entry ? entry.done === true : finished(task);
@@ -664,17 +720,17 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
   row.classList.toggle('selected', selected);
   row.classList.toggle('late', entry ? entryLate(task, entry, today) : isLate(task, today));
   row.classList.toggle('done', doneNow);
-  const canCheck = !task.candidate && type === 'task' && (entry ? entry.kind === '까지' : boxes(task).length > 0);
+  const canCheck = !task.candidate && task.type === '할 일' && (entry ? checkable(entry) : boxes(task).length > 0);
   if (canCheck) {
     const check = button('check');
     check.setAttribute('aria-label', `${doneNow ? '끝냄 취소' : '끝냄'}: ${entry?.label || task.title}`);
     check.dataset.focusKey = `${list}-check-${rowKey}`;
-    check.append(mark('task', doneNow));
+    check.append(mark(type, doneNow));
     check.addEventListener('click', () => {
       if (entry) {
         void toggleDone(task, index, !doneNow);
         // 묶인 같은 업무도 함께 끝낸다(따로 남아 다시 뜨지 않게).
-        for (const dupe of dupes) if (dupe.entry.kind === '까지' && dupe.entry.done !== !doneNow) void toggleDone(dupe.task, dupe.index, !doneNow);
+        for (const dupe of dupes) if (checkable(dupe.entry) && dupe.entry.done !== !doneNow) void toggleDone(dupe.task, dupe.index, !doneNow);
       } else void toggleDone(task, 'all', !doneNow);
     });
     row.append(check);
@@ -1065,18 +1121,22 @@ function renderLists() {
   const nextRepeat = new Map();
   for (const task of tasks) {
     const entry = task.repeat && task.dates?.[0];
-    if (!entry || (entry.kind === '까지' && entry.done) || entry.date < today) continue;
+    if (!entry || entry.done || entry.date < today) continue;
     const best = nextRepeat.get(task.repeat.seriesId);
     if (!best || entry.date < best.dates[0].date) nextRepeat.set(task.repeat.seriesId, task);
   }
   const laterRepeat = task => !!task.repeat && task.dates?.[0]?.date >= today && nextRepeat.get(task.repeat.seriesId) !== task;
-  // 날짜 묶음은 할 일의 날짜 하나가 한 줄이다. 끝낸 까지와 지나간 그날은 빠진다.
+  // 날짜 하나가 한 줄이다. 완료 표시가 없는 지난 일정은 마감이나 다른 날짜와 별도로 찾을 수 있다.
   const rows = [];
+  const pastRows = [];
   for (const task of tasks) {
-    if (task.type !== '할 일' || checked.has(task.id) || laterRepeat(task)) continue;
+    if (task.type !== '할 일' || noteReviewIds.has(task.id) || laterRepeat(task)) continue;
     (task.dates || []).forEach((entry, index) => {
-      if (entry.kind === '까지' ? entry.done : lastDay(entry) < today) return;
-      rows.push({ task, entry, index });
+      if (entryPastSchedule(task, entry, today)) {
+        pastRows.push({ task, entry, index });
+      } else if (!checked.has(task.id) && !entry.done && (entry.kind === '까지' || looseEntry(task, entry) || lastDay(entry) >= today)) {
+        rows.push({ task, entry, index });
+      }
     });
   }
   const byDate = (a, b) => Number(b.task.important === true) - Number(a.task.important === true) ||
@@ -1113,6 +1173,17 @@ function renderLists() {
 
   updateTab('todo', todoCount, todoUnread);
 
+  const past = mergeSame(pastRows).sort((a, b) => b.entry.date.localeCompare(a.entry.date) || byDate(a, b));
+  const pastTasks = new Set(past.flatMap(groupTasks));
+  const pastMessages = new Set([...pastTasks].map(taskMessageKey));
+  const unreadInPast = message => unread.has(message) && !todoMessages.has(message);
+  updateTab('past', past.length, [...pastMessages].filter(unreadInPast).length);
+  $('past-list').replaceChildren(...(past.length
+    ? past.map(({ task, entry, index, dupes }) => listRow(task, 'past', today, {
+      entry, index, dupes, unread: [task, ...dupes.map(dupe => dupe.task)].some(one => unreadInPast(taskMessageKey(one)))
+    }))
+    : [element('li', 'empty-row', '지난 일정이 없습니다.')]));
+
   const references = tasks.filter(task => task.type === '알아 둘 것' && !task.referenceSeen && !checked.has(task.id)).sort(byReceived);
   updateTab('reference', references.length, references.filter(task => unread.has(taskMessageKey(task))).length);
   $('reference-list').replaceChildren(...(references.length
@@ -1123,7 +1194,7 @@ function renderLists() {
   const done = tasks.filter(task => {
     if (noteReviewIds.has(task.id)) return false;
     if (task.type === '알아 둘 것') return task.referenceSeen;
-    if (task.type !== '할 일' || todoTasks.has(task)) return false;
+    if (task.type !== '할 일' || todoTasks.has(task) || pastTasks.has(task)) return false;
     return finished(task) || ((task.noteId || task.chatSource) && task.dates?.length);
   }).sort(byReceived);
   const doneMessages = new Set(done.map(taskMessageKey));
@@ -1135,7 +1206,7 @@ function renderLists() {
 
   const referenceMessages = new Set(references.map(taskMessageKey));
   const hidden = messages.filter(message => message.kind === 'note' ? message.type === '없음' && !noteReviewIds.has(message.id)
-    : ![todoMessages, doneMessages, referenceMessages, candidateBatches].some(set => set.has(`chat:${message.id}`)));
+    : ![todoMessages, pastMessages, doneMessages, referenceMessages, candidateBatches].some(set => set.has(`chat:${message.id}`)));
   // 버린 후보: 숨긴 것에서 다시 열어 되살릴 수 있다.
   const discarded = state.snapshot.tasks.filter(task => task.candidate?.discarded).sort(byReceived);
   updateTab('hidden', hidden.length + discarded.length, hidden.filter(message => message.unread).length);
@@ -1155,6 +1226,7 @@ function renderLists() {
   put('candidate', [...notesForReview, ...state.snapshot.tasks.filter(isCandidate)]);
   put('todo', todoTasks);
   put('reference', references);
+  put('past', pastTasks);
   put('done', done);
   put('hidden', discarded);
   for (const message of hidden) if (message.kind === 'note' && !views.has(message.id)) views.set(message.id, 'hidden');
@@ -1194,18 +1266,19 @@ function editingDates() {
   return state.editDates || [];
 }
 
-// 날짜를 보기만 할 때: □/● 날짜 이름 한 줄씩, 까지에는 끝냄 체크만. "날짜 고치기"를 눌러야 편집 칸이 열린다.
+// 날짜를 보기만 할 때: □/● 날짜 이름 한 줄씩, 할 일의 까지·그날에는 끝냄 체크만. "날짜 고치기"를 눌러야 편집 칸이 열린다.
 function readOnlyDateRow(task, entry, index, today) {
   const row = element('li', 'date-view');
   const type = markType(task, entry);
-  const done = type === 'task' && entry.done === true;
+  const canCheck = task.type === '할 일' && checkable(entry);
+  const done = canCheck && entry.done === true;
   row.classList.toggle('late', entryLate(task, entry, today));
   row.classList.toggle('done', done);
-  if (type === 'task' && !task.candidate) {
+  if (canCheck && !task.candidate) {
     const check = button('check');
     check.setAttribute('aria-label', `${done ? '끝냄 취소' : '끝냄'}: ${entry.label}`);
     check.disabled = state.saving || state.dirty;
-    check.append(mark('task', done));
+    check.append(mark(type, done));
     check.addEventListener('click', () => void toggleDone(task, index, !done));
     row.append(check);
   } else {
@@ -1215,10 +1288,13 @@ function readOnlyDateRow(task, entry, index, today) {
   }
   const when = entryLate(task, entry, today) ? `${shortDate(entry.date)}까지 · ${daysBetween(entry.date, today)}일 지남`
     : entry.kind === '기간' && entry.end ? `${shortDate(entry.date)}~${shortDate(entry.end)}`
+    : looseEntry(task, entry) ? `${entry.date === today ? '오늘' : shortDate(entry.date)} 받음`
     : `${entry.date === today ? '오늘' : shortDate(entry.date)}${entry.kind === '까지' ? '까지' : ''}`;
   row.append(element('span', 'date-when', when));
   if (entry.time) row.append(timeTag(entry.time));
-  row.append(element('span', 'date-name', entry.label));
+  const name = element('span', 'date-name', entry.label);
+  if (entryPastSchedule(task, entry, today)) name.append(' ', element('span', 'date-state', '지난 일정'));
+  row.append(name);
   return row;
 }
 
@@ -1345,11 +1421,14 @@ function renderDateRows() {
     updateEnd();
     date.addEventListener('input', () => {
       entry.date = date.value;
+      // 선생님이 날짜를 정하면 기한 없는 할 일(받은 날)이 아니라 보통 날짜가 된다.
+      delete entry.received;
       end.min = nextDay(entry.date);
     });
     end.addEventListener('input', () => { entry.end = end.value; });
     kind.addEventListener('input', () => {
       entry.kind = kind.value;
+      delete entry.received;
       if (entry.kind === '까지') entry.done = false;
       else delete entry.done;
       if (entry.kind === '기간') entry.end = nextDay(entry.date);
@@ -1452,9 +1531,11 @@ function enableForm() {
   $('done').disabled = state.dirty || state.saving;
   $('done').classList.toggle('marked', completed);
   $('done-label').textContent = completed ? '다시 열기' : '끝냄';
-  $('done').title = completed ? '끝낸 마감을 다시 엽니다' : '남은 마감을 모두 끝냅니다';
+  $('done').title = completed ? '끝낸 것을 다시 엽니다' : '남은 마감·일정을 모두 끝냅니다';
   $('refine').disabled = state.demo || !state.detail?.note || task?.refining || state.dirty;
   $('work-copy').disabled = state.dirty || state.saving;
+  $('mcp-share-open').disabled = state.dirty || state.saving;
+  $('codex-work-open').disabled = state.dirty || state.saving || agentWork?.job?.status === 'running';
   $('work-edit-note').hidden = !state.dirty;
   // 날짜 줄은 입력 중 다시 그리지 않는다(글자 입력이 끊기지 않게). 저장 상태가 바뀔 때만 다시 그린다.
   if (state.rowsSaving !== state.saving || !state.rowsDrawn) {
@@ -1526,6 +1607,94 @@ function renderNote(note, reset) {
   setLinkedText($('original-body'), parts ? '' : note?.body ?? '쪽지 원문을 불러오지 못했습니다.');
   setLinkedText($('raw-note-body'), parts ? note.body : '');
   $('copy-note').hidden = !note?.body;
+}
+
+function agentResultRow(result, open) {
+  const row = element('li', 'codex-work-result');
+  row.dataset.resultId = result.id;
+  const details = element('details');
+  details.open = open;
+  const agent = { 'codex-app': workAgents.codex, 'claude-app': workAgents.claude }[result.source];
+  const source = agent ? `캘린더에서 맡김 · ${agent}` : '외부 AI에서 보냄';
+  const date = new Date(result.completedAt);
+  const meta = Number.isFinite(date.getTime()) ? `${source} · ${messageDate.format(date)}` : source;
+  const content = element('pre', 'formatted codex-work-content', result.content);
+  content.tabIndex = 0;
+  const copy = button('button text-button small', '결과 복사');
+  copy.setAttribute('aria-label', `${result.title} 복사`);
+  copy.addEventListener('click', async () => {
+    try {
+      await api.copyText(result.content);
+      notice('작업 결과를 복사했습니다.');
+    } catch (error) {
+      notice(error.message);
+    }
+  });
+  details.append(element('summary', null, result.title), content, copy);
+  row.append(details, element('p', 'small-note', meta));
+  return row;
+}
+
+async function refreshAgentWork(watch) {
+  if (agentWork !== watch || watch.pending) return;
+  clearTimeout(watch.timer);
+  watch.pending = true;
+  try {
+    const { job, results } = await api.noteAgentWork(watch.taskId);
+    if (agentWork !== watch) return;
+    watch.job = job;
+    const running = job?.status === 'running';
+    const failed = job?.status === 'failed';
+    const agent = workAgents[job?.agent] || 'AI';
+    const message = running ? `${agent}에서 작업 중입니다.` : failed ? job.error || `${agent} 작업을 완료하지 못했습니다.` : '';
+    const status = $('codex-work-status');
+    if (status.textContent !== message || status.classList.contains('error') !== failed) setMessage('codex-work-status', message, failed);
+    $('codex-work-open').disabled = state.dirty || state.saving || running;
+    $('codex-work-section').hidden = !message && !results.length;
+    const list = $('codex-work-results');
+    const ids = new Set(results.map(result => result.id));
+    const rows = new Map();
+    for (const row of [...list.children]) {
+      if (ids.has(row.dataset.resultId)) rows.set(row.dataset.resultId, row);
+      else row.remove();
+    }
+    results.forEach((result, index) => {
+      const row = rows.get(result.id) ?? agentResultRow(result, index === 0);
+      const slot = list.children[index] ?? null;
+      if (row !== slot) list.insertBefore(row, slot);
+    });
+  } catch {
+    if (agentWork === watch) {
+      const message = '작업 결과를 불러오지 못했습니다.';
+      if ($('codex-work-status').textContent !== message) setMessage('codex-work-status', message, true);
+      $('codex-work-section').hidden = false;
+    }
+  } finally {
+    watch.pending = false;
+    if (agentWork === watch) watch.timer = setTimeout(() => void refreshAgentWork(watch), 2000);
+  }
+}
+
+function watchAgentWork(taskId) {
+  if ((agentWork?.taskId ?? null) === taskId) return;
+  clearTimeout(agentWork?.timer);
+  $('codex-work-results').replaceChildren();
+  $('codex-work-section').hidden = true;
+  setMessage('codex-work-status', '');
+  agentWork = taskId ? { taskId, job: null, pending: false, timer: null } : null;
+  if (agentWork) void refreshAgentWork(agentWork);
+}
+
+function renderExternalAiWork(detail) {
+  const visible = state.snapshot.showExternalAiWork !== false;
+  const canUseNote = visible && detail?.note?.verified === true;
+  $('show-external-ai-work').checked = visible;
+  $('mcp-settings-actions').hidden = !visible;
+  $('note-actions').hidden = detail?.note?.verified !== true;
+  $('mcp-share-open').hidden = !canUseNote;
+  $('codex-work-open').hidden = !canUseNote;
+  $('work-section').hidden = !visible || !detail?.task || !!detail.task.chatSource;
+  watchAgentWork(canUseNote ? detail.task.id : null);
 }
 
 // evidence: 후보의 근거가 된 글 번호. 묶음 전체를 보이고 근거 글만 강조한다.
@@ -1696,13 +1865,14 @@ function renderDetail(detail, reset = false) {
     ? `마지막 다듬기에 실패했습니다${task.refineFailure?.message ? `: ${task.refineFailure.message}` : '.'}` : '';
   setMessage('refine-note', [failure, hint].filter(Boolean).join(' '));
   $('original-section').hidden = !task.noteId;
-  $('work-section').hidden = !!task.chatSource;
   renderNote(note, reset);
+  renderExternalAiWork(detail);
   renderChatOriginal(batch ?? detail.forwardedBatch, task.candidate && !task.candidate.discarded ? task.candidate.evidence : [],
     task.forwardedSource, detail.forwardedBatch ?? batch);
   renderCandidateTargets(task, detail.roomTasks);
   renderSameWork(task);
   renderAttachments(task.id, note);
+  renderMessengerButtons();
   enableForm();
 }
 
@@ -1882,6 +2052,7 @@ let lastFocus;
 
 function openDetail(taskId, chatId, focusKey) {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return false;
+  watchAgentWork(null);
   if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.selected = taskId;
   state.selectedChat = chatId;
@@ -1938,11 +2109,13 @@ function showTaskMonth(task, entry) {
 }
 
 // 달력에서 고르면 왼쪽을 그 업무가 있는 탭으로 바꾸고 그 줄이 보이게 한다.
-function revealInList(id) {
-  const view = state.taskViews.get(id);
+function revealInList(id, pastIndex = null) {
+  const pastRow = pastIndex === null ? null :
+    $('past-list').querySelector(`[data-focus-key="${CSS.escape(`past-${id}-${pastIndex}`)}"]`)?.closest('.row');
+  const view = pastRow ? 'past' : state.taskViews.get(id);
   if (!view) return;
   showView(view);
-  const row = $(`view-${view}`).querySelector('.row.selected');
+  const row = pastRow || $(`view-${view}`).querySelector('.row.selected');
   row?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -2023,6 +2196,7 @@ async function selectChat(id, focusKey, { forwarded = false } = {}) {
 
 function closeDetail() {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return;
+  watchAgentWork(null);
   if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.detailToken++;
   state.selected = null;
@@ -2064,7 +2238,6 @@ function renderMessenger() {
   $('range-goe-help').hidden = !goe;
   $('downloads-help').textContent = goe ? `${attachmentFolderHelp} 아래 폴더에는 새 쪽지 첨부의 사본을 저장합니다.` : '새로 받은 쪽지의 첨부를 여기에 복사합니다.';
   $('first-import-retry').textContent = `${name} 연결 다시 확인`;
-  $('brity-reply').textContent = `${name}에서 답장`;
 }
 
 function sync(snapshot) {
@@ -2081,6 +2254,7 @@ function sync(snapshot) {
   renderMessenger();
   $('automatic').disabled = !!state.demo || snapshot.aiProvider === 'none' || !!state.savingAutomatic || !!state.testingAi;
   $('automatic').checked = snapshot.automatic;
+  renderExternalAiWork(state.detail);
   renderAiConnected();
   renderCollector();
   renderAutoRefresh();
@@ -3378,7 +3552,7 @@ async function saveDetail(type = state.editType) {
   if (type !== '없음' && !$('edit-form').reportValidity()) return;
   state.saving = true;
   enableForm();
-  const dates = type === '없음' ? undefined : editingDates().map(({ date, end, label, kind, done, time }) => ({ date, label, kind, ...(time && { time }), ...(kind === '까지' && { done: done === true }), ...(kind === '기간' && { end }) }));
+  const dates = type === '없음' ? undefined : editingDates().map(({ date, end, label, kind, done, time, received }) => ({ date, label, kind, ...(time && { time }), ...(kind === '까지' && { done: done === true }), ...(kind === '그날' && done === true && { done: true }), ...(kind === '그날' && received === true && { received: true }), ...(kind === '기간' && { end }) }));
   const input = { title: $('edit-title').value, type, dates, memo: $('edit-memo').value, revision: state.revision };
   // 반복 회차의 제목·날짜를 바꾸면 뒤 회차도 같이 바꿀지 묻는다(뒤에 함께 바뀔 회차가 있을 때만).
   const saved = state.detail?.task;
@@ -3670,6 +3844,19 @@ $('automatic').addEventListener('change', async event => {
     checkbox.disabled = !!state.demo || state.snapshot.aiProvider === 'none' || !!state.testingAi;
   }
 });
+$('show-external-ai-work').addEventListener('change', async event => {
+  const checkbox = event.currentTarget;
+  checkbox.disabled = true;
+  setMessage('settings-error', '');
+  try {
+    sync(await api.setShowExternalAiWork(checkbox.checked));
+  } catch (error) {
+    checkbox.checked = state.snapshot.showExternalAiWork !== false;
+    setMessage('settings-error', error.message, true);
+  } finally {
+    checkbox.disabled = false;
+  }
+});
 $('rules').addEventListener('click', async () => {
   try { await api.openRules(); }
   catch (error) { setMessage('settings-error', error.message, true); }
@@ -3877,7 +4064,7 @@ document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) 
 });
 // 업무·쪽지 검색(2026-11-18 사용자 "대화방 검색보다 중요한게 쪽지 검색"): 탭과 상관없이 전체에서 찾고,
 // 결과마다 지금 어느 목록에 있는지(할 일·끝낸 것·숨김 등)와 받은 날을 붙인다. 찾기는 앱 안쪽(store.search)에서 한다.
-const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '끝낸 것', hidden: '숨김' };
+const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '끝낸 것', past: '지난 일정', hidden: '숨김' };
 const search = { query: '', result: null, timer: null, token: 0 };
 
 // 찾은 말에 형광펜(mark). 찾기는 띄어쓰기·대소문자를 무시하므로(store.searchFold) 글자 사이 공백을 허용해 맞춘다.
@@ -4011,7 +4198,7 @@ $('done').addEventListener('click', async () => {
   $('done').disabled = true;
   try {
     await api.setDone(task.id, !wasFinished, 'all');
-    if (task.id === state.selected) flash('detail-message', wasFinished ? '완료 표시를 취소했습니다.' : '남은 마감을 모두 끝냄으로 표시했습니다.');
+    if (task.id === state.selected) flash('detail-message', wasFinished ? '완료 표시를 취소했습니다.' : '끝냄으로 표시했습니다.');
   } catch (error) {
     if (task.id === state.selected) {
       setMessage('detail-message', error.message, true);
@@ -4089,6 +4276,192 @@ $('work-copy').addEventListener('click', async () => {
   } catch (error) {
     if (id === state.selected) setMessage('work-message', error.message, true);
   }
+});
+
+const mcpDialog = $('mcp-dialog');
+const mcpHelp = {
+  json: 'Claude Code, Claude Desktop, Cursor, Antigravity 등은 MCP 설정의 mcpServers 안에 calendar 항목을 추가하세요. 새 설정 파일이라면 복사한 내용을 그대로 붙여 넣으세요.',
+  codex: 'Codex의 MCP 설정 파일(~/.codex/config.toml)에 복사한 항목을 추가하세요.',
+  grok: 'Grok Build의 MCP 설정 파일(~/.grok/config.toml)에 복사한 항목을 추가하세요.',
+  vscode: '명령 팔레트에서 MCP: Open User Configuration을 열고 servers 안에 calendar 항목을 추가하세요.'
+};
+let mcpSession = null;
+
+function renderMcpDialog(session) {
+  const { draft, share, phase } = session;
+  const delegating = draft?.mode === 'delegate';
+  const agent = workAgents[$('work-agent-select').value];
+  $('mcp-draft').hidden = !draft;
+  $('mcp-current').hidden = !share;
+  $('codex-work-field').hidden = !delegating;
+  $('mcp-replace-note').hidden = delegating;
+  $('mcp-setup').hidden = delegating;
+  $('mcp-note-summary').textContent = delegating ? '보낼 원문 보기' : '공유할 원문 보기';
+  $('mcp-draft-help').textContent = delegating
+    ? `이 쪽지 원문과 고른 첨부를 ${agent}에 보냅니다. 결과는 이 쪽지의 AI 작업 결과에 표시됩니다.`
+    : '쪽지 원문과 선택한 첨부를 공유합니다. 연결한 AI가 가져오면 내용이 해당 AI 서비스에 전달될 수 있습니다.';
+  $('mcp-share-confirm').hidden = !draft;
+  $('mcp-share-confirm').textContent = delegating ? `${agent}에 맡기기` : 'AI로 보내기';
+  $('mcp-share-confirm').disabled = phase !== 'ready' || delegating && !$('codex-work-request').value.trim();
+  $('mcp-copy-prompt').classList.toggle('primary', !draft);
+  $('mcp-current-title').textContent = share?.title || '';
+  const files = share?.attachments || [];
+  const currentFiles = $('mcp-current-files');
+  currentFiles.replaceChildren(...files.map(file => element('li', null, file.name)));
+  currentFiles.hidden = !files.length;
+  const working = phase === 'working';
+  for (const id of ['mcp-copy-prompt', 'mcp-open-folder', 'mcp-revoke', 'mcp-client', 'mcp-files', 'mcp-close', 'codex-work-request', 'work-agent-select']) {
+    $(id).disabled = working;
+  }
+  $('mcp-copy-setup').disabled = working || phase === 'loading';
+}
+
+async function openMcpDialog(draft = null) {
+  if (state.snapshot.showExternalAiWork === false) return;
+  const delegating = draft?.mode === 'delegate';
+  const session = { draft, share: null, phase: delegating ? 'ready' : 'loading' };
+  mcpSession = session;
+  $('mcp-heading').textContent = delegating ? '업무 맡기기' : draft ? 'AI로 보내기' : '외부 AI에 쪽지 공유';
+  $('codex-work-request').value = '';
+  $('work-agent-select').value = 'codex';
+  const setup = $('mcp-setup');
+  setup.open = !draft;
+  $('mcp-client-help').textContent = mcpHelp[$('mcp-client').value];
+  mcpDialog.querySelector('#mcp-draft details').open = false;
+  $('mcp-note-title').textContent = draft?.title || '';
+  $('mcp-note-body').textContent = draft?.body || '';
+  const files = draft?.attachments || [];
+  $('mcp-files').hidden = !files.length;
+  $('mcp-attachments').replaceChildren(...files.map(file => {
+    const label = element('label', 'check-field small mcp-file');
+    const input = element('input');
+    input.type = 'checkbox';
+    input.value = String(file.index);
+    input.disabled = !file.available;
+    label.append(input, element('span', null, file.name));
+    if (!file.available) label.append(element('span', 'small-note', '저장 파일 없음'));
+    return label;
+  }));
+  setMessage('mcp-status', delegating ? '' : '공유 상태를 확인하고 있습니다.');
+  renderMcpDialog(session);
+  mcpDialog.showModal();
+  if (delegating) {
+    $('work-agent-select').focus();
+    return;
+  }
+  try {
+    const { share } = await api.mcpStatus();
+    if (mcpSession !== session || !mcpDialog.open) return;
+    session.share = share;
+    session.phase = 'ready';
+    setMessage('mcp-status', !draft && !share ? '현재 공유 중인 쪽지가 없습니다.' : '');
+  } catch (error) {
+    if (mcpSession !== session || !mcpDialog.open) return;
+    session.phase = 'unavailable';
+    setMessage('mcp-status', error.message, true);
+  }
+  renderMcpDialog(session);
+}
+
+async function runMcpAction(action, message, nextFocus) {
+  const session = mcpSession;
+  if (!session || session.phase === 'working' || session.phase === 'loading') return;
+  const previous = session.phase;
+  const focused = document.activeElement;
+  session.phase = 'working';
+  setMessage('mcp-status', '처리하고 있습니다.');
+  renderMcpDialog(session);
+  let succeeded = false;
+  try {
+    await action(session);
+    setMessage('mcp-status', message);
+    succeeded = true;
+  } catch (error) {
+    setMessage('mcp-status', error.message, true);
+  } finally {
+    session.phase = previous;
+    renderMcpDialog(session);
+    if (succeeded && nextFocus) $(nextFocus).focus();
+    else if (mcpDialog.contains(focused)) focused.focus();
+  }
+}
+
+function openMcpDraft(mode) {
+  const { task, note } = state.detail || {};
+  if (note?.verified !== true || task.id !== state.selected) return;
+  void openMcpDialog({ taskId: task.id, title: note.title, body: note.body, attachments: note.attachments, mode });
+}
+$('mcp-share-open').addEventListener('click', () => openMcpDraft('share'));
+$('codex-work-open').addEventListener('click', () => openMcpDraft('delegate'));
+$('mcp-settings-open').addEventListener('click', () => void openMcpDialog());
+function closeMcpDialog() {
+  if (mcpSession?.phase === 'working') return;
+  mcpDialog.close();
+  mcpSession = null;
+  $('mcp-note-title').textContent = '';
+  $('mcp-note-body').textContent = '';
+  $('codex-work-request').value = '';
+  $('mcp-attachments').replaceChildren();
+  $('mcp-current-title').textContent = '';
+  $('mcp-current-files').replaceChildren();
+}
+$('mcp-close').addEventListener('click', closeMcpDialog);
+mcpDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeMcpDialog();
+});
+$('mcp-client').addEventListener('change', event => {
+  $('mcp-client-help').textContent = mcpHelp[event.target.value];
+});
+$('work-agent-select').addEventListener('change', () => {
+  if (mcpSession?.draft?.mode === 'delegate') renderMcpDialog(mcpSession);
+});
+$('codex-work-request').addEventListener('input', () => {
+  $('mcp-share-confirm').disabled = mcpSession?.phase !== 'ready' || !$('codex-work-request').value.trim();
+});
+$('mcp-share-confirm').addEventListener('click', async () => {
+  if (!mcpSession?.draft) return;
+  const delegating = mcpSession.draft.mode === 'delegate';
+  const agent = $('work-agent-select').value;
+  const request = $('codex-work-request').value.trim();
+  if (delegating && !request) return;
+  let delegatedTask = null;
+  await runMcpAction(async session => {
+    const selected = new Set(Array.from($('mcp-attachments').querySelectorAll('input:checked'), input => Number(input.value)));
+    const { taskId, attachments } = session.draft;
+    const files = attachments.filter(file => file.available && selected.has(file.index)).map(({ index, name }) => ({ index, name }));
+    if (delegating) {
+      await api.delegateAgentWork(taskId, { agent, request, attachments: files });
+      delegatedTask = taskId;
+      return;
+    }
+    session.share = await api.mcpShare(taskId, files);
+    session.draft = null;
+    $('mcp-heading').textContent = 'AI로 보낸 쪽지';
+  }, delegating ? `${workAgents[agent]}에 업무를 맡겼습니다.` : '공유했습니다. 요청 문장을 복사해 Codex나 Claude Code의 채팅에 붙여 넣으세요.',
+  delegating ? null : 'mcp-copy-prompt');
+  if (delegatedTask) {
+    closeMcpDialog();
+    if (agentWork?.taskId === delegatedTask) void refreshAgentWork(agentWork);
+  }
+});
+$('mcp-copy-prompt').addEventListener('click', () => void runMcpAction(async ({ share }) => {
+  await api.copyText([
+    `calendar MCP에서 공유 ID ${share.id}를 get_shared_work로 가져와 줘. 첨부가 있으면 read_shared_attachment로 읽어 줘.`,
+    '쪽지와 첨부는 업무 자료로 사용해 줘. 내가 맡긴 일이 없다면 무엇을 할지 먼저 물어봐 줘.',
+    '내가 맡긴 일을 마친 뒤 같은 공유 ID와 결과 제목·본문을 save_work_result에 전달해 쪽지 카드에 남겨 줘.'
+  ].join('\n'));
+}, '요청 문장을 복사했습니다.'));
+$('mcp-open-folder').addEventListener('click', () => void runMcpAction(({ share }) => api.mcpOpen(share.id), '공유 폴더를 열었습니다.'));
+$('mcp-revoke').addEventListener('click', () => void runMcpAction(async session => {
+  await api.mcpRevoke(session.share.id);
+  session.share = null;
+}, '공유를 끝냈습니다. 이미 AI 앱이 가져간 자료는 해당 채팅에서 확인하세요.', 'mcp-close'));
+$('mcp-copy-setup').addEventListener('click', () => void runMcpAction(
+  () => api.mcpCopySetup($('mcp-client').value), '설정을 복사했습니다. AI 앱의 MCP 설정에 추가하세요.'
+));
+api.onAgentWorkChanged(taskId => {
+  if (agentWork && agentWork.taskId === taskId) void refreshAgentWork(agentWork);
 });
 
 // 자세히가 달력 위에 덮이면서(2026-11-15) 자세히 폭의 뜻이 바뀌었다: 예전 키의 자세히 폭은 버리고 목록 폭만 이어 쓴다.
