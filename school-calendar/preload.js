@@ -78,7 +78,6 @@ contextBridge.exposeInMainWorld('calendar', {
   connectGoogle: () => invoke('calendar:google-connect'),
   disconnectGoogle: removeCalendars => invoke('calendar:google-disconnect', removeCalendars === true),
   syncGoogle: () => invoke('calendar:google-sync'),
-  applyGoogleTester: email => invoke('calendar:google-tester', String(email ?? '')),
   setLoginStart: enabled => invoke('calendar:login-start', enabled === true),
   checkUpdate: () => invoke('calendar:update-check'),
   applyUpdate: () => invoke('calendar:update-apply'),

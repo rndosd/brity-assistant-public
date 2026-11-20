@@ -803,9 +803,5 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 
 /* 구글 캘린더에 보이기(2026-11-20) */
 .settings-tabs button[hidden] { display: none; }
-.tag-trial { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--hover); color: var(--ink-2); font-size: 11.5px; font-weight: 700; vertical-align: 1px; }
 .google-points { margin: 6px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
-.google-tester { margin: 0 0 10px; padding: 10px 12px; border: 1px dashed var(--rule); }
-.google-tester-row { display: flex; gap: 8px; align-items: end; margin-top: 8px; flex-wrap: wrap; }
-.google-tester-row .field { flex: 1 1 220px; }
 .google-state { margin: 4px 0 8px; }

@@ -183,10 +183,27 @@ async function applyUpdate() {
   publish();
   // 교체가 중간에 끊겨도 다음에 실행기로 켤 때 마저 바꾸도록 적어 둔다(update-apply.ps1이 끝나면 지운다).
   await fs.promises.writeFile(path.join(portableRoot, 'update-staging', 'pending.txt'), staging, 'utf8');
-  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-    '-File', path.join(staging, 'update-apply.ps1'), '-Root', portableRoot, '-Staging', staging, '-WaitPid', String(process.pid)],
-  { detached: true, stdio: 'ignore', windowsHide: true });
+  const system = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+  const powershell = path.join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const script = `& (Join-Path $env:SCHOOL_CALENDAR_PATCH_STAGING 'update-apply.ps1') -Root $env:SCHOOL_CALENDAR_PATCH_ROOT -Staging $env:SCHOOL_CALENDAR_PATCH_STAGING -WaitPid ${process.pid}`;
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  // Windows PowerShell can exit before running the script when spawned directly as a detached process.
+  const command = `""${powershell}" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ${encoded}"`;
+  const child = spawn(path.join(system, 'cmd.exe'), ['/d', '/s', '/c', command],
+    {
+      detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true,
+      env: { ...process.env, SCHOOL_CALENDAR_PATCH_ROOT: portableRoot, SCHOOL_CALENDAR_PATCH_STAGING: staging }
+    });
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+  } catch {
+    update = { ...update, status: 'available', error: '업데이트를 시작하지 못했습니다. 캘린더를 닫았다 다시 열어 주세요.' };
+    publish();
+    throw new CalendarError(update.error);
+  }
   child.unref();
   setTimeout(() => app.quit(), 300);
   return snapshot();
@@ -1105,17 +1122,6 @@ function bindHandlers() {
     await googleCalendar.sync();
     if (googleCalendar.view().error) throw new CalendarError(googleCalendar.view().error);
     return snapshot();
-  });
-  // 시험 기간 테스터 신청: 의견 보내기와 같은 폼으로 이메일을 보낸다(개발자가 콘솔에 테스터로 등록).
-  bind('google-tester', async email => {
-    const value = String(email ?? '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 200) throw new CalendarError('구글 계정 이메일을 확인해 주세요.');
-    if (!feedback.feedbackAvailable()) throw new CalendarError('신청 보내기가 준비되지 않았습니다.');
-    if (Date.now() - feedbackSentAt < 20000) throw new CalendarError('방금 보냈습니다. 잠시 뒤 다시 보내 주세요.');
-    try { await feedback.sendFeedback(`[구글 캘린더 테스터 신청] ${value}`, feedbackInfo()); }
-    catch { throw new CalendarError('보내지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.'); }
-    feedbackSentAt = Date.now();
-    return true;
   });
   bind('login-start', enabled => {
     if (!loginStartAvailable()) throw new CalendarError('배포용 폴더에서 연 캘린더에서만 켤 수 있습니다.');

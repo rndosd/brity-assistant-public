@@ -3151,7 +3151,7 @@ async function googleAction(run) {
   finally { state.googleBusy = false; renderGoogle(); }
 }
 $('google-connect').addEventListener('click', () => void googleAction(async () => {
-  setMessage('google-status', '브라우저에서 구글 계정을 고르고 허용해 주세요. 테스터로 등록된 계정만 연결됩니다.');
+  setMessage('google-status', '브라우저에서 구글 계정을 고르고 허용해 주세요.');
   sync(await api.connectGoogle());
   setMessage('google-status', '연결했습니다. 할 일과 확인할 것을 구글 캘린더로 보내고 있습니다.');
 }));
@@ -3164,13 +3164,6 @@ $('google-disconnect').addEventListener('click', () => void googleAction(async (
   const remove = window.confirm('구글 캘린더의 “학교 할 일”·“학교 알림” 캘린더도 지울까요?\n\n확인: 캘린더까지 지우고 연결 끊기\n취소: 캘린더는 남겨 두고 연결만 끊기');
   sync(await api.disconnectGoogle(remove));
   setMessage('google-status', remove ? '연결을 끊고 구글의 학교 캘린더를 지웠습니다.' : '연결을 끊었습니다. 구글에 넣은 일정은 남아 있습니다.');
-}));
-$('google-tester-send').addEventListener('click', () => void googleAction(async () => {
-  const email = $('google-tester-email').value.trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('google-tester-email').focus(); throw new Error('구글 계정 이메일을 적어 주세요.'); }
-  await api.applyGoogleTester(email);
-  $('google-tester-email').value = '';
-  setMessage('google-status', '신청을 보냈습니다. 등록되면 “구글 계정 연결”을 눌러 주세요.');
 }));
 
 function renderBackup() {

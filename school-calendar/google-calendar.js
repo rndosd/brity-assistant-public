@@ -186,7 +186,7 @@ class GoogleCalendarSync {
         clearTimeout(timer);
         if (q.get('state') !== stateValue) reject(new Error('연결 확인 값이 맞지 않습니다. 다시 연결해 주세요.'));
         else if (q.get('error')) reject(new Error(q.get('error') === 'access_denied'
-          ? '연결이 거절됐습니다. 테스터로 등록된 구글 계정인지 확인해 주세요.' : `구글이 연결을 거절했습니다(${q.get('error')}).`));
+          ? '구글 계정 연결이 허용되지 않았습니다. 학교 계정이라면 관리자에게 외부 앱 연결이 가능한지 확인해 주세요.' : `구글이 연결을 거절했습니다(${q.get('error')}).`));
         else resolve(q.get('code'));
       });
     });
