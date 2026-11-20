@@ -3571,7 +3571,8 @@ function updateRepeatHint() {
   const until = taskModel.semesterEnd(due);
   const dates = taskModel.repeatDates(every, due, until);
   const off = new Set((state.snapshot.schoolEvents || []).filter(event => event.off).map(event => event.date));
-  const offCount = dates.filter(date => off.has(date)).length;
+  // 직접 고른 첫 회차는 저장할 때도 쉬는 날에서 제외한다.
+  const offCount = dates.filter(date => date !== due && off.has(date)).length;
   const skipping = offCount > 0 && $('create-skip-off').checked;
   const count = dates.length - (skipping ? offCount : 0);
   $('create-repeat-summary').textContent = `↻ ${taskModel.repeatLabel(every, due)} · ${shortDate(until)}까지 · ${count}회${dates.length >= taskModel.REPEAT_MAX ? ' (최대)' : ''}`;
