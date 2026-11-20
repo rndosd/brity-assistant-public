@@ -2064,10 +2064,11 @@ async function copyWorkAttachments(folder, items, resolveOriginal) {
         await fs.copyFile(original, destination, constants.COPYFILE_EXCL);
         copied = true;
       } catch (error) {
-        if (error.code !== 'EEXIST') throw error;
-        copied = await realDescendant(attachmentRoot.real, destination, 'file').then(
-          ({ real }) => path.relative(attachmentRoot.real, real) === storedName, () => false
-        );
+        if (error.code === 'EEXIST') {
+          copied = await realDescendant(attachmentRoot.real, destination, 'file').then(
+            ({ real }) => path.relative(attachmentRoot.real, real) === storedName, () => false
+          );
+        }
       }
     }
     attachments.push({ name: item.name, storedName, copied });

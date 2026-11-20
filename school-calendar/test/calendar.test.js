@@ -500,6 +500,38 @@ test('작업 카드에 원문이 있고 업무 시작을 반복해도 사본과 
   assert.equal(await fs.readFile(original, 'utf8'), '수집기 원본');
 });
 
+test('첨부 복사 실패 시 업무 시작은 계속하고 새 AI 공유는 보류한다', async t => {
+  const { root, inboxDir, notes, makeStore } = await setup(t);
+  const files = path.join(inboxDir, 'files', noteId);
+  await fs.mkdir(files, { recursive: true });
+  const saved = ['잠긴 첨부.txt', '정상 첨부.txt'].map(name => ({ name, path: path.join(files, name) }));
+  await Promise.all(saved.map(item => fs.writeFile(item.path, item.name)));
+  await writeNote(notes, note(noteId, { saved }));
+  const store = await makeStore();
+  const [{ id }] = (await store.refresh()).tasks;
+  const selection = saved.map(({ name }, index) => ({ index, name }));
+  const connector = new McpShare(path.join(root, 'mcp'), '가상 브리티');
+  const shared = await connector.publish(store, id, [selection[1]]);
+  const bundle = await connector.bundle(shared.id);
+
+  const copyFile = fs.copyFile;
+  t.mock.method(fs, 'copyFile', async (source, destination, mode) => {
+    if (source === saved[0].path) throw Object.assign(new Error('첨부 잠김'), { code: 'EPERM' });
+    return copyFile(source, destination, mode);
+  });
+
+  const work = await store.prepareWork(id);
+  assert.equal(work.missing, 1);
+  assert.match(await fs.readFile(work.card, 'utf8'), /잠긴 첨부\.txt \(사본 없음\)/);
+  const copied = path.join(work.folder, '첨부');
+  assert.deepEqual(await fs.readdir(copied), [saved[1].name]);
+  assert.equal(await fs.readFile(path.join(copied, saved[1].name), 'utf8'), saved[1].name);
+
+  await assert.rejects(connector.publish(store, id, selection), /고른 첨부를 모두 복사하지 못했습니다/);
+  assert.equal((await connector.status()).share.id, shared.id);
+  assert.deepEqual(await fs.readdir(path.dirname(bundle)), [shared.id]);
+});
+
 test('외부 AI 업무 표시 설정은 기존 자료에서 켜져 있으며 재실행 후에도 저장된다', async t => {
   const { makeStore } = await setup(t);
   const store = await makeStore();
