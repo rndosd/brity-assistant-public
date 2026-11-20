@@ -7,7 +7,8 @@ const taskModel = (() => {
   // 기간(━): 시작일~끝일. 여러 날 이어지는 행사·운영(○○ 주간, 수련회). 끝낼 □는 없다.
   const DATE_KINDS = ['까지', '그날', '기간'];
   const MAX_DATES = 3;
-  const LABEL_MAX = 40;
+  // 담당 조건과 정확한 목적지를 한 줄에 보존한다. 편집 입력과 저장도 같은 상한을 쓴다.
+  const LABEL_MAX = 64;
   // 시간·교시(선택): 선생님이 직접 적은 그대로("6교시", "15:30"). AI는 채우지 않는다
   // (2026-11-12 시험에서 시작 시각과 준비·회신 시각을 못 가려 자동 분류는 뺐다).
   const TIME_MAX = 12;
@@ -52,6 +53,10 @@ const taskModel = (() => {
         if (strict) throw new Error('label');
         continue;
       }
+      const shortLabel = typeof item.shortLabel === 'string' ? item.shortLabel.replace(/[\u0000-\u001f]+/g, ' ').trim() : '';
+      if (shortLabel && shortLabel.length < entry.label.length) entry.shortLabel = shortLabel;
+      const scope = typeof item.shortScope === 'string' ? item.shortScope.trim() : '';
+      if (scope && (entry.shortLabel || entry.label).startsWith(scope + ' ')) entry.shortScope = scope;
       if (entry.kind === '까지') entry.done = item.done === true;
       // 할 일의 그날도 끝냄 표시를 남길 수 있다(2026-11-20). 끝낸 것만 적는다.
       else if (entry.kind === '그날' && item.done === true) entry.done = true;
@@ -106,10 +111,31 @@ const taskModel = (() => {
     const title = typeof result.title === 'string' && result.title.trim() ? result.title.trim().replace(/[\r\n]+/g, ' ').slice(0, 180) : fallbackTitle;
     const summary = typeof result.summary === 'string' ? result.summary.trim().slice(0, 4000) : '';
     if (TYPES.includes(result.type)) {
-      const dates = result.type === '없음' ? [] : normalizeDates(result.dates, title);
+      let scopeNeedsReview = false;
+      const inputDates = result.type !== '없음' && Array.isArray(result.dates) ? result.dates : [];
+      const labeledDates = inputDates.map(entry => {
+        if (typeof entry?.appliesTo !== 'string') return entry;
+        const scope = entry.appliesTo.replace(/[\u0000-\u001f]+/g, ' ').trim();
+        if (!scope) return entry;
+        const withScope = (who, text) => text === who || text.startsWith(who + ' ') ? text : who + ' ' + text;
+        const action = cleanLabel(entry.label, title);
+        const label = withScope(scope, action);
+        const compactScope = typeof entry.shortScope === 'string' ? entry.shortScope.trim() : '';
+        const who = compactScope && compactScope.length < scope.length ? compactScope : scope;
+        const brief = (typeof entry.shortLabel === 'string' && entry.shortLabel.trim()) || action;
+        const bare = brief.startsWith(scope + ' ') ? brief.slice(scope.length + 1) : brief;
+        const shortLabel = withScope(who, bare);
+        if (label.length > LABEL_MAX) {
+          // 긴 대상 설명 때문에 끝의 행동이 잘리면 기존 이름을 유지하고 확인을 요청한다.
+          scopeNeedsReview = true;
+          return { ...entry, shortLabel, shortScope: who };
+        }
+        return { ...entry, label, shortLabel, shortScope: who };
+      });
+      const dates = normalizeDates(labeledDates, title);
       // 버린 날짜가 있으면 선생님이 확인하도록 표시한다.
       const dropped = result.type !== '없음' && Array.isArray(result.dates) && dates.length < Math.min(result.dates.length, MAX_DATES);
-      return { type: result.type, title, summary, dates, reply: result.reply === true, uncertain: result.uncertain === true || dropped };
+      return { type: result.type, title, summary, dates, reply: result.reply === true, uncertain: result.uncertain === true || dropped || scopeNeedsReview };
     }
     if (['할 일', '참고', '인사'].includes(result.category)) {
       if (result.due !== null && result.due !== undefined && result.due !== '' && !validDate(result.due)) throw new Error('due');

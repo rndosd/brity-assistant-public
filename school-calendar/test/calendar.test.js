@@ -10,6 +10,7 @@ const { McpShare } = require('../mcp-share');
 const { NoteWork } = require('../note-work');
 const chatDecisions = require('../chat-decisions');
 const { buildWorkPrompt } = require('../work-prompt');
+const { buildNoteInput } = require('../note-text');
 
 const qaRoot = path.join(__dirname, '..', '.qa');
 const noteId = '0_202611100000000001_0';
@@ -46,6 +47,32 @@ const writeNote = (notes, row) => fs.writeFile(path.join(notes, `${row.id}.json`
 // \uC57D 15ms\uB9C8\uB2E4 \uC6C0\uC9C1\uC774\uB294 \uC2DC\uACC4\uB85C \uC801\uC5B4, \uCF20 \uC9C1\uD6C4 \uC4F4 \uD30C\uC77C\uC774 \uCF20 \uC2DC\uAC01\uBCF4\uB2E4 \uC774\uB974\uAC8C \uCC0D\uD78C\uB2E4(2026-11-17 \uCE21\uC815: 300\uAC1C \uC911 221\uAC1C, \uCD5C\uB300 14ms).
 // \uADF8\uB798\uC11C \uC774 \uD14C\uC2A4\uD2B8\uB4E4\uC774 \uAC00\uB054 \uCABD\uC9C0\uB97C "\uCF1C\uAE30 \uC804\uBD80\uD130 \uC788\uB358 \uAC83"\uC73C\uB85C \uBCF4\uACE0 \uC2E4\uD328\uD588\uB2E4. \uC0C8 \uCABD\uC9C0\uB85C \uCCD0\uC57C \uD560 \uD30C\uC77C\uC740 \uD55C \uCE78 \uB118\uAC8C \uAE30\uB2E4\uB9B0 \uB4A4 \uC4F4\uB2E4.
 const pastBaseline = () => new Promise((resolve) => setTimeout(resolve, 40));
+
+test('목록 제목과 달력의 짧은 행동을 재열고 직접 고친 날짜에는 새 이름을 쓴다', async t => {
+  const { notes, makeStore } = await setup(t);
+  const store = await makeStore();
+  await writeNote(notes, note(noteId));
+  await store.refresh();
+  const { id } = store.snapshot().tasks[0];
+  await store.refine(id, async () => ({
+    type: '할 일', title: '수량 입력 및 나사 수령', dates: [
+      { date: '2031-04-11', kind: '까지', label: '수량 입력', shortLabel: null },
+      { date: '2031-04-11', kind: '까지', appliesTo: '벽걸이형 반만', label: '창구에서 나사 수령', shortLabel: '나사 수령' }
+    ]
+  }));
+  const reopened = await makeStore();
+  const task = reopened.snapshot().tasks[0];
+  assert.equal(task.title, '수량 입력 및 나사 수령');
+  assert.equal(task.dates[1].shortLabel, '벽걸이형 반만 나사 수령');
+  assert.equal(task.dates[1].label, '벽걸이형 반만 창구에서 나사 수령');
+  const dates = task.dates.map(({ shortLabel, ...entry }) => entry);
+  await reopened.update(id, { dates, memo: '창구 위치 확인' });
+  assert.equal(reopened.snapshot().tasks[0].dates[1].shortLabel, task.dates[1].shortLabel);
+  dates[1].label = '새 창구에서 봉투 교환';
+  await reopened.update(id, { dates });
+  assert.equal(reopened.snapshot().tasks[0].dates[1].shortLabel, undefined);
+  assert.equal(reopened.snapshot().tasks[0].dates[1].label, dates[1].label);
+});
 
 test('검색을 시작한 뒤 새 쪽지, 제목 수정, 본문 교체와 삭제가 검색에 반영된다', async t => {
   const { makeStore, notes } = await setup(t);
@@ -1295,4 +1322,24 @@ test('저장 파일을 바꿔 끼울 때 Windows가 잠깐 막으면(EPERM) 다�
   rename.mock.restore();
   const left = (await fs.readdir(store.dataDir)).filter(name => name.endsWith('.tmp'));
   assert.deepEqual(left, []);
+});
+
+test('저장된 쪽지를 분류할 때 수업 알림의 학생 이름을 가리고 답변에는 로컬에서 복원한다', async t => {
+  const { makeStore, notes } = await setup(t);
+  await writeNote(notes, note(otherId, { body: '이로반 학생 수업 자료입니다.' }));
+  const original = note(noteId, {
+    body: '오늘 3교시에 이로반 체육 수업이에요. 내일 2교시에 통합반 체육 수업입니다.'
+  });
+  await writeNote(notes, original);
+  const store = await makeStore();
+  await store.refresh();
+  const task = store.tasks.find(item => item.noteId === noteId);
+  const result = await store.refine(task.id, async source => {
+    const input = buildNoteInput(source);
+    assert.equal(input.latestBody, '오늘 3교시에 [학생 1] 체육 수업이에요. 내일 2교시에 통합반 체육 수업입니다.');
+    return { type: '알아 둘 것', title: '[학생 1] 수업', summary: '', dates: [], uncertain: false };
+  });
+  assert.equal(result.status, 'done');
+  assert.equal(result.task.title, '이로반 수업');
+  assert.equal((await store.detail(task.id)).note.body, original.body);
 });

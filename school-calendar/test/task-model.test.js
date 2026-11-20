@@ -4,6 +4,40 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const model = require('../renderer/task-model');
 
+test('같은 날 전체 마감과 일부의 마감은 적용 대상을 포함한 이름으로 구분하고 다시 편집할 수 있다', () => {
+  const date = { date: '2030-05-10', kind: '까지', label: '명단 제출' };
+  const answer = dates => model.fromResult({ type: '할 일', title: '명단', dates }, '명단');
+  const processed = answer([{ ...date, appliesTo: null }, { ...date, appliesTo: '변경된 반만' }]);
+  assert.deepEqual(processed.dates.map(d => d.label), ['명단 제출', '변경된 반만 명단 제출']);
+  assert.deepEqual(model.normalizeDates(processed.dates, '명단', true), processed.dates);
+  assert.equal(answer([{ ...date, label: '대표만 명단 제출', appliesTo: '대표만' }]).dates[0].label, '대표만 명단 제출');
+  const long = answer([{ ...date, appliesTo: '가'.repeat(model.LABEL_MAX) }]);
+  assert.equal(long.dates[0].label, '명단 제출');
+  assert.equal(long.uncertain, true);
+});
+
+test('담당 조건과 목적지가 합쳐져 40자를 넘는 날짜 이름도 편집 후에 보존한다', () => {
+  const appliesTo = '노란 표식 받은 모둠만';
+  const label = '하교 직전에 도예 상자를 별관 승강기 앞으로 옮기기';
+  const expected = appliesTo + ' ' + label;
+  const task = model.fromResult({ type: '할 일', dates: [{ date: '2031-04-08', kind: '그날', appliesTo, label }] }, '상자 이동');
+  assert.equal(expected.length, 41);
+  assert.equal(task.uncertain, false);
+  assert.equal(task.dates[0].label, expected);
+  assert.equal(model.normalizeDates(task.dates, task.title, true)[0].label, expected);
+});
+
+test('좁은 칸에는 짧은 담당과 행동을 합치고 자세히에는 전체 조건과 장소를 남긴다', () => {
+  const date = { date: '2031-04-10', kind: '그날', appliesTo: '벽걸이형을 받은 반만', shortScope: '벽걸이형 반만',
+    label: '행정실 3번 창구에서 고정 나사 수령', shortLabel: '고정 나사 수령' };
+  const result = model.fromResult({ type: '할 일', dates: [date] }, '모니터 업무');
+  assert.equal(result.dates[0].label, '벽걸이형을 받은 반만 행정실 3번 창구에서 고정 나사 수령');
+  assert.equal(result.dates[0].shortLabel, '벽걸이형 반만 고정 나사 수령');
+  assert.deepEqual(model.normalizeDates(result.dates, '', true), result.dates);
+  const fallback = model.fromResult({ type: '할 일', dates: [{ ...date, shortScope: null }] }, '모니터 업무');
+  assert.equal(fallback.dates[0].shortLabel, '벽걸이형을 받은 반만 고정 나사 수령');
+});
+
 test('메신저별 수신자 표시에서 실제 인원수를 읽는다', () => {
   assert.equal(model.recipientCount('수신자 (부서 : 3, 수신인 : 48)'), 48);
   assert.equal(model.recipientCount('수신자(부서:0,수신인:1)'), 1);

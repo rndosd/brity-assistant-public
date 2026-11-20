@@ -8,7 +8,8 @@ const { pathToFileURL, fileURLToPath } = require('node:url');
 const { CalendarStore, CalendarError } = require('./store');
 const { McpShare } = require('./mcp-share');
 const { NoteWork } = require('./note-work');
-const { apiProviders, refineWithProvider, classifierSample, cleanReplyBody } = require('./ai-provider');
+const { apiProviders, refineWithProvider, classifierSample } = require('./ai-provider');
+const { buildNoteInput, withMaskingContext, noteActions } = require('./note-text');
 const claudeCli = require('./claude-cli');
 const codexCli = require('./codex-cli');
 const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, openGoeReply, retryGoeAttachments } = require('./collector-link');
@@ -843,7 +844,11 @@ async function replyInBrityNote(note) {
 function bindHandlers() {
   bind('load', snapshot);
   bind('refresh', refresh);
-  bind('detail', id => store.detail(id));
+  bind('detail', async id => {
+    const detail = await store.detail(id);
+    const note = detail.note;
+    return { ...detail, noteActions: note && note.verified !== false ? noteActions(note) : null };
+  });
   bind('search', query => store.search(query));
   bind('message-seen', async (kind, id) => changed(await store.markMessageSeen(kind, id)));
   bind('chat-batch', id => store.chatBatch(id));
@@ -905,13 +910,20 @@ function bindHandlers() {
   });
   bind('refine-preview', async id => {
     // 다듬기 전에 보낼 내용을 보여 준다.
+    const inbox = store.notes;
     const { note } = await store.detail(id);
     if (!note) throw new CalendarError('다듬을 원문을 불러올 수 없습니다.');
     const connection = apiProviders.get(store.aiProvider);
+    const input = buildNoteInput(withMaskingContext(note, inbox));
+    const route = (sender, recipients) => [sender, recipients.join(', ')].filter(Boolean).join(' → ');
+    const body = [route(input.senderRole, input.recipientRoles ?? [input.recipientRole]),
+      input.latestBody, ...input.quotedNotes.map(quote => [
+      [quote.title, quote.datetime, route(quote.senderRole, quote.recipientRoles ?? [])].filter(Boolean).join(' · '),
+      quote.body,
+    ].filter(Boolean).join('\n'))].filter(Boolean).join('\n\n');
     return {
-      provider: connection?.name ?? 'Codex CLI(OpenAI)',
-      title: note.title, body: connection ? cleanReplyBody(note.body) : note.body,
-      attachmentNames: connection ? [] : note.attachments.map(item => item.name)
+      provider: connection?.name ?? (store.aiProvider === 'claude' ? 'Claude Code CLI' : 'Codex CLI(OpenAI)'),
+      title: input.title, body, attachmentNames: []
     };
   });
   bind('ai-connect', connectAi);
@@ -1197,9 +1209,10 @@ function bindHandlers() {
     clipboard.writeText(text);
   });
   bind('copy-work', async id => {
+    const inbox = store.notes;
     const { task, note } = await store.detail(id);
     if (task.chatSource) throw new CalendarError('대화방 업무는 캘린더에서 확인해 주세요.');
-    clipboard.writeText(buildWorkPrompt(task, note));
+    clipboard.writeText(buildWorkPrompt(task, withMaskingContext(note, inbox)));
   });
 }
 

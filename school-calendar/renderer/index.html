@@ -14,6 +14,13 @@
   <script defer src="app.js"></script>
 </head>
 <body>
+  <!-- 선 아이콘(2026-11-20 사용자): 뜻이 하나로 읽히는 닫기·고치기·복사·폴더만. 색은 글자색, 선 굵기는 스킨이 --icon-stroke로 정한다. -->
+  <svg class="icon-sprite" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="1.5"/><path d="M15.5 8.5V5.5A1.5 1.5 0 0 0 14 4H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
+  </svg>
   <header class="app-header">
     <h1><span id="app-name">브리티 메신저 캘린더</span> <span class="badge" id="demo-badge" hidden>샘플</span></h1>
     <!-- 첫 자료를 받기 전에도 비어 보이지 않게 '준비 중'으로 시작한다(2026-11-16 “아예 비어 있었어”). 샘플은 첫 자료를 받으면 숨긴다. -->
@@ -137,25 +144,25 @@
     <aside class="detail-panel" id="detail-panel" aria-labelledby="detail-heading">
       <div class="detail-heading">
         <h2 id="detail-heading" tabindex="-1">자세히</h2>
-        <div class="detail-heading-actions">
-          <button type="button" class="button text-button small" id="detail-edit-jump" aria-label="날짜·제목 고치는 칸으로 내려가기" aria-controls="edit-form" hidden>날짜·제목 고치기 ↓</button>
-          <button type="button" class="button text-button close" id="detail-close" aria-label="자세히 닫기">닫기</button>
+        <div id="detail-toolbar" class="detail-controls" role="group" aria-label="분류와 표시" hidden>
+          <select id="detail-type" aria-label="업무 분류">
+            <option value="할 일">할 일</option>
+            <option value="알아 둘 것">확인할 것</option>
+            <option value="없음" hidden>숨긴 것</option>
+          </select>
+          <details class="detail-more" id="detail-more">
+            <summary aria-label="더보기" title="더보기">⋯</summary>
+            <div class="detail-menu">
+              <button type="button" class="button small task-mark" id="important" hidden aria-pressed="false" title="중요 표시 · 목록에서 위에 두고 달력에서 굵게 표시합니다"><span class="box" aria-hidden="true"></span>중요</button>
+              <button type="button" class="button small task-mark" id="pin" hidden aria-pressed="false" title="목록의 상시 묶음에 띄웁니다"><span class="box" aria-hidden="true"></span>상시</button>
+              <button type="button" class="button icon-button" id="note-title-edit" aria-label="업무 제목 고치기" title="고치기" aria-controls="edit-title" aria-expanded="false" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
+              <button type="button" class="button icon-button" id="edit-dates" aria-controls="date-rows" aria-expanded="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
+              <button type="button" class="button text-button small" id="refine">다듬기</button>
+              <button type="button" id="to-greeting" data-type="없음" hidden>숨기기</button>
+            </div>
+          </details>
         </div>
-      </div>
-      <p class="detail-lead" id="detail-lead" hidden></p>
-      <div class="type-row detail-toolbar" id="detail-toolbar" role="group" aria-label="분류와 표시" hidden>
-        <div class="seg" role="group" aria-label="분류" id="type-seg">
-          <button type="button" data-type="할 일">할 일</button>
-          <button type="button" data-type="알아 둘 것">확인할 것</button>
-          <button type="button" id="to-greeting" data-type="없음" hidden>숨기기</button>
-        </div>
-        <div class="task-marks" role="group" aria-label="업무 표시">
-          <button type="button" class="button small task-mark" id="important" hidden aria-pressed="false" title="중요 표시 · 목록에서 위에 두고 달력에서 굵게 표시합니다"><span class="box" aria-hidden="true"></span>중요</button>
-          <button type="button" class="button small task-mark" id="pin" hidden aria-pressed="false" title="목록의 상시 묶음에 띄웁니다"><span class="box" aria-hidden="true"></span>상시</button>
-          <button type="button" class="button small task-mark" id="done" hidden><span class="box" aria-hidden="true"></span><span id="done-label">끝냄</span></button>
-          <button type="button" class="button small task-mark" id="reference-seen" hidden title="다 봤으면 끝낸 것으로 옮깁니다"><span class="box" aria-hidden="true"></span>다 봄</button>
-        </div>
-        <span class="badge" id="source-badge"></span><span class="badge warning" id="verify-badge" hidden>원문 확인 필요</span>
+        <button type="button" class="button icon-button close" id="detail-close" aria-label="자세히 닫기" title="닫기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button>
       </div>
       <p class="detail-message" id="detail-message" role="status" hidden></p>
       <div class="same-work" id="same-work" hidden></div>
@@ -169,63 +176,26 @@
         </div>
       </section>
       <div class="detail-content" id="detail-content" hidden>
-        <section class="detail-section" id="refine-section" aria-labelledby="refine-heading">
-          <div class="detail-section-heading"><h3 id="refine-heading">AI 정리</h3><button type="button" class="button text-button small" id="refine">다듬기</button></div>
-          <p class="formatted summary" id="refinement"></p>
-          <p class="small-note" id="refine-note" hidden></p>
-        </section>
-
-        <section class="detail-section note-actions" id="note-actions" aria-labelledby="note-actions-heading" hidden>
-          <div class="detail-section-heading">
-            <h3 id="note-actions-heading">쪽지에서 처리</h3>
-            <div class="ai-actions">
-              <button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button>
-              <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
-              <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="detail-section codex-work" id="codex-work-section" aria-labelledby="codex-work-heading" hidden>
-          <div class="detail-section-heading"><h3 id="codex-work-heading">AI 작업 결과</h3></div>
-          <p class="small-note" id="codex-work-status" role="status" hidden></p>
-          <ul class="codex-work-results" id="codex-work-results"></ul>
-        </section>
-
-        <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
-          <div class="detail-section-heading">
-            <h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3>
-            <div class="ai-actions">
-              <button type="button" class="button text-button small" id="goe-attachment-retry" hidden>첨부만 다시 받기</button>
-              <button type="button" class="button text-button small" id="attachment-folder" hidden>폴더 열기</button>
-            </div>
-          </div>
-          <ul class="attachment-list" id="attachments"></ul>
-          <p class="small-note" id="attachment-status" role="status" hidden></p>
-        </section>
-
         <form class="edit-form" id="edit-form" tabindex="-1" aria-label="업무 편집">
           <div class="forwarded-source forwarded-draft-source" id="forwarded-draft-source" hidden>
             <p class="forwarded-source-label">선택한 원문</p>
             <p class="formatted" id="forwarded-draft-text"></p>
           </div>
+          <div class="detail-badges"><span class="badge" id="source-badge"></span><span class="badge warning" id="verify-badge" hidden>원문 확인 필요</span></div>
           <div class="title-field">
-            <div class="detail-field-heading">
-              <span id="edit-title-label">업무 제목</span>
-              <button type="button" class="button text-button small" id="note-title-edit" aria-label="업무 제목 고치기" aria-controls="edit-title" aria-expanded="false" hidden>고치기</button>
-            </div>
-            <p class="task-title-view" id="task-title-view" hidden></p>
+            <span id="edit-title-label" class="sr-only">업무 제목</span>
+            <p class="task-title-view" id="task-title-view" hidden>
+              <span class="ring" id="title-loose-mark" role="img" aria-label="기한 없음" hidden></span>
+              <span id="task-title-text"></span>
+              <button type="button" class="detail-action" id="title-check" hidden>완료</button>
+              <button type="button" class="detail-action" id="reference-seen" hidden>확인</button>
+            </p>
             <input id="edit-title" aria-labelledby="edit-title-label" required maxlength="180" autocomplete="off">
           </div>
+          <p id="refine-note" class="small-note" role="status" hidden></p>
           <p class="when" id="when-line"></p>
           <fieldset class="dates-field" id="dates-field">
             <legend class="sr-only">날짜</legend>
-            <div class="detail-field-heading">
-              <span aria-hidden="true">날짜</span>
-              <div class="date-tools">
-                <button type="button" class="button text-button small" id="edit-dates" aria-controls="date-rows" aria-expanded="false">고치기</button>
-              </div>
-            </div>
             <ul class="date-rows" id="date-rows"></ul>
             <!-- 반복(2026-11-20): 보기일 때는 "↻ 매주 목 · 2/28까지 · 남은 n회 [이번만 건너뛰기] [반복 그만]",
                  날짜 고치기 중에는 반복 고르기(날짜 하나인 할 일만). -->
@@ -244,6 +214,57 @@
               <option value="점심시간"></option><option value="방과 후"></option>
             </datalist>
           </fieldset>
+          <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
+            <div class="detail-section-heading"><h3 id="original-heading" tabindex="-1">쪽지 원문</h3><div class="ai-actions"><button type="button" class="button icon-button" id="copy-note" aria-label="원문 복사" title="원문 복사" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-copy"></use></svg></button><button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button></div></div>
+            <div class="paper">
+              <p class="original-title" id="original-title"></p>
+              <p class="small-note" id="original-review" hidden></p>
+              <div class="original-meta-row" id="original-meta-row">
+                <p class="small-note original-meta" id="original-meta"></p>
+                <span class="small-note" id="note-recipient-summary" hidden></span>
+                <p class="note-recipients" id="note-recipients" hidden>
+                  <span id="note-recipient-list"></span>
+                  <span class="small-note" id="note-recipient-limited" hidden>· 전체 명단은 브리티에서 확인</span>
+                </p>
+              </div>
+              <div id="reply-section" class="note-part" hidden>
+                <h4>회신</h4>
+                <p class="formatted original" id="reply-body"></p>
+              </div>
+              <div id="previous-note" class="note-part" hidden>
+                <h4 id="previous-note-heading" tabindex="-1">이전 쪽지</h4>
+                <p class="previous-subject" id="previous-subject"></p>
+                <p class="formatted original" id="previous-body"></p>
+              </div>
+              <p class="formatted original" id="original-body"></p>
+              <details class="raw-note" id="raw-note" hidden>
+                <summary>전체 원문 보기</summary>
+                <p class="formatted original" id="raw-note-body"></p>
+              </details>
+            </div>
+          </section>
+
+          <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
+            <div class="detail-section-heading">
+              <h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3>
+              <div class="ai-actions">
+                <button type="button" class="button text-button small" id="goe-attachment-retry" hidden>첨부만 다시 받기</button>
+                <button type="button" class="button icon-button" id="attachment-folder" aria-label="첨부 폴더 열기" title="폴더 열기" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-folder"></use></svg></button>
+              </div>
+            </div>
+            <ul class="attachment-list" id="attachments"></ul>
+            <p class="small-note" id="attachment-status" role="status" hidden></p>
+          </section>
+
+          <section class="detail-section note-actions" id="note-actions" aria-label="쪽지에서 찾은 대상·연락처" hidden>
+            <dl class="note-people" id="note-people"></dl>
+            <button type="button" class="button text-button small" id="note-target-check" hidden>원문에서 대상 확인 ↑</button>
+            <ul class="note-contacts" id="note-contacts" aria-label="쪽지 연락처" hidden></ul>
+            <p class="small-note" id="note-contact-check" hidden>연락처가 여러 개입니다. 대상을 확인해 주세요.</p>
+            <ul class="note-contacts" id="note-links" aria-label="쪽지 링크" hidden></ul>
+            <button type="button" class="button text-button small" id="note-requester-check" hidden>이전 쪽지 확인 ↑</button>
+          </section>
+
           <label class="field memo-field"><span id="memo-label">메모</span><textarea id="edit-memo" rows="2" maxlength="4000"></textarea></label>
           <!-- 직접 추가한 업무만 지울 수 있다(쪽지·대화방 업무는 숨기기). -->
           <button type="button" class="button text-button small danger-text" id="remove-task" hidden>업무 지우기</button>
@@ -260,40 +281,20 @@
           </div>
         </form>
 
-        <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
-          <div class="detail-section-heading"><h3 id="original-heading" tabindex="-1">쪽지 원문</h3><button type="button" class="button text-button small" id="copy-note" hidden>원문 복사</button></div>
-          <div class="paper">
-            <p class="original-title" id="original-title"></p>
-            <p class="small-note" id="original-review" hidden></p>
-            <div class="original-meta-row" id="original-meta-row">
-              <p class="small-note original-meta" id="original-meta"></p>
-              <span class="small-note" id="note-recipient-summary" hidden></span>
-              <p class="note-recipients" id="note-recipients" hidden>
-                <span id="note-recipient-list"></span>
-                <span class="small-note" id="note-recipient-limited" hidden>· 전체 명단은 브리티에서 확인</span>
-              </p>
-            </div>
-            <div id="reply-section" class="note-part" hidden>
-              <h4>회신</h4>
-              <p class="formatted original" id="reply-body"></p>
-            </div>
-            <div id="previous-note" class="note-part" hidden>
-              <h4 id="previous-note-heading" tabindex="-1">이전 쪽지</h4>
-              <p class="previous-subject" id="previous-subject"></p>
-              <p class="formatted original" id="previous-body"></p>
-            </div>
-            <p class="formatted original" id="original-body"></p>
-            <details class="raw-note" id="raw-note" hidden>
-              <summary>전체 원문 보기</summary>
-              <p class="formatted original" id="raw-note-body"></p>
-            </details>
+        <section class="detail-actions work-section" id="work-section" aria-label="이어서 하기">
+          <div class="ai-actions">
+            <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note" title="Claude나 ChatGPT 채팅에 붙여 넣을 지시문을 복사합니다">채팅용 지시문 복사</button>
+            <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
+            <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
           </div>
-        </section>
-
-        <section class="detail-actions work-section" id="work-section" aria-label="채팅에서 이어서">
-          <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note" title="Claude나 ChatGPT 채팅에 붙여 넣을 지시문을 복사합니다">채팅용 지시문 복사</button>
           <p class="small-note" id="work-edit-note" hidden>저장한 뒤 복사할 수 있습니다.</p>
           <p class="small-note work-message" id="work-message" role="status" hidden></p>
+        </section>
+
+        <section class="detail-section codex-work" id="codex-work-section" aria-labelledby="codex-work-heading" hidden>
+          <div class="detail-section-heading"><h3 id="codex-work-heading">AI 작업 결과</h3></div>
+          <p class="small-note" id="codex-work-status" role="status" hidden></p>
+          <ul class="codex-work-results" id="codex-work-results"></ul>
         </section>
       </div>
     </aside>
@@ -335,7 +336,7 @@
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-heading">
     <div class="settings-head">
       <h2 id="settings-heading" tabindex="-1" autofocus>설정</h2>
-      <button type="button" class="button primary" id="settings-close">닫기</button>
+      <button type="button" class="button icon-button" id="settings-close" aria-label="설정 닫기" title="닫기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button>
     </div>
     <!-- 설정 묶음 탭(2026-11-15): 처음엔 AI만 보면 된다. 각 구역은 data-settings-tab으로 묶음을 정한다. -->
     <div class="settings-tabs" role="tablist" aria-label="설정 묶음">

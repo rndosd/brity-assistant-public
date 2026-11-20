@@ -7,6 +7,7 @@ const { randomUUID, createHash } = require('node:crypto');
 const backup = require('./backup');
 const { readyChatBatches } = require('./chat-batches');
 const chatDecisions = require('./chat-decisions');
+const { restoreNoteAnswer, withMaskingContext } = require('./note-text');
 
 const model = require('./renderer/task-model');
 const { receivedDay } = require('./renderer/periods');
@@ -1278,6 +1279,20 @@ class CalendarStore {
       }
       if (input?.revision !== undefined && input.revision !== task.revision) throw new CalendarError('업무가 바뀌었습니다. 상세를 다시 열어 주세요.');
       if (updates.type === '없음') updates.dates = task.dates || [];
+      else for (const entry of updates.dates) {
+        // 짧은 이름은 상세 이름에서 나온 표시값이다. 직접 고친 이름에 예전 요약이 따라오면 안 된다.
+        const matching = (task.dates || []).filter(old => old.kind === entry.kind && old.label === entry.label);
+        const source = matching.find(old => old.date === entry.date) || (matching.length === 1 ? matching[0] : null);
+        delete entry.shortLabel;
+        delete entry.shortScope;
+        if (source?.shortLabel) entry.shortLabel = source.shortLabel;
+        if (source?.shortScope) entry.shortScope = source.shortScope;
+        if (entry.received && task.title !== updates.title && entry.label === task.title.slice(0, model.LABEL_MAX)) {
+          entry.label = updates.title.slice(0, model.LABEL_MAX);
+          delete entry.shortLabel;
+          delete entry.shortScope;
+        }
+      }
       const after = answerOf(updates);
       if (task.noteId && JSON.stringify(answerOf(task)) !== JSON.stringify(after)) {
         // 선생님이 고친 값과 AI의 원래 답을 함께 남긴다. 나중에 지침을 고칠 때 정답으로 쓴다.
@@ -1939,8 +1954,9 @@ class CalendarStore {
       if (automatic && (this.aiBlocked || !this.autoRefinable(task))) return null;
       if (this.refining.has(id)) return null;
       if (!note || this.inbox.status !== 'ready') throw new CalendarError('다듬을 원문을 불러올 수 없습니다.');
+      const source = withMaskingContext(note, this.notes);
       this.refining.add(id);
-      return { task, note };
+      return { task, note: source };
     });
     if (!start) return { status: 'skipped', task: this.taskView(this.getTask(id)) };
     onStarted?.();
@@ -1949,9 +1965,11 @@ class CalendarStore {
     let stopped = false;
     try {
       const { attachments, ...note } = start.note;
-      const answer = resultValue(await refiner({ ...note, attachmentNames: attachments.map(item => item.name) }, {
+      const rawAnswer = await refiner({ ...note, attachmentNames: attachments.map(item => item.name) }, {
         rulesPath: this.rulesPath, codexExecutable: this.settings.codexExecutable, claudeExecutable: this.settings.claudeExecutable, profile: this.settings.profile ?? null
-      }), start.task.title);
+      });
+      const answer = resultValue(restoreNoteAnswer(rawAnswer, note), start.task.title);
+      if (rawAnswer?.summary === undefined) answer.summary = start.task.summary || '';
       // AI의 원래 답에는 확인 필요 표시도 남긴다(지침을 고칠 때 비교용).
       result = { ...closePastDeadlines(withReceivedDay(answer, note.datetime), start.task.rangeImported), aiAnswer: { ...answerOf(answer), uncertain: answer.uncertain === true } };
     } catch (error) {

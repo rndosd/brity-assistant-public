@@ -55,6 +55,11 @@ button:disabled { cursor: default; opacity: .5; }
 .button.primary { background: var(--ink); color: var(--sheet); border-color: var(--ink); font-weight: 700; }
 .button.primary:hover:not(:disabled) { outline: 2px solid var(--today); }
 .button.text-button { border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: 3px; padding-inline: 4px; }
+/* 선 아이콘 버튼: 글자색을 따르고 선 굵기·끝 모양은 스킨이 정한다(skins.css). */
+:root { --icon-stroke: 1.7; --icon-cap: round; --icon-size: 17px; }
+.icon { width: var(--icon-size); height: var(--icon-size); fill: none; stroke: currentColor; stroke-width: var(--icon-stroke); stroke-linecap: var(--icon-cap); stroke-linejoin: var(--icon-cap); vertical-align: middle; }
+.button.icon-button { display: inline-grid; place-items: center; min-width: 28px; min-height: 28px; padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); text-decoration: none; }
+.button.icon-button:hover:not(:disabled) { border-color: transparent; color: var(--ink); background: var(--hover); }
 .button.text-button:hover:not(:disabled) { border-color: transparent; color: var(--ink); background: var(--hover); }
 .button.small { min-height: 24px; font-size: 12px; }
 .button.wide { width: 100%; min-height: 36px; }
@@ -171,6 +176,7 @@ button:disabled { cursor: default; opacity: .5; }
 .row .pick { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 1px 6px; border: 0; background: none; padding: 0; text-align: left; }
 .row-title { flex: 1 1 7em; min-width: 0; }
 .row-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-action { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: .9em; color: var(--ink-2); }
 .row-when { flex: none; font-size: 12px; color: var(--ink-3); }
 .row .pick .flag { flex: none; margin-left: 0; }
 .rows .row { padding-block: 4px; }
@@ -239,6 +245,14 @@ button:disabled { cursor: default; opacity: .5; }
 .item .ring { width: 7px; height: 7px; border-width: 1.3px; transform: translateY(-1px); }
 .item .nomark { display: none; }
 .item-title { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: keep-all; overflow-wrap: anywhere; }
+.day { container: calendar-day / inline-size; }
+@container calendar-day (max-width: 145px) {
+  .item-title.scoped-label { display: block; flex: 1; min-width: 0; -webkit-line-clamp: unset; }
+  .scoped-label > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .calendar-scope { font-size: .94em; }
+  /* '별관 앞으로 상자 이동'이 넘쳐도 끝의 행동은 읽히게 한다. bdi는 원래 글 순서를 지킨다. */
+  .calendar-action { direction: rtl; text-align: left; }
+}
 .item.type-task .item-title { font-weight: 700; }
 .item.type-ref { color: var(--muted-text); }
 .item.late { color: var(--red); }
@@ -266,7 +280,27 @@ button:disabled { cursor: default; opacity: .5; }
 .detail-panel .button.small { min-height: 28px; }
 /* 자세히 머리는 패널 위 여백(16px)까지 덮어, 스크롤한 글이 그 위로 비치지 않게 한다(2026-11-15 여백 점검). */
 .detail-heading { position: sticky; top: -16px; margin-top: -16px; padding: 16px 0 6px; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--sheet); }
-.detail-heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; }
+.detail-heading:has(.detail-controls:not([hidden])) h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.detail-controls { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.detail-controls select { font: inherit; font-size: 14px; font-weight: 650; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); padding: 4px 5px; min-height: 32px; }
+.detail-more { margin-left: auto; position: relative; }
+.detail-more summary { display: grid; place-items: center; width: 32px; height: 32px; font-size: 22px; line-height: 1; cursor: pointer; list-style: none; }
+.detail-menu { position: absolute; top: 100%; right: 0; width: max-content; min-width: 132px; display: grid; padding: 4px; background: var(--sheet); border: 1px solid var(--ink-3); z-index: 3; }
+.detail-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 7px; width: 100%; min-height: 34px; padding: 4px 10px; border: 0; background: var(--sheet); color: var(--ink); text-align: start; font: inherit; font-size: 13px; }
+.detail-menu button:hover, .detail-more summary:hover { background: var(--selected); }
+.detail-menu button:disabled { color: var(--ink-3); }
+.detail-badges:not(:has(.badge:not([hidden]))), .dates-field:not(:has(.date-rows > li)):has(.add-date[hidden]) { display: none; }
+.detail-date-actions { display: grid; gap: 5px; padding-inline-start: 19px; }
+.detail-date-heading { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.detail-date-group + .detail-date-group { margin-top: 4px; }
+#task-title-view { display: flex; align-items: baseline; gap: 7px; }
+#task-title-view:has(#title-check:not([hidden])[aria-pressed="true"]) #task-title-text { color: var(--ink-3); text-decoration: line-through; }
+.detail-action { flex: none; margin-inline-start: auto; min-width: 3.7em; min-height: 27px; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 4px; background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; line-height: 1.35; white-space: nowrap; }
+.detail-action[aria-pressed="true"] { color: var(--ink-2); border-color: transparent; background: transparent; }
+.detail-action:hover:not(:disabled) { border-color: var(--ink-3); background: var(--selected); }
+#original-title { font-size: 13px; color: var(--ink-2); font-weight: 550; }
+#task-title-view { font-size: 19px; line-height: 1.4; word-break: keep-all; }
+.edit-form > .detail-section { margin-top: 4px; }
 .detail-heading h2 { font-size: 12.5px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em; }
 .detail-heading h2:focus { outline: none; }
 /* 자세히 맨 위 한 줄: 날짜까지 · 할 일. 지난 마감은 빨강, 끝낸 것은 흐리게. */
@@ -320,9 +354,7 @@ button:disabled { cursor: default; opacity: .5; }
 .date-tools { display: flex; flex-wrap: wrap; gap: 0 8px; }
 /* 보기만 할 때의 날짜 줄: □/● · 날짜 · 이름. 편집 칸은 "날짜 고치기"를 눌러야 열린다. */
 /* 날짜 이름이 두 줄이 되면 날짜·체크칸을 첫 줄에 맞춘다(가운데 맞춤이면 날짜가 두 줄 사이에 떠 보였다). */
-.date-view { display: flex; align-items: flex-start; gap: 8px; font-size: 14.5px; }
-.date-view .check { margin-top: 2px; }
-.date-view .check { flex: none; width: 19px; height: 19px; display: grid; place-items: center; border: 0; background: none; padding: 0; color: var(--ink); }
+.date-view { display: flex; align-items: baseline; gap: 8px; font-size: 14.5px; }
 .date-when { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
 .date-name { min-width: 0; overflow-wrap: anywhere; }
 .date-state { margin-inline-start: 8px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
@@ -348,7 +380,17 @@ button:disabled { cursor: default; opacity: .5; }
 .codex-work-result summary { cursor: pointer; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
 .codex-work-result .small-note { margin-top: 4px; }
 .codex-work-content { max-height: min(38vh, 320px); overflow: auto; margin: 6px 0; font: inherit; font-size: 14px; line-height: 1.65; }
-#refine-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.note-people { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; font-size: 14px; }
+.note-people dt, .note-contact-label { color: var(--ink-2); }
+.note-people dd { margin: 0; overflow-wrap: anywhere; }
+.note-contacts { list-style: none; padding: 0; margin: 8px 0 0; }
+.note-contact { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 4px 0; font-size: 14px; }
+.note-contact-value { min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; user-select: text; }
+.note-contact-label, .note-contact .button { flex: none; }
+#note-contact-check { margin: 4px 0; }
+#original-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.note-actions:not([hidden]) { margin-top: 0; padding-top: 0; border-top: 0; }
+.work-section .ai-actions { flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .formatted { white-space: pre-wrap; overflow-wrap: anywhere; }
 .summary { font-size: 14.5px; line-height: 1.75; color: var(--ink); word-break: keep-all; margin-bottom: 6px; }
 .attachment-list { border-top: 1px solid var(--rule); }
@@ -367,7 +409,6 @@ button:disabled { cursor: default; opacity: .5; }
 /* 쪽지 원문: 읽기용. 본문 15px·줄간격 1.8·단어 단위 줄바꿈, 문단 사이 여백 */
 .paper { border: 1px solid var(--rule); border-top: 2px solid var(--ink); background: #fffefb; padding: 14px 16px 16px; font-family: var(--reading); }
 .original-title { font-size: 16px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; word-break: keep-all; }
-.detail-content:has(#original-section:not([hidden])) .edit-form { margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .original-meta-row {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px;
   margin: 4px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
@@ -722,7 +763,7 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .span-piece .item-time { margin-right: 4px; color: var(--ink); }
 /* 날짜 추가는 날짜 칸 아래 왼쪽. "고치기/취소"는 제목 줄 오른쪽 끝에 그대로 있다. */
 .dates-field .add-date { justify-self: start; }
-#edit-dates { min-width: 3.5em; text-align: right; justify-content: flex-end; }
+#edit-dates.text-button { min-width: 3.5em; text-align: right; justify-content: flex-end; }
 /* 내용이 길어져 스크롤바가 생겨도 오른쪽 버튼들이 옆으로 밀리지 않게 자리를 미리 둔다. */
 .detail-panel { scrollbar-gutter: stable; }
 #chat-collection-status { white-space: pre-line; }

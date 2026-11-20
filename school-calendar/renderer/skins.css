@@ -694,3 +694,23 @@
   :root[data-skin="cute"] .calendar-header::after { left: 168px; bottom: 6px; width: 60px; height: 49px; }
   :root[data-skin="evening"] .calendar-header::after { left: 158px; bottom: 2px; width: 76px; height: 51px; }
 }
+
+/* 선 아이콘 버튼(2026-11-20 사용자 "스킨에 따라 다르게"): 굵기·끝 모양·바탕을 스킨마다 맞춘다.
+   팝·레트로는 버튼 상자를 그대로 두고(그 스킨다운 단추), 나머지는 글자 단추처럼 바탕 없이 둔다. */
+:root:is([data-skin="diary"], :not([data-skin])) .button.icon-button,
+:root[data-skin="cute"] .button.icon-button,
+:root[data-skin="evening"] .button.icon-button,
+:root[data-skin="minimal"] .button.icon-button,
+:root[data-skin="contrast"] .button.icon-button,
+:root[data-skin="news"] .button.icon-button { border-color: transparent; background: transparent; box-shadow: none; }
+:root[data-skin="cute"] { --icon-stroke: 2.1; --icon-size: 18px; }
+:root[data-skin="cute"] .button.icon-button { border-radius: 50%; color: var(--ink); }
+:root[data-skin="evening"] { --icon-stroke: 1.6; }
+:root[data-skin="minimal"] { --icon-stroke: 1.25; --icon-size: 16px; }
+:root[data-skin="contrast"] { --icon-stroke: 2.6; --icon-cap: square; --icon-size: 19px; }
+:root[data-skin="contrast"] .button.icon-button { color: var(--ink); min-width: 32px; min-height: 32px; }
+:root[data-skin="brutal"] { --icon-stroke: 2.6; --icon-cap: square; --icon-size: 16px; }
+:root[data-skin="brutal"] .button.icon-button { min-width: 30px; min-height: 30px; color: #111; }
+:root[data-skin="retro"] { --icon-stroke: 2.2; --icon-cap: square; --icon-size: 13px; }
+:root[data-skin="retro"] .button.icon-button { min-width: 24px; min-height: 22px; color: #000; }
+:root[data-skin="news"] { --icon-stroke: 1.4; --icon-cap: square; }
