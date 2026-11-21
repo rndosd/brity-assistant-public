@@ -1,0 +1,112 @@
+/* The month band, settings swatch and panel heading use the same local material. */
+:root[data-skin="nacre"], .skin-swatch-nacre {
+  --material: url("skins/nacre.webp"); --band: #210e20; --band-ink: #fff4ef;
+}
+:root[data-skin="linen"], .skin-swatch-linen {
+  --material: url("skins/linen.webp"); --band: #eee2cd; --band-ink: #372b26;
+}
+:root[data-skin="glass"], .skin-swatch-glass {
+  --material: url("skins/glass.webp"); --band: #f3eddb; --band-ink: #243e40;
+}
+:root[data-skin="chalk"], .skin-swatch-chalk {
+  --material: url("skins/chalk.webp"); --band: #263f34; --band-ink: #fff9e6;
+}
+:is(.skin-swatch-nacre, .skin-swatch-linen, .skin-swatch-glass, .skin-swatch-chalk) {
+  background: var(--material) right center / cover no-repeat, var(--band);
+}
+:root[data-skin="nacre"] {
+  color-scheme: dark;
+  --paper: #211923; --sheet: #2c222e; --ink: #f7edf2; --ink-2: #dacece; --ink-3: #bcaebc; --muted-text: #c4b7c4;
+  --rule: #493c4a; --rule-strong: #877789; --selected: #49394e; --hover: #392e3e; --important-bg: #4f303b;
+  --blue: #a8d1fa; --red: #ffadbb; --star-blue: #a8d1fa; --star-red: #ffadbb; --overdue: #f1c988;
+  --today: #f0dbad; --key-face: #d9c5e5; --key-ink: #301e33; --control-accent: #dfc8e9; --control-focus: #b6e3db;
+  --span-0: #574736; --span-1: #3a514b; --span-2: #35495c; --span-3: #5e3948; --span-4: #503d5c; --span-5: #345054;
+  --panel-control-radius: 4px; --material-font: "Body MaruBuri", serif;
+}
+:root[data-skin="linen"] {
+  --paper: #f4ecdf; --sheet: #fffaf1; --ink: #332d29; --ink-2: #5d534d; --ink-3: #78685c; --muted-text: #6e6057;
+  --rule: #dbccba; --rule-strong: #9d8974; --selected: #e5ebf4; --hover: #f3eadd;
+  --key-face: #294f83; --key-ink: #fffcf4; --control-accent: #274772; --control-focus: #235396;
+  --panel-control-radius: 3px; --material-font: "Body MaruBuri", serif;
+}
+:root[data-skin="glass"] {
+  --paper: #edf1eb; --sheet: #fffdf6; --ink: #293c39; --ink-2: #50605b; --ink-3: #68756c; --muted-text: #5e7068;
+  --rule: #c8d4c9; --rule-strong: #78908a; --selected: #d9ece6; --hover: #ecf4ec;
+  --key-face: #e8bd61; --key-ink: #382e1c; --control-accent: #285d5b; --control-focus: #175853;
+  --panel-control-radius: 6px; --material-font: "Skin Gowun Batang", serif;
+}
+:root[data-skin="chalk"] {
+  --paper: #eeefe8; --sheet: #fffef9; --ink: #26382e; --ink-2: #4a5c50; --ink-3: #667469; --muted-text: #59685c;
+  --rule: #cbd1c4; --rule-strong: #849384; --selected: #e1eadb; --hover: #edf2e8;
+  --key-face: #345844; --key-ink: #fffce9; --control-accent: #31533d; --control-focus: #326544;
+  --panel-control-radius: 3px; --material-font: "Skin Gaegu", "Body Gowun Dodum", sans-serif;
+}
+:root:is([data-skin="nacre"], [data-skin="linen"], [data-skin="glass"], [data-skin="chalk"]) {
+  --control-wash: var(--selected); --key-edge: none; --panel-heading-radius: var(--panel-control-radius);
+  --panel-heading-plain: var(--band); --panel-heading-ink: var(--band-ink); --panel-heading-font: var(--material-font);
+  --panel-heading-edge: 1px solid var(--rule-strong); --panel-heading-space: 64px;
+  --panel-heading-bg: linear-gradient(to right, var(--band) calc(100% - 86px), transparent calc(100% - 46px)),
+    var(--material) right center / auto 100% no-repeat, var(--band);
+
+  & .app-header { background: var(--paper); border-bottom: 1px solid var(--rule-strong); }
+  & :is(.app-header h1, .month-number, .agenda-heading, .original-title) { font-family: var(--material-font); }
+  & .app-header h1 { font-size: 18px; }
+  & .calendar { background: var(--sheet); }
+  & .calendar-header {
+    background: var(--band); color: var(--band-ink); border-bottom: var(--panel-heading-edge);
+    padding: 0 8px 0 0; align-items: center; flex-wrap: wrap;
+  }
+  & .month-number {
+    align-self: stretch; display: inline-flex; align-items: baseline;
+    padding: 9px clamp(52px, 10cqi, 128px) 9px 10px;
+    background: linear-gradient(to right, var(--band) 10%, transparent 67%),
+      var(--material) right center / auto 100% no-repeat, var(--band);
+    color: var(--band-ink);
+  }
+  & .calendar-header :is(.year, .legend, .legend .ref-label) { color: var(--band-ink); }
+  & .calendar-controls .button { color: var(--ink); }
+  & .header-meal { color: var(--ink); }
+  & .weekdays { background: var(--paper); }
+  & .day.adjacent { background: var(--paper); }
+  & .day.is-today .day-number { background: var(--today); color: #352d20; border-radius: 3px; }
+  & .day-hit:hover { background: color-mix(in srgb, var(--control-accent) 7%, transparent); }
+  & .paper { background: var(--sheet); border: 1px solid var(--rule); }
+  & :is(.button, .zoom, .seg, .list-tabs, .create-type, .calendar-mode, .detail-panel input, dialog, textarea) { border-radius: var(--panel-control-radius); }
+  & :is(.button.primary, .calendar-mode button[aria-pressed="true"], .list-tabs button[aria-selected="true"], .seg button[aria-pressed="true"]) {
+    background: var(--key-face); color: var(--key-ink); border-color: var(--rule-strong);
+  }
+  & .list-tabs button[aria-selected="true"] :is(.tab-unread, .tab-counts > b) { color: inherit; }
+  & :is(.settings-tabs button[aria-selected="true"], .create-type label:has(input:checked)) {
+    background: var(--control-wash); color: var(--control-accent); box-shadow: inset 0 -2px var(--control-accent);
+  }
+  & .agenda-heading { padding: 6px 10px; background: var(--panel-heading-bg); color: var(--band-ink); }
+  & .settings-head #settings-close { color: var(--band-ink); }
+  & .settings-head #settings-close:hover { color: var(--control-accent); background: var(--control-wash); }
+  & :focus-visible { outline-color: var(--control-focus); }
+}
+:root[data-skin="nacre"] {
+  & .day.is-today { box-shadow: inset 0 0 0 1px #ad9199; }
+  & .imp-flag { color: var(--paper); }
+  & .button.icon-button { background: transparent; }
+  & .connection.working, & .notice { background: var(--selected); color: var(--ink); }
+  & .calendar-mode button[aria-pressed="true"] { box-shadow: inset 0 -2px #a5d5cc; }
+}
+:root[data-skin="linen"] {
+  & .todo { border-inline-start: 5px solid; border-image: linear-gradient(#bc7d26 0 32%, #b85852 32% 64%, #335887 64%) 1; }
+  & .calendar-header { border-bottom: 1px dashed #9d6758; }
+  & .list-tabs button[aria-selected="true"] { outline: 1px dashed #afbfd6; outline-offset: -3px; }
+}
+:root[data-skin="glass"] {
+  & .calendar-mode button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px #866c3d; }
+  & .calendar-header { border-bottom: 2px solid #53675b; }
+}
+:root[data-skin="chalk"] {
+  & .month-number { font-weight: 700; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  & .calendar-header { border-bottom: 3px solid #aa8054; }
+  & .agenda-heading, & .app-header h1 { font-size: 24px; }
+}
+@container (max-width: 740px) {
+  :root:is([data-skin="nacre"], [data-skin="linen"], [data-skin="glass"], [data-skin="chalk"]) .month-number {
+    padding-inline-end: 44px; font-size: 34px;
+  }
+}

@@ -5280,7 +5280,7 @@ $('zoom-out').addEventListener('click', () => { zoomStep = applyZoom(zoomStep - 
 
 // 화면 꾸미기(스킨): 자리는 그대로 두고 색·질감·글꼴·그림만 바꾼다(skins.css). 이 PC에만 기억하고,
 // 첫 화면 전에 skin-boot.js가 먼저 입힌다.
-const SKINS = ['diary', 'cute', 'evening', 'minimal', 'contrast', 'brutal', 'retro', 'news', 'woodland'];
+const SKINS = ['diary', 'cute', 'evening', 'minimal', 'contrast', 'brutal', 'retro', 'news', 'woodland', 'nacre', 'linen', 'glass', 'chalk'];
 const skinInputs = [...document.querySelectorAll('input[name="skin"]')];
 function applySkin(skin) {
   const value = SKINS.includes(skin) ? skin : 'minimal';
