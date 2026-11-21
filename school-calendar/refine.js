@@ -82,24 +82,28 @@ async function buildClassifierInput(note, rulesPath, profile) {
 }
 
 async function refineNote(note, { rulesPath, codexExecutable, signal, profile }) {
+  const input = await buildClassifierInput(note, rulesPath, profile);
+  return requestCodex(input, SCHEMA, { codexExecutable, signal });
+}
+
+async function requestCodex(input, schemaPath, { codexExecutable, signal, run: execute = run, resolveExecutable = resolveCodex }) {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new CalendarError('AI 정리가 90초 안에 끝나지 않았습니다. 다시 시도해 주세요.')), 90_000);
   const execution = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   try {
-    const input = await buildClassifierInput(note, rulesPath, profile);
-    const executable = await resolveCodex(codexExecutable, execution);
+    const executable = await resolveExecutable(codexExecutable, execution);
     const base = ['-a', 'never', 'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
       '--disable', 'hooks', '--disable', 'plugins', '--disable', 'shell_tool', '-c', 'web_search="disabled"',
       '--ephemeral', '--json', '--output-schema'];
     let output;
     if (path.extname(executable).toLowerCase() === '.cmd') {
       const command = `""%SCHOOL_CALENDAR_CODEX_SHIM%" ${base.map(arg => arg.startsWith('web_search=') ? 'web_search=\"\"disabled\"\"' : arg).join(' ')} "%SCHOOL_CALENDAR_SCHEMA%" -"`;
-      output = await run(path.join(SYSTEM, 'cmd.exe'), ['/d', '/v:off', '/s', '/c', command], {
+      output = await execute(path.join(SYSTEM, 'cmd.exe'), ['/d', '/v:off', '/s', '/c', command], {
         input, signal: execution, tree: true, windowsVerbatimArguments: true,
-        env: { ...process.env, SCHOOL_CALENDAR_CODEX_SHIM: executable, SCHOOL_CALENDAR_SCHEMA: SCHEMA }
+        env: { ...process.env, SCHOOL_CALENDAR_CODEX_SHIM: executable, SCHOOL_CALENDAR_SCHEMA: schemaPath }
       });
     } else {
-      output = await run(executable, [...base, SCHEMA, '-'], { input, signal: execution, tree: true });
+      output = await execute(executable, [...base, schemaPath, '-'], { input, signal: execution, tree: true });
     }
     return readResult(output);
   } catch (error) {
@@ -110,4 +114,4 @@ async function refineNote(note, { rulesPath, codexExecutable, signal, profile })
   }
 }
 
-module.exports = { refineNote, readResult, buildClassifierInput, resolveCodex, run, POWERSHELL, SYSTEM };
+module.exports = { refineNote, requestCodex, readResult, buildClassifierInput, resolveCodex, run, POWERSHELL, SYSTEM };

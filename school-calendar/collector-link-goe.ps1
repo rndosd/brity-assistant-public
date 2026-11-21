@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory)][ValidateSet('Inspect', 'Tick', 'ChatRooms', 'Chats', 'RangePreview', 'Range', 'RetryAttachments', 'Reply')][string]$Mode,
+    [Parameter(Mandatory)][ValidateSet('Inspect', 'Tick', 'ChatRooms', 'Chats', 'RangePreview', 'Range', 'RetryAttachments', 'ShowOriginal')][string]$Mode,
     [Parameter(Mandatory)][string]$ScriptsDir,
     [string]$ChatDirectory,
     [switch]$Force,
@@ -20,7 +20,7 @@ $locked = $false
 try {
     if ($Mode -in 'ChatRooms', 'Chats') { return }
     if ($Mode -in 'RangePreview', 'Range' -and -not ($From -or $To)) { return }
-    if ($Mode -in 'RetryAttachments', 'Reply' -and -not $NoteId) { return }
+    if ($Mode -in 'RetryAttachments', 'ShowOriginal' -and -not $NoteId) { return }
 
     $collect = Join-Path $ScriptsDir 'collect-goe.ps1'
     if (-not (Test-Path -LiteralPath $collect -PathType Leaf) -or
@@ -38,9 +38,9 @@ try {
     if ($PSBoundParameters.ContainsKey('AttachmentFolder')) { $collectArgs.AttachmentFolder = $AttachmentFolder }
     switch ($Mode) {
         'Inspect' { $collectArgs.Inspect = $true }
-        'Reply' {
+        'ShowOriginal' {
             $collectArgs.RetryId = $NoteId
-            $collectArgs.Reply = $true
+            $collectArgs.ShowOriginal = $true
         }
         'RetryAttachments' {
             $collectArgs.RetryId = $NoteId
@@ -92,7 +92,7 @@ try {
         $result.attachStatus = $collected.attachStatus
         $result.attached = $collected.attached
     }
-    if ($Mode -eq 'Reply' -and $collected) { $result.reply = $collected.reply }
+    if ($Mode -eq 'ShowOriginal' -and $collected) { $result.original = $collected.original }
     if ($collected -and $collected.busyReason) { $result.busyReason = $collected.busyReason }
     # why GOE was not found or read (2026-11-17: on another PC every failure looked like "log in")
     if ($collected -and $collected.reason) { $result.reason = [string]$collected.reason }

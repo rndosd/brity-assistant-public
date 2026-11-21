@@ -119,12 +119,63 @@ class McpShare {
     return folder(path.join(this.shares, id));
   }
 
-  async setup(format) {
+  async checkBridge() {
+    await this.installBridge({ rebuildSource: true });
+    const messages = [
+      { id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'calendar-check', version: '1' } } },
+      { method: 'notifications/initialized' },
+      { id: 2, method: 'tools/list', params: {} }
+    ];
+    const input = messages.map(message => JSON.stringify({ jsonrpc: '2.0', ...message })).join('\n') + '\n';
+    try {
+      const child = run(this.command, [], { windowsHide: true, timeout: 5000, maxBuffer: 128 * 1024 });
+      child.child.stdin.on('error', () => {}); // A failed launch can close the pipe before the write.
+      child.child.stdin.end(input);
+      const { stdout } = await child;
+      const replies = stdout.trim().split(/\r?\n/).map(line => JSON.parse(line));
+      const server = replies.find(reply => reply.id === 1)?.result?.serverInfo;
+      const tools = replies.find(reply => reply.id === 2)?.result?.tools || [];
+      if (server?.name !== 'school-calendar' || !['list_shared_work', 'get_shared_work', 'read_shared_attachment', 'save_work_result']
+        .every(name => tools.some(tool => tool.name === name))) throw new Error('Unexpected MCP response');
+      return true;
+    } catch {
+      throw new CalendarError('MCP 연결 프로그램이 응답하지 않았습니다. 캘린더를 다시 열고 확인해 주세요.');
+    }
+  }
+
+  async setup(format, executables = {}) {
     const command = JSON.stringify(this.command);
     const server = { command: this.command, args: [] };
     const toml = () => `[mcp_servers.calendar]\ncommand = ${command}\nargs = []\n`;
+    const jsonConfig = () => JSON.stringify({ mcpServers: { calendar: server } }, null, 2);
+    const setupRequest = () => {
+      // PowerShell single-quoted arguments also handle spaces, dollar signs and apostrophes in a user profile path.
+      const quote = value => "'" + value.replace(/['‘’‚‛]/g, match => "'" + match) + "'";
+      const executable = quote(this.command);
+      const codex = executables.codex ? '& ' + quote(executables.codex) : 'codex';
+      const claude = executables.claude ? '& ' + quote(executables.claude) : 'claude';
+      return [
+        '이 Windows PC에서 지금 사용 중인 AI 앱에 메신저 캘린더 MCP를 연결해 주세요. 아래에서 현재 앱에 해당하는 방법으로 직접 등록하고 확인해 주세요.',
+        '서버 이름: calendar / 전송: stdio / 인자: 없음',
+        '실행 파일: ' + this.command,
+        '',
+        '먼저 이 파일이 있는지 확인하고, 현재 앱에 calendar가 이미 등록돼 있는지 조회하세요. 같은 실행 파일이면 연결 확인으로 넘어가고, 다른 서버가 이 이름을 쓰면 기존 설정을 바꾸기 전에 알려 주세요.',
+        '',
+        'PowerShell에서 현재 앱에 해당하는 명령만 사용하세요.',
+        'Codex에서 현재 사용자 설정을 조회하고, 없으면 등록하세요.',
+        codex + ' mcp get calendar --json',
+        codex + ' mcp add calendar -- ' + executable,
+        'Claude Code에서 조회하고, 없으면 현재 프로젝트에 등록하세요.',
+        claude + ' mcp get calendar',
+        claude + ' mcp add --scope local --transport stdio calendar -- ' + executable,
+        '',
+        '등록한 뒤 다시 조회해 실행 파일 경로와 stdio 설정을 확인하세요. 현재 채팅에서 calendar의 도구 목록에 list_shared_work와 save_work_result가 보이는지 확인하고, 등록과 실제 연결 중 어디까지 확인했는지 알려 주세요. 새 채팅이나 앱 다시 열기가 필요하면 다음 동작을 한 줄로 안내하세요. 연결 시험은 도구 목록 확인까지만 진행하세요.'
+      ].join('\n');
+    };
     const configs = {
-      json: () => JSON.stringify({ mcpServers: { calendar: server } }, null, 2),
+      'ai-request': setupRequest,
+      json: jsonConfig,
+      claude: jsonConfig,
       codex: toml,
       grok: toml,
       vscode: () => JSON.stringify({ servers: { calendar: { type: 'stdio', ...server } } }, null, 2)

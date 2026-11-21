@@ -112,120 +112,62 @@
 :root:is([data-skin="diary"], :not([data-skin])) dialog { border-radius: 3px; background: url("skins/paper-grain.svg"), var(--sheet); box-shadow: 0 1px 0 var(--rule), 0 12px 30px #3a321f2e; }
 :root:is([data-skin="diary"], :not([data-skin])) .imp-flag { border-radius: 2px; }
 
-/* ═══════════ 2. 파스텔 ═══════════
-   고양이 캐릭터(달 머리에서 빼꼼, 목록 아래서 낮잠, 자세히에서 손 흔들기), 체크무늬 천 머리줄, 별 스티커 오늘,
-   말랑한 사탕 버튼, 파스텔 일정 칩. 글꼴: 제목·버튼 주아, 손글씨 개구. */
+/* 파스텔 · 고양이의 책상. 속지는 미색, 선택한 면은 수첩 표지와 같은 청록. */
 :root[data-skin="cute"] {
-  --jua: "Skin Jua", "Noto Sans KR", sans-serif;
-  --cute-hand: "Skin Gaegu", "Noto Sans KR", sans-serif;
-  --flower: "Skin Gaegu", sans-serif;
-  --paper: #fff5f7;
-  --sheet: #ffffff;
-  --rule: #f4dde5;
-  --rule-strong: #ecc6d3;
-  --ink: #4a3a48;
-  --ink-2: #7d6a7b;
-  --ink-3: #b3a2b1;
-  --muted-text: #8f7f8d;
-  --red: #e2506a;
-  --important-bg: #ffe6eb;
-  --blue: #4f87d8;
-  --today: #ffe08a;
-  --selected: #ffe9f0;
-  --hover: #fff1f5;
-  --pink: #f683a8;
-  --pink-deep: #df6890;
-  --mint: #d5f2e7;
-  --span-0: #ffeec4; --span-1: #d3f1e4; --span-2: #dae7fc; --span-3: #ffdbe3; --span-4: #ebe1fb; --span-5: #d2eff2;
+  --paper: #f5eee5; --sheet: #fffaf2; --rule: #e4d7c9; --rule-strong: #ac9687;
+  --ink: #3d302d; --ink-2: #65564f; --ink-3: #786a62; --muted-text: #76645d;
+  --rose: #854651; --teal: #385b55; --rose-wash: #f6e4dc;
+  --selected: #f4e2d9; --hover: #f7ece3; --today: #f3d7a4; --important-bg: #f7e5de;
+  --book-serif: "Body MaruBuri", "Skin Gowun Batang", serif;
+  --panel-heading-font: var(--book-serif); --panel-heading-ink: var(--ink);
+  --panel-heading-plain: #f5e8dc; --panel-heading-edge: 1px solid var(--rule);
+  --panel-heading-radius: 4px; --panel-heading-space: 12px; --panel-control-radius: 5px;
+  --panel-heading-bg: linear-gradient(105deg, #f4e1d6, #fff8ed);
+  --control-accent: var(--teal); --control-wash: #e4ece5; --control-focus: #77414a;
+  --key-face: var(--teal); --key-ink: #fffaf1; --key-edge: none;
 }
-:root[data-skin="cute"] body { background: url("skins/dots.svg"), var(--paper); }
-:root[data-skin="cute"] :is(button, input, select, textarea, summary, a, .pane-divider):focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
-:root[data-skin="cute"] .app-header { background: url("skins/gingham.svg") 0 0 / 18px 18px; border-bottom: 3px solid #f7c3d3; }
-:root[data-skin="cute"] .app-header h1 {
-  font-family: var(--jua); font-size: 18px; font-weight: 400; color: var(--pink-deep);
-  background: #fffffff0; border-radius: 999px; padding: 3px 14px 3px 40px; box-shadow: 0 2px 0 #f2c2d1; position: relative;
+:root[data-skin="cute"] body { background: var(--paper); }
+:root[data-skin="cute"] .app-header {
+  border-bottom: 1px solid #c8aba2; background: linear-gradient(100deg, #f3d9d0, #f4e5da 65%, #efe4d7);
 }
-:root[data-skin="cute"] .app-header h1::before { content: ""; position: absolute; left: 8px; top: 50%; width: 29px; height: 25px; transform: translateY(-52%); background: url("skins/cat-face.png") center / contain no-repeat; }
-:root[data-skin="cute"] .button {
-  border-radius: 999px; border: 1.5px solid var(--rule-strong); font-family: var(--jua); font-weight: 400; font-size: 13px;
-  background: linear-gradient(#ffffff, #fff4f7); box-shadow: inset 0 1px 0 #ffffff, 0 2px 0 #f2cbd8; transition: transform .08s, box-shadow .08s;
+:root[data-skin="cute"] .app-header h1 { font: 700 18px/1.25 var(--book-serif); color: #583b3e; }
+:root[data-skin="cute"] .button { border-radius: 5px; background: var(--sheet); color: var(--ink); }
+:root[data-skin="cute"] .button.primary,
+:root[data-skin="cute"] .button.primary:hover:not(:disabled) { background: var(--teal); border-color: var(--teal); color: var(--key-ink); }
+:root[data-skin="cute"] .button.text-button { background: transparent; border-color: transparent; }
+:root[data-skin="cute"] .button:hover:not(:disabled) { border-color: var(--teal); }
+:root[data-skin="cute"] :is(.zoom, .seg, .list-tabs, .calendar-mode) { border-radius: 5px; overflow: hidden; }
+:root[data-skin="cute"] :is(.list-tabs button[aria-selected="true"], .calendar-mode button[aria-pressed="true"], .seg button[aria-pressed="true"]) { background: var(--teal); color: #fffaf1; }
+:root[data-skin="cute"] .todo { background: #f6ede5; }
+:root[data-skin="cute"] :is(.today-line, .original-title, .agenda-heading, .group h3) { font-family: var(--book-serif); }
+:root[data-skin="cute"] .today-line { color: var(--rose); }
+:root[data-skin="cute"] .calendar { background: var(--sheet); }
+:root[data-skin="cute"] .calendar-header { align-items: end; border-bottom: 2px solid #c2a195; }
+:root[data-skin="cute"] .month-number { color: #664149; font: 700 42px/1 var(--book-serif); }
+:root[data-skin="cute"] .month-number::after {
+  content: ""; display: inline-block; width: clamp(90px, 14cqi, 156px); aspect-ratio: 2.42;
+  vertical-align: -.12em; margin-inline: 10px 2px;
+  background: url("skins/cat-notebook.webp") center bottom / contain no-repeat;
 }
-:root[data-skin="cute"] .button:hover:not(:disabled) { border-color: var(--pink); }
-:root[data-skin="cute"] .button:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 1px 0 #fff, 0 0 0 #f2cbd8; }
-:root[data-skin="cute"] .button.primary { color: #fff; border-color: var(--pink-deep); background: linear-gradient(#ff9fbf, var(--pink)); box-shadow: inset 0 2px 0 #ffffff66, 0 3px 0 var(--pink-deep); }
-:root[data-skin="cute"] .button.primary:hover:not(:disabled) { outline: 0; background: linear-gradient(#ff93b7, var(--pink-deep)); }
-:root[data-skin="cute"] .button.text-button { border-color: transparent; box-shadow: none; background: transparent; }
-:root[data-skin="cute"] .button.text-button:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
-:root[data-skin="cute"] .zoom { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; box-shadow: 0 2px 0 #f2cbd8; background: #fff; }
-:root[data-skin="cute"] :is(.badge, .flag, .chip, .same-count, .received, .imp-flag) { border-radius: 999px; }
-:root[data-skin="cute"] .imp-flag { padding: 0 6px; }
-:root[data-skin="cute"] .box { border-radius: 4px; }
-:root[data-skin="cute"] .todo { background: url("skins/cat-sleep.png") no-repeat center bottom 12px / 118px auto local; padding-bottom: 128px; }
-:root[data-skin="cute"] .today-line { font-family: var(--flower); font-weight: 700; font-size: 16px; color: var(--pink-deep); }
-:root[data-skin="cute"] .list-tabs { gap: 5px; background: transparent; border: 0; }
-:root[data-skin="cute"] .list-tabs button { border: 1.5px solid var(--rule); border-radius: 12px; background: #fff; box-shadow: 0 2px 0 var(--rule); font-family: var(--jua); }
-:root[data-skin="cute"] .list-tabs button:hover { border-color: var(--pink); }
-:root[data-skin="cute"] .list-tabs button[aria-selected="true"] { background: linear-gradient(#ff9fbf, var(--pink)); border-color: var(--pink-deep); color: #fff; box-shadow: 0 2px 0 var(--pink-deep); font-weight: 400; }
-:root[data-skin="cute"] .list-tabs button[aria-selected="true"] .tab-unread { color: #fff; }
-:root[data-skin="cute"] :is(.group h3, .detail-section h3, .detail-heading h2, .fetch-title, .settings-section > legend, .settings-section > h3, dialog h2) { font-family: var(--jua); font-weight: 400; letter-spacing: 0; }
-:root[data-skin="cute"] .group h3 { font-size: 14px; color: var(--pink-deep); }
-:root[data-skin="cute"] .row { border-radius: 10px; }
-:root[data-skin="cute"] .row.selected { box-shadow: none; background: var(--selected); }
-:root[data-skin="cute"] .row.important, :root[data-skin="cute"] .row.important.selected { box-shadow: inset 3px 0 0 var(--red); background: var(--important-bg); }
-:root[data-skin="cute"] .calendar-header { position: relative; border-bottom: 0; padding-bottom: 10px; }
-:root[data-skin="cute"] .calendar-header::after {
-  content: ""; position: absolute; left: 52%; bottom: 26px; width: 66px; height: 54px; pointer-events: none;
-  background: url("skins/cat-peek.png") center bottom / contain no-repeat;
+:root[data-skin="cute"] .weekdays span { color: var(--ink-2); background: #f3e9dd; }
+:root[data-skin="cute"] .weekdays .weekday-sun { color: var(--red); }
+:root[data-skin="cute"] .weekdays .weekday-sat { color: var(--blue); }
+:root[data-skin="cute"] .day { background: #fffdf7; }
+:root[data-skin="cute"] .day.adjacent { background: #f4eee5; }
+:root[data-skin="cute"] .day.is-today { background: #fff4df; }
+:root[data-skin="cute"] .day.is-today .day-number { background: var(--today); border-radius: 4px; }
+:root[data-skin="cute"] .item.selected { outline: 1px solid var(--rose); }
+:root[data-skin="cute"] .detail-panel { background: var(--sheet); box-shadow: -6px 0 18px #47312213; }
+:root[data-skin="cute"] .paper { border: 1px solid var(--rule); background: #fffdf7; }
+:root[data-skin="cute"] dialog { border: 1px solid var(--rule-strong); border-radius: 9px; background: var(--sheet); }
+:root[data-skin="cute"] dialog::backdrop { background: #47352d48; }
+:root[data-skin="cute"] :focus-visible { outline-color: var(--control-focus); }
+.skin-swatch-cute { background: url("skins/cat-notebook.webp") center / auto 85% no-repeat, #f6e6db; }
+@container (max-width: 540px) {
+  :root[data-skin="cute"] .month-number { font-size: 32px; }
+  :root[data-skin="cute"] .month-number::after { width: 80px; margin-inline: 5px 0; }
 }
-:root[data-skin="cute"] .month-number { font-family: var(--jua); font-weight: 400; color: var(--pink-deep); text-shadow: 3px 3px 0 #ffd6e2; }
-:root[data-skin="cute"] .month-unit { font-family: var(--jua); }
-:root[data-skin="cute"] .year { font-family: var(--cute-hand); font-size: 15px; }
-:root[data-skin="cute"] .year b { font-size: 17px; }
-:root[data-skin="cute"] .legend { font-family: var(--cute-hand); font-size: 15px; font-weight: 700; }
-:root[data-skin="cute"] .weekdays { gap: 4px; }
-:root[data-skin="cute"] .weekdays span { border-bottom: 0; text-align: center; font-family: var(--jua); font-size: 13px; padding-bottom: 6px; }
-:root[data-skin="cute"] .month { gap: 4px; border-left: 0; }
-:root[data-skin="cute"] .day { border: 1.5px solid var(--rule); border-radius: 14px; background: #fff; box-shadow: 0 2px 0 var(--rule); }
-:root[data-skin="cute"] .day.adjacent { background: #ffffff66; box-shadow: none; border-color: #f7e9ee; }
-:root[data-skin="cute"] .day.adjacent .day-number { opacity: .6; }
-:root[data-skin="cute"] .day-hit { border-radius: 12px; }
-:root[data-skin="cute"] .day-hit:hover { background: #fff1f580; }
-:root[data-skin="cute"] .day-number { font-family: var(--jua); font-weight: 400; font-size: 14px; }
-:root[data-skin="cute"] .day.is-today { border-color: #f8cf63; background: #fffcef; box-shadow: 0 2px 0 #f8cf63; }
-:root[data-skin="cute"] .day.is-today .day-number { background: var(--today); border-radius: 999px; padding: 0 7px; }
-:root[data-skin="cute"] .day.is-today::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 26px; height: 26px; pointer-events: none; background: url("skins/star-sticker.svg") center / contain no-repeat; transform: rotate(12deg); }
-:root[data-skin="cute"] .item { border-radius: 7px; padding: 1px 4px; background: #eef8f2; }
-:root[data-skin="cute"] .item.type-task { background: #fff0e0; }
-:root[data-skin="cute"] .item.type-ref { background: #eef3fd; }
-:root[data-skin="cute"] .item:is(.done, .past) { background: #f6f1f4; }
-:root[data-skin="cute"] .item.important { background: var(--important-bg); box-shadow: none; }
-:root[data-skin="cute"] .item.candidate { background: transparent; }
-:root[data-skin="cute"] .item.selected { outline: 1.5px solid var(--pink); }
-:root[data-skin="cute"] .day-items { gap: 2px; }
-:root[data-skin="cute"] .span-piece { border-radius: 999px; }
-:root[data-skin="cute"] .span-piece:not(.start) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-:root[data-skin="cute"] .span-piece:not(.end) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-:root[data-skin="cute"] .detail-panel { background: url("skins/cat-wave.png") no-repeat right 16px bottom 12px / 100px auto local, #fff; padding-bottom: 132px; box-shadow: -1px 0 0 var(--rule), -16px 0 36px #8c4a621f; }
-:root[data-skin="cute"] .detail-heading { background: #fff; }
-:root[data-skin="cute"] .seg { border: 1.5px solid var(--rule-strong); border-radius: 999px; overflow: hidden; }
-:root[data-skin="cute"] .seg button { font-family: var(--jua); }
-:root[data-skin="cute"] .seg button + button { border-left-color: var(--rule); }
-:root[data-skin="cute"] .seg button[aria-pressed="true"] { background: linear-gradient(#ff9fbf, var(--pink)); color: #fff; font-weight: 400; }
-:root[data-skin="cute"] :is(.task-mark[aria-pressed="true"], .task-mark.marked) { background: var(--mint); border-color: #79cfae; }
-:root[data-skin="cute"] .paper { position: relative; border: 1.5px solid var(--rule); border-radius: 14px; background: #fff; box-shadow: 0 3px 0 var(--rule); margin-top: 8px; }
-:root[data-skin="cute"] .paper::before { content: ""; position: absolute; left: 50%; top: -11px; width: 74px; height: 20px; transform: translateX(-50%) rotate(-3deg); pointer-events: none; background: url("skins/washi-mint.svg") center / 100% 100%; }
-:root[data-skin="cute"] .original-title { font-family: var(--jua); font-weight: 400; font-size: 18px; }
-:root[data-skin="cute"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border: 1.5px solid var(--rule-strong); border-radius: 12px; }
-:root[data-skin="cute"] .field :is(input, select, textarea):focus { border-color: var(--pink); }
-:root[data-skin="cute"] :is(.date-row, .detail-message, .same-work, .candidate-box, .forwarded-review, .rules-update, .update-bar, .send-preview, .chat-room-options) { border-radius: 14px; }
-:root[data-skin="cute"] dialog { border: 0; border-radius: 22px; box-shadow: 0 0 0 6px #ffe3ec, 0 24px 60px #8c4a6233; }
-:root[data-skin="cute"] dialog::backdrop { background: #ffd6e266; }
-:root[data-skin="cute"] :is(dialog h2, .settings-head) { border-bottom: 2px dotted var(--rule-strong); }
-:root[data-skin="cute"] dialog h2 { color: var(--pink-deep); }
-:root[data-skin="cute"] :is(.check-field input, .chat-room-option input) { accent-color: var(--pink); }
-:root[data-skin="cute"] .notice { border-radius: 999px; padding: 8px 16px; font-family: var(--jua); }
-:root[data-skin="cute"] .connection .small-note.busy::before { background: var(--pink); }
-:root[data-skin="cute"] .connection.working .small-note.busy::before { background: none; border-color: var(--pink-deep); border-right-color: transparent; }
+
 
 /* ═══════════ 3. 저녁(어두운 화면) ═══════════
    별 뜬 밤하늘 바탕, 달 그림, 반투명 유리 판, 은은한 빛. 글꼴: 달 숫자는 송명, 제목은 고운바탕. */
@@ -362,7 +304,7 @@
 :root[data-skin="minimal"] .list-tabs button[aria-selected="true"] .tab-counts > b { color: var(--ink-2); }
 :root[data-skin="minimal"] .list-tabs button[aria-selected="true"] .tab-unread { color: var(--red); }
 :root[data-skin="minimal"] .group h3 { font-size: 11.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .02em; }
-:root[data-skin="minimal"] .late-group h3 { color: var(--red); }
+:root[data-skin="minimal"] .late-group h3 { color: var(--overdue); }
 :root[data-skin="minimal"] .row { border-radius: 6px; padding-inline: 6px; }
 :root[data-skin="minimal"] .row.selected { background: var(--sheet); box-shadow: 0 0 0 1px var(--rule-strong); }
 :root[data-skin="minimal"] .row.important, :root[data-skin="minimal"] .row.important.selected { box-shadow: inset 2px 0 0 var(--red); }
@@ -371,7 +313,7 @@
 :root[data-skin="minimal"] .calendar-header { border-bottom: 0; padding-bottom: 12px; }
 :root[data-skin="minimal"] .month-number { font-family: inherit; font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
 :root[data-skin="minimal"] .year { color: var(--ink-3); }
-:root[data-skin="minimal"] .legend { color: var(--ink-3); }
+:root[data-skin="minimal"] .legend { color: var(--ink-2); }
 :root[data-skin="minimal"] .weekdays span { border-bottom: 1px solid var(--rule); font-size: 11.5px; font-weight: 500; color: var(--ink-3); padding: 6px 8px; }
 :root[data-skin="minimal"] .weekdays .weekday-sun { color: #d6857e; }
 :root[data-skin="minimal"] .weekdays .weekday-sat { color: #7f9cc9; }
@@ -557,6 +499,7 @@
 
 /* ═══════ 7. 레트로 ═══════ (2차 시안 H) 90년대 컴퓨터 창: 회색 입체 단추, 남색 제목 줄, 청록 바탕, 굴림. 학교 컴퓨터실 감성. */
 :root[data-skin="retro"] {
+  --overdue: #624000;
   --pc: "굴림", "Gulim", "돋움", sans-serif;
   --paper: #008080; --sheet: #ffffff; --rule: #c0c0c0; --rule-strong: #000000; --face: #c0c0c0;
   --ink: #000000; --ink-2: #303030; --ink-3: #4a4a4a; --muted-text: #404040;
@@ -654,7 +597,7 @@
 /* 레트로: 고른 줄은 남색 대신 옅은 파랑+점선(빨간 표시·체크 칸이 남색 위에서 안 보이던 것) */
 :root[data-skin="retro"] .row.selected { background: var(--selected); outline: 1px dotted #000; outline-offset: -1px; }
 :root[data-skin="retro"] .row.selected :is(.row-title, .row-when) { color: inherit; }
-:root[data-skin="retro"] .row.selected.late .row-when { color: var(--red); }
+:root[data-skin="retro"] .row.selected.late .row-when { color: var(--overdue); }
 :root[data-skin="retro"] .seg button[aria-pressed="true"] { color: #000; }
 :root[data-skin="retro"] .app-header .update-bar { color: #000; background: var(--face); border: 0; box-shadow: inset -1px -1px 0 #000, inset 1px 1px 0 #fff; }
 :root[data-skin="retro"] .app-header .update-bar .button.text-button { color: #000080; }
@@ -691,7 +634,6 @@
 
 /* 달력이 넓어 범례가 달 숫자 줄로 올라오면(style.css 540px 기준) 장식은 연도 오른쪽 빈자리, 괘선 위에 앉힌다. */
 @container (min-width: 541px) {
-  :root[data-skin="cute"] .calendar-header::after { left: 168px; bottom: 6px; width: 60px; height: 49px; }
   :root[data-skin="evening"] .calendar-header::after { left: 158px; bottom: 2px; width: 76px; height: 51px; }
 }
 
@@ -714,3 +656,236 @@
 :root[data-skin="retro"] { --icon-stroke: 2.2; --icon-cap: square; --icon-size: 13px; }
 :root[data-skin="retro"] .button.icon-button { min-width: 24px; min-height: 22px; color: #000; }
 :root[data-skin="news"] { --icon-stroke: 1.4; --icon-cap: square; }
+
+/* 스킨의 표정은 업무 제목과 창 머리에 모으고, 날짜 기호·본문은 읽기 편하게 둔다. */
+:root {
+  --panel-heading-font: inherit;
+  --panel-heading-bg: var(--sheet);
+  --panel-heading-plain: var(--sheet);
+  --panel-heading-ink: var(--ink);
+  --panel-heading-edge: 1px solid var(--rule);
+  --panel-heading-radius: 0;
+  --panel-heading-space: 12px;
+  --panel-control-radius: 4px;
+}
+:root:is([data-skin="diary"], :not([data-skin])) {
+  --panel-heading-font: var(--serif);
+  --panel-heading-plain: #fbf5e6;
+  --panel-heading-bg: url("skins/washi.svg") right 12px top 9px / 49px 12px no-repeat,
+    linear-gradient(90deg, transparent 8px, var(--margin-line) 8px 9px, transparent 9px),
+    repeating-linear-gradient(0deg, transparent 0 17px, #dbd4bd66 17px 18px), #fbf5e6;
+  --panel-heading-space: 72px;
+  --panel-heading-edge: 1px solid #d1c6ab;
+  --panel-control-radius: 3px;
+}
+:root[data-skin="evening"] {
+  --panel-heading-font: var(--night-serif);
+  --panel-heading-plain: #29304d;
+  --panel-heading-bg: url("skins/moon.svg") right 4px center / 74px auto no-repeat,
+    url("skins/stars.svg") right center / 230px auto repeat,
+    linear-gradient(110deg, #212641, #303957 75%, #252b47);
+  --panel-heading-edge: 1px solid #565f80;
+  --panel-heading-radius: 9px;
+  --panel-heading-space: 76px;
+  --panel-control-radius: 8px;
+}
+:root[data-skin="minimal"] {
+  --panel-heading-bg: #f6f6f4;
+  --panel-heading-plain: #f6f6f4;
+  --panel-heading-edge: 1px solid #deded9;
+  --panel-heading-radius: 8px;
+  --panel-control-radius: 6px;
+}
+:root[data-skin="contrast"] {
+  --panel-heading-edge: 3px solid #000;
+  --panel-control-radius: 0;
+}
+:root[data-skin="brutal"] {
+  --panel-heading-font: var(--disp);
+  --panel-heading-plain: var(--lime);
+  --panel-heading-bg: repeating-linear-gradient(135deg, transparent 0 5px, #191919 5px 8px) right 8px center / 24px 18px no-repeat, var(--lime);
+  --panel-heading-edge: 2px solid #111;
+  --panel-heading-space: 44px;
+  --panel-control-radius: 3px;
+}
+:root[data-skin="retro"] {
+  --panel-heading-bg: linear-gradient(90deg, #000080, #0a5fa8);
+  --panel-heading-plain: #10377a;
+  --panel-heading-ink: #fff;
+  --panel-heading-font: var(--pc);
+  --panel-control-radius: 0;
+  --panel-heading-edge: 2px ridge #ddd;
+}
+:root[data-skin="news"] {
+  --panel-heading-font: var(--head);
+  --panel-heading-bg: var(--sheet);
+  --panel-heading-edge: 4px double var(--ink);
+  --panel-control-radius: 0;
+}
+
+/* 같은 머리 모양을 업무 추가·하루 보기·설정·안내 창에도 쓴다. */
+:root[data-skin] :is(#task-title-view, dialog form > h2, dialog .dialog-body > h2) {
+  background: var(--panel-heading-bg);
+  color: var(--panel-heading-ink);
+  border: 0;
+  border-bottom: var(--panel-heading-edge);
+  border-radius: var(--panel-heading-radius);
+  padding: 12px var(--panel-heading-space) 12px 16px;
+}
+:root[data-skin] :is(#task-title-text, dialog form > h2, dialog .dialog-body > h2, .settings-head h2) {
+  font-family: var(--panel-heading-font);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.4;
+  color: inherit;
+}
+:root[data-skin] :is(dialog form > h2, dialog .dialog-body > h2) { color: var(--panel-heading-ink); }
+:root[data-skin] .settings-head {
+  margin: 12px 16px 0; padding: 0 4px 0 0; gap: 4px;
+  background: var(--panel-heading-plain); border: 0; border-bottom: var(--panel-heading-edge);
+  border-radius: var(--panel-heading-radius);
+}
+:root[data-skin] .settings-head h2 {
+  flex: 1; min-width: 0; margin: 0; padding: 10px var(--panel-heading-space) 10px 16px;
+  border: 0; border-radius: inherit; color: var(--panel-heading-ink); background: var(--panel-heading-bg);
+}
+:root[data-skin] .settings-head #settings-close { flex: none; }
+:root[data-skin] #task-title-text { min-width: 0; }
+:root[data-skin] .detail-action:not([aria-pressed="true"]) {
+  border: 1px solid var(--rule-strong); border-radius: var(--panel-control-radius);
+  background: var(--sheet); color: var(--ink);
+}
+:root[data-skin] .detail-action:hover:not(:disabled) { background: var(--selected); }
+:root[data-skin] .detail-menu {
+  padding: 4px; border-radius: var(--panel-control-radius);
+  box-shadow: 0 4px 14px #0002; background: var(--sheet);
+}
+:root[data-skin] .detail-menu button { border-radius: max(0px, calc(var(--panel-control-radius) - 3px)); }
+:root[data-skin] .dialog-actions { border-top: 1px solid var(--rule); padding-top: 10px; }
+:root[data-skin] :is(#edit-memo, #create-memo) { border-radius: var(--panel-control-radius); }
+:root[data-skin="diary"] :is(#edit-memo, #create-memo) {
+  line-height: 24px; background: repeating-linear-gradient(to bottom, transparent 0 23px, #e9e2cf 23px 24px) 0 6px / 100% 24px, #fffef9;
+}
+:root[data-skin="cute"] :is(#edit-memo, #create-memo) { background-color: #fffcf4; border-color: var(--rule); }
+:root[data-skin="cute"] .detail-action:not([aria-pressed="true"]) { background: #e4f5ed; color: #365949; border-color: #a8cdbb; }
+:root[data-skin="evening"] :is(#edit-memo, #create-memo) { background: #171c30; border-color: #525c7c; color: var(--ink); }
+:root[data-skin="evening"] .detail-action:not([aria-pressed="true"]) { background: #2d3653; color: #e1e9ff; border-color: #7685b0; }
+:root[data-skin="minimal"] :is(#task-title-view, dialog form > h2, dialog .dialog-body > h2) { padding-inline: 12px; letter-spacing: -.035em; }
+:root[data-skin="contrast"] .detail-action:not([aria-pressed="true"]) { border: 2px solid #000; font-weight: 700; }
+:root[data-skin="brutal"] :is(#task-title-view, dialog form > h2, dialog .dialog-body > h2, .settings-head) {
+  border: 2px solid #111; box-shadow: 3px 3px 0 #111;
+}
+:root[data-skin="brutal"] .detail-action:not([aria-pressed="true"]) { border: 2px solid #111; box-shadow: 2px 2px 0 #111; background: var(--violet); }
+:root[data-skin="retro"] :is(#edit-memo, #create-memo) { background: white; box-shadow: inset 1px 1px #777; }
+:root[data-skin="retro"] .detail-action:not([aria-pressed="true"]) { background: var(--face); border: 2px outset #eee; }
+:root[data-skin="retro"] .detail-heading .detail-more > summary { color: white; }
+:root[data-skin="retro"] .detail-heading .detail-more > summary:hover { color: black; }
+:root[data-skin="retro"] .detail-heading .detail-menu button { color: var(--ink); }
+:root[data-skin="news"] :is(#task-title-view, dialog form > h2, dialog .dialog-body > h2, .settings-head h2) {
+  padding-inline: 0; border-radius: 0;
+}
+:root[data-skin="news"] :is(#task-title-text, dialog form > h2, dialog .dialog-body > h2, .settings-head h2) {
+  font-size: 23px; letter-spacing: -.035em;
+}
+
+:root[data-skin] :is(.detail-controls select, .create-type) { border-radius: var(--panel-control-radius); }
+:root[data-skin] .create-type label:first-child { border-radius: var(--panel-control-radius) 0 0 var(--panel-control-radius); }
+:root[data-skin] .create-type label:last-child { border-radius: 0 var(--panel-control-radius) var(--panel-control-radius) 0; }
+:root[data-skin="cute"] :is(.create-type label:has(input:checked), .settings-tabs button[aria-selected="true"]) {
+  background: var(--control-wash); color: var(--teal); box-shadow: inset 0 -2px var(--teal);
+}
+:root[data-skin="evening"] :is(.create-type label:has(input:checked), .settings-tabs button[aria-selected="true"]) {
+  background: #343f60; color: #e6edff; box-shadow: inset 0 -2px var(--glow);
+}
+:root[data-skin="brutal"] .create-type label:has(input:checked) { background: var(--violet); color: #111; }
+:root[data-skin="retro"] .create-type label:has(input:checked) { background: #000080; color: white; }
+:root[data-skin="retro"] .edit-form:has(#loose-complete:not([hidden])[aria-pressed="true"]) #task-title-text { color: var(--panel-heading-ink); }
+:root[data-skin="diary"] .settings-tabs button[aria-selected="true"] { box-shadow: inset 0 -2px #975745; }
+:root[data-skin="news"] .settings-section { border-bottom-style: double; border-bottom-width: 3px; }
+
+
+/* 작은 조작 요소. 기본 동작은 채운 단추, 반복은 펼침 화살표, 선택은 실제 체크로 구분한다. */
+:root[data-skin="diary"] {
+  --control-accent: #764532; --control-wash: #f6eddb; --control-focus: #7c4630;
+  --key-face: #624735; --key-ink: #fffaf0; --key-edge: inset 0 0 0 2px #624735, inset 0 0 0 3px #d9c3a3, 0 2px #503928;
+}
+:root[data-skin="evening"] {
+  --control-accent: #c8d5ff; --control-wash: #303951; --control-focus: #c6d5ff;
+  --key-face: #bdccf1; --key-ink: #192139; --key-edge: inset 0 1px #e5ecff, 0 1px 6px #9eb9ff30;
+}
+:root[data-skin="minimal"] {
+  --control-accent: #36363b; --control-wash: #efefed; --control-focus: #425389;
+  --key-face: #27272a; --key-ink: #fff; --key-edge: none;
+}
+:root[data-skin="contrast"] {
+  --control-accent: #000; --control-wash: #ffed75; --control-focus: #0036ac;
+  --key-face: #000; --key-ink: #fff; --key-edge: none;
+}
+:root[data-skin="brutal"] {
+  --control-accent: #221a32; --control-wash: #eee4ff; --control-focus: #4b2399;
+  --key-face: var(--violet); --key-ink: #111; --key-edge: 3px 3px #111;
+}
+:root[data-skin="retro"] {
+  --control-accent: #000080; --control-wash: #dfebfa; --control-focus: #000080;
+  --key-face: var(--face); --key-ink: #101010; --key-edge: inset 1px 1px #fff, inset -1px -1px #000, inset -2px -2px #808080;
+}
+:root[data-skin="news"] {
+  --control-accent: #493b2b; --control-wash: #eee8dc; --control-focus: #17538b;
+  --key-face: #26231f; --key-ink: #fffaf0; --key-edge: inset 0 -3px #26231f, inset 0 -4px #c6c1b7;
+}
+:root[data-skin] .dialog-actions .button {
+  min-height: 34px; padding-inline: 13px;
+}
+:root[data-skin] .dialog-actions .button.primary,
+:root[data-skin] .dialog-actions .button.primary:hover:not(:disabled) {
+  background: var(--key-face); color: var(--key-ink); box-shadow: var(--key-edge);
+}
+:root[data-skin] .dialog-actions .button.primary:hover:not(:disabled) {
+  text-decoration: underline; text-underline-offset: 3px;
+}
+:root[data-skin] .dialog-actions .button.primary:active:not(:disabled) {
+  box-shadow: inset 0 2px 3px #0004; transform: translateY(1px);
+}
+:root[data-skin] .create-options .check-option {
+  min-height: 28px; padding-inline: 7px; border: 1px solid transparent;
+  border-radius: var(--panel-control-radius);
+}
+:root[data-skin] .create-options .check-option:has(input:checked),
+:root[data-skin] .create-options .check-option:hover {
+  background: var(--control-wash); color: var(--control-accent);
+}
+:root[data-skin] .create-options .check-option:has(input:checked) { border-color: currentColor; }
+:root[data-skin] .create-options .check-option input { margin: 0; accent-color: var(--control-accent); }
+:root[data-skin] .create-type label { min-height: 28px; }
+:root[data-skin] .detail-more > summary,
+:root[data-skin] :is(.detail-heading, .settings-head) .button.icon-button {
+  min-width: 32px; min-height: 32px; border-radius: var(--panel-control-radius);
+}
+:root[data-skin] .detail-more[open] > summary,
+:root[data-skin] .detail-more > summary:hover,
+:root[data-skin] :is(.detail-heading, .settings-head) .button.icon-button:hover:not(:disabled) {
+  color: var(--control-accent); background: var(--control-wash);
+}
+:root[data-skin] .repeat-line > summary {
+  display: flex; align-items: center; gap: 7px; min-height: 28px; max-width: 100%;
+  padding: 2px 8px; border-radius: var(--panel-control-radius); list-style: none;
+  background: var(--control-wash); color: var(--control-accent);
+}
+.repeat-line > summary::before {
+  content: ""; flex: none; width: 6px; height: 6px;
+  border: solid currentColor; border-width: 1.5px 1.5px 0 0; transform: rotate(45deg);
+}
+.repeat-line[open] > summary::before { transform: rotate(135deg); }
+.repeat-line > summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+:root[data-skin] .repeat-line[open] { padding-inline-start: 8px; border-inline-start: 2px solid var(--control-accent); }
+:root[data-skin] .detail-menu .task-mark[aria-pressed="true"] { font-weight: 700; color: var(--control-accent); background: var(--control-wash); }
+:root[data-skin] :is(.dialog-actions .button, .detail-action, .detail-more > summary, .repeat-line > summary, .detail-menu button, .settings-tabs button, .detail-heading .button, .settings-head .button):focus-visible,
+:root[data-skin] .dialog-actions .button.primary:hover:focus-visible,
+:root[data-skin] .create-options label:has(input:focus-visible) {
+  outline: 3px solid var(--control-focus); outline-offset: 2px;
+}
+:root[data-skin="retro"] .detail-heading :is(.button, summary):focus-visible { outline-color: white; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-skin] .dialog-actions .button:active:not(:disabled) { transform: none; }
+}
+

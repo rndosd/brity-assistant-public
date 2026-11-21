@@ -8,11 +8,13 @@ const { pathToFileURL, fileURLToPath } = require('node:url');
 const { CalendarStore, CalendarError } = require('./store');
 const { McpShare } = require('./mcp-share');
 const { NoteWork } = require('./note-work');
+const { polishReply } = require('./reply-draft');
+const { openProjectHandoff, listWorkProjects } = require('./project-handoff');
 const { apiProviders, refineWithProvider, classifierSample } = require('./ai-provider');
 const { buildNoteInput, withMaskingContext, noteActions } = require('./note-text');
 const claudeCli = require('./claude-cli');
 const codexCli = require('./codex-cli');
-const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, openGoeReply, retryGoeAttachments } = require('./collector-link');
+const { inspectCollector, collectOnce, collectChats, listChatRooms, collectRange, openBrityReply, openGoeOriginal, retryGoeAttachments } = require('./collector-link');
 const GOE_NOTE_ID = /^goe_\d{12}_[a-f0-9]{8}$/;
 const { buildWorkPrompt } = require('./work-prompt');
 const taskModel = require('./renderer/task-model');
@@ -25,8 +27,8 @@ const { spawn } = require('node:child_process');
 
 const goeEdition = process.env.SCHOOL_CALENDAR_GOE === '1';
 const messenger = goeEdition
-  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, supportsReply: true }
-  : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, supportsReply: true };
+  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, noteAction: 'original' }
+  : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, noteAction: 'reply' };
 const launcherName = goeEdition ? 'GOE Messenger Calendar.exe' : 'Brity Messenger Calendar.exe';
 const view = path.join(__dirname, 'renderer', 'index.html');
 const demo = process.argv.includes('--demo') ? require('./demo') : null;
@@ -49,8 +51,10 @@ let updateInterval;
 let draining = false;
 let closing = false;
 let testingAi = false;
+const repliesInProgress = new Set();
+const pickedProjectFolders = new Set();
 let collectorRun;
-let brityReplyRun;
+let messengerNoteRun;
 let pausingCollector = false;
 let collector = { status: 'idle', managed: false };
 let collectorCheckedAt = null;
@@ -167,7 +171,7 @@ function checkUpdate(manual = false) {
 // 업데이트 버튼: 패치를 받아 지문을 맞추고 풀어 둔 뒤, 교체 스크립트를 띄우고 앱을 끈다.
 async function applyUpdate() {
   if (!updatesEnabled || update.status !== 'available' || !update.manifest) throw new CalendarError('지금 받을 수 있는 새 판이 없습니다.');
-  if (collectorRun || brityReplyRun || draining) throw new CalendarError('쪽지를 가져오거나 정리하는 중입니다. 잠시 뒤 다시 눌러 주세요.');
+  if (collectorRun || messengerNoteRun || draining) throw new CalendarError('쪽지를 가져오거나 정리하는 중입니다. 잠시 뒤 다시 눌러 주세요.');
   if (noteWork.pending().length) throw new CalendarError('AI가 맡은 일을 마친 뒤 업데이트해 주세요.');
   const manifest = update.manifest;
   update = { ...update, status: 'downloading', error: null };
@@ -327,7 +331,7 @@ function pollCollector(connect = false, { manual = false, force = false, firstIm
   if (collectorRun) return collectorRun;
   if (chatRun) return chatRun.catch(() => {}).then(() => pollCollector(connect, { manual, force, firstImport }));
   if (!firstImport && store.settings.collectorFirstImportPending) return Promise.resolve(snapshot());
-  if (closing || pausingCollector || brityReplyRun || demo || store.inboxOverride || (!connect && !store.settings.collectorConnected)) return Promise.resolve(snapshot());
+  if (closing || pausingCollector || messengerNoteRun || demo || store.inboxOverride || (!connect && !store.settings.collectorConnected)) return Promise.resolve(snapshot());
   const started = Date.now();
   collectorRun = (async () => {
     try {
@@ -399,7 +403,7 @@ function rangeDays(from, to) {
 function rangeReady() {
   if (demo || store.inboxOverride) throw new CalendarError('샘플에서는 지난 쪽지를 불러올 수 없습니다.');
   if (!store.settings.collectorConnected || !collector.managed) throw new CalendarError(`머리줄에서 ${messenger.name}를 먼저 연결해 주세요.`);
-  if (collectorRun || chatRun || brityReplyRun || rangeImport?.running) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
+  if (collectorRun || chatRun || messengerNoteRun || rangeImport?.running) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
 }
 
 async function previewRange(from, to) {
@@ -479,7 +483,7 @@ function chatOptions() {
 }
 
 function chatBusy() {
-  return chatRun || collectorRun || closing || pausingCollector || brityReplyRun;
+  return chatRun || collectorRun || closing || pausingCollector || messengerNoteRun;
 }
 
 function runChatOperation(action) {
@@ -733,7 +737,7 @@ async function retryNoteAttachments(id) {
   if (!goeEdition || demo || closing || pausingCollector || store.inboxOverride) {
     throw new CalendarError('현재는 GOE 첨부를 다시 받을 수 없습니다.');
   }
-  if (collectorRun || chatRun || brityReplyRun || ['downloading', 'installing'].includes(update.status)) {
+  if (collectorRun || chatRun || messengerNoteRun || ['downloading', 'installing'].includes(update.status)) {
     throw new CalendarError('GOE 메신저 또는 캘린더에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.');
   }
   const note = store.notes.get(store.getTask(id).noteId);
@@ -774,43 +778,40 @@ async function retryNoteAttachments(id) {
   }
 }
 
-// GOE판 답장(2026-11-16 “답장기능도 브리티처럼”): 수집기가 GOE에서 그 쪽지를 찾아 열고 답장 단추를 누른다.
-async function replyInGoe(note) {
-  if (!GOE_NOTE_ID.test(note.id ?? '')) throw new CalendarError('GOE 메신저에서 가져온 쪽지만 답장창을 열 수 있습니다.');
-  brityReplyRun = openGoeReply(note.id, collectorOptions);
+async function showOriginalInGoe(note) {
+  if (!GOE_NOTE_ID.test(note.id ?? '')) throw new CalendarError('GOE 메신저에서 가져온 쪽지만 원문을 열 수 있습니다.');
+  messengerNoteRun = openGoeOriginal(note.id, collectorOptions);
   try {
-    const result = await brityReplyRun;
+    const result = await messengerNoteRun;
     if (result.status === 'ready') {
-      if (result.reply === 'opened' || result.reply === 'opened-background') return { foreground: result.reply === 'opened' };
-      if (result.reply === 'reply-unavailable') return { foreground: false, notice: 'GOE 메신저에 쪽지를 띄웠습니다. 답장 단추를 찾지 못해 답장창은 열지 않았습니다. 쪽지 창에서 답장을 눌러 주세요.' };
-      if (result.reply === 'reply-unconfirmed') return { foreground: false, notice: 'GOE 메신저에 쪽지를 띄우고 답장을 눌렀습니다. 답장창이 열렸는지는 확인하지 못했습니다. 작업 표시줄에서 GOE 메신저 창을 확인해 주세요.' };
+      if (result.original === 'opened' || result.original === 'opened-background') return { foreground: result.original === 'opened' };
     }
     const messages = {
       'in-use': 'GOE 메신저에 열린 쪽지 창이 있거나 쓰는 중이라 열지 않았습니다. 쪽지 창을 닫은 뒤 다시 눌러 주세요.',
       offline: 'GOE 메신저에 로그인한 뒤 다시 눌러 주세요.',
-      'list-unreadable': 'GOE 메신저에 연결했지만 답장할 쪽지 목록을 확인하지 못했습니다.',
+      'list-unreadable': 'GOE 메신저에 연결했지만 쪽지 목록을 확인하지 못했습니다.',
       conflict: 'GOE 메신저에서 쪽지를 가져오는 중입니다. 잠시 뒤 다시 눌러 주세요.',
       unverified: 'GOE 메신저 쪽지함 화면을 읽지 못했습니다. GOE 메신저 창에 열린 메뉴나 설정 창이 있으면 닫고 다시 눌러 주세요.'
     };
     throw new CalendarError(messages[result.status] || 'GOE 메신저 쪽지함에서 이 쪽지를 찾지 못했습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.');
   } finally {
-    brityReplyRun = null;
+    messengerNoteRun = null;
   }
 }
 
-async function replyInBrity(id) {
-  if (!messenger.supportsReply || demo || closing) throw new CalendarError(`현재는 ${messenger.name} 답장창을 열 수 없습니다.`);
+async function openMessengerNote(id) {
+  const target = goeEdition ? '쪽지 원문' : '답장창';
+  if (demo || closing) throw new CalendarError(`현재는 ${messenger.name} ${target}을 열 수 없습니다.`);
   const task = store.getTask(id);
   const note = store.notes.get(task.noteId);
   if (note?.verified !== true || store.inbox.status !== 'ready') {
-    throw new CalendarError('캘린더에서 원문이 확인된 쪽지의 답장창을 열 수 있습니다.');
+    throw new CalendarError(`캘린더에서 원문이 확인된 쪽지의 ${target}을 열 수 있습니다.`);
   }
-  if (collectorRun || chatRun || brityReplyRun) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
-  // 머리줄에 "답장창 여는 중"을 보이고, 그동안 메신저를 쓰는 다른 버튼을 막는다.
-  activity = 'reply';
+  if (collectorRun || chatRun || rangeImport?.running || messengerNoteRun) throw new CalendarError(`${messenger.name}에서 처리 중입니다. 잠시 뒤 다시 눌러 주세요.`);
+  activity = 'open-note';
   publish();
   try {
-    return goeEdition ? await replyInGoe(note) : await replyInBrityNote(note);
+    return goeEdition ? await showOriginalInGoe(note) : await replyInBrityNote(note);
   } finally {
     activity = null;
     publish();
@@ -818,9 +819,9 @@ async function replyInBrity(id) {
 }
 
 async function replyInBrityNote(note) {
-  brityReplyRun = openBrityReply(note, collectorOptions);
+  messengerNoteRun = openBrityReply(note, collectorOptions);
   try {
-    const result = await brityReplyRun;
+    const result = await messengerNoteRun;
     if (result === 'opened' || result === 'opened-background') return { foreground: result === 'opened' };
     // 답장창은 못 열었어도 브리티에 그 쪽지는 띄워 둔 경우: 실패가 아니라 안내로 돌려준다.
     const shown = {
@@ -837,7 +838,7 @@ async function replyInBrityNote(note) {
     };
     throw new CalendarError(messages[result] || '브리티 답장창을 열 수 없습니다. 아래 보낸 사람과 받은 시각으로 찾아 주세요.');
   } finally {
-    brityReplyRun = null;
+    messengerNoteRun = null;
   }
 }
 
@@ -858,7 +859,7 @@ function bindHandlers() {
     await store.finishChatBatch(id, candidateIds);
     return changed(snapshot());
   });
-  bind('brity-reply', replyInBrity);
+  bind('open-messenger-note', openMessengerNote);
   bind('goe-attachment-retry', retryNoteAttachments);
   bind('create', async input => changed(await store.create(input)));
   bind('update', async (id, input) => changed(await store.update(id, input)));
@@ -985,6 +986,8 @@ function bindHandlers() {
     const urls = {
       key: 'https://platform.openai.com/api-keys',
       billing: 'https://platform.openai.com/settings/organization/billing/overview',
+      'codex-desktop': 'https://developers.openai.com/codex/app/windows',
+      'claude-setup': 'https://code.claude.com/docs/en/setup',
       'anthropic-key': 'https://platform.claude.com/settings/keys'
     };
     if (page === 'anthropic-guide') {
@@ -1088,7 +1091,7 @@ function bindHandlers() {
     return { saved: true, file: filePath, tasks: manifest.tasks, notes: manifest.notes };
   });
   bind('backup-restore', async () => {
-    if (collectorRun || brityReplyRun || draining) throw new CalendarError('쪽지를 가져오거나 정리하는 중입니다. 잠시 뒤 다시 눌러 주세요.');
+    if (collectorRun || messengerNoteRun || draining) throw new CalendarError('쪽지를 가져오거나 정리하는 중입니다. 잠시 뒤 다시 눌러 주세요.');
     const { canceled, filePaths } = await dialog.showOpenDialog(window, {
       title: '되돌릴 백업 고르기', defaultPath: app.getPath('documents'), properties: ['openFile'], filters: [{ name: '백업 ZIP', extensions: ['zip'] }]
     });
@@ -1168,7 +1171,95 @@ function bindHandlers() {
     const error = await shell.openPath(store.rulesPath);
     if (error) throw new CalendarError('정리 기준 파일을 열 수 없습니다.');
   });
+  bind('project-agent-status', () => ({
+    codex: !!app.getApplicationNameForProtocol('codex://threads/new'),
+    claude: !!claudeCli.findClaude(store.settings.claudeExecutable)
+  }));
+  bind('check-mcp-bridge', () => mcpShare.checkBridge());
   bind('mcp-status', () => mcpShare.status());
+  bind('reply-voice', async (id, mode = 'reply') => {
+    const field = mode === 'project' ? 'project-intent' : 'reply-intent';
+    if (process.platform !== 'win32' || !window?.isFocused()) throw new CalendarError('답장 입력칸을 선택한 뒤 다시 눌러 주세요.');
+    const target = window;
+    const handle = target.getNativeWindowHandle().readUInt32LE(0);
+    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    await new Promise((resolve, reject) => {
+      const fallback = () => reject(new CalendarError('Windows 음성 입력을 열 수 없습니다. 입력칸에서 Windows 키와 H를 함께 눌러 주세요.'));
+      const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+        path.join(__dirname, 'reply-voice.ps1'), String(handle)], { windowsHide: true, timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] });
+      child.once('error', fallback);
+      child.stdin.on('error', () => {}); // The helper may already have exited.
+      child.stdout.once('data', async () => {
+        let ready = false;
+        try {
+          const active = await target.webContents.executeJavaScript(
+            `document.activeElement === $('${field}') && !$('${field}').readOnly ? state.selected : null`);
+          ready = target.isFocused() && active === id;
+        } catch {}
+        if (!child.stdin.destroyed) child.stdin.end(ready ? 'start\n' : 'cancel\n');
+      });
+      child.once('close', code => code === 0 ? resolve() : fallback());
+    });
+  });
+  bind('polish-reply', async (id, intent) => {
+    if (demo) throw new CalendarError('답장 다듬기는 일반 실행기에서 AI를 연결한 뒤 사용할 수 있습니다.');
+    const provider = store.aiProvider;
+    if (provider === 'none') throw new CalendarError('설정에서 AI를 연결한 뒤 답장을 다듬어 주세요.');
+    const note = store.notes.get(store.getTask(id).noteId);
+    if (store.inbox.status !== 'ready' || note?.verified !== true) throw new CalendarError('원문이 확인된 쪽지만 답장을 다듬을 수 있습니다.');
+    if (repliesInProgress.has(id)) throw new CalendarError('이 쪽지의 답장을 다듬고 있습니다.');
+    repliesInProgress.add(id);
+    try {
+      const connection = apiProviders.get(provider);
+      return await polishReply(provider, withMaskingContext(note, store.notes), intent, {
+        apiKey: connection ? savedApiKey(connection) : undefined,
+        codexExecutable: store.settings.codexExecutable, claudeExecutable: store.settings.claudeExecutable,
+        signal: lifetime.signal
+      });
+    } finally {
+      repliesInProgress.delete(id);
+    }
+  });
+  bind('list-work-projects', agent => {
+    if (store.settings.showExternalAiWork === false) return [];
+    return listWorkProjects(agent);
+  });
+  bind('pick-work-project', async () => {
+    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘쪽지에 AI 앱 작업 메뉴와 결과 보이기’를 켜 주세요.');
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+      title: 'AI 업무를 시작할 프로젝트 폴더', defaultPath: store.settings.workProjectFolder, properties: ['openDirectory']
+    });
+    if (canceled || !filePaths?.[0]) return null;
+    const folder = await fs.promises.realpath(filePaths[0]);
+    pickedProjectFolders.add(folder);
+    await store.setWorkProjectFolder(folder);
+    publish();
+    return folder;
+  });
+  bind('start-work-project', async (id, input) => {
+    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘쪽지에 AI 앱 작업 메뉴와 결과 보이기’를 켜 주세요.');
+    if (input?.agent === 'codex' && !app.getApplicationNameForProtocol('codex://threads/new')) {
+      throw new CalendarError('Codex 새 채팅을 열 앱을 찾을 수 없습니다. 설정의 ‘에이전트’에서 설치 안내를 확인해 주세요.');
+    }
+    if (input?.agent === 'claude' && !claudeCli.findClaude(store.settings.claudeExecutable)) {
+      throw new CalendarError('Claude Code 실행 파일을 찾을 수 없습니다. 설정의 ‘에이전트’에서 설치 안내를 확인해 주세요.');
+    }
+    const folder = input?.folder;
+    if (!folder || (folder !== store.settings.workProjectFolder && !pickedProjectFolders.has(folder) &&
+        !(await listWorkProjects(input.agent)).some(project => project.folder === folder))) {
+      throw new CalendarError('업무를 시작할 프로젝트 폴더를 다시 골라 주세요.');
+    }
+    if (folder !== store.settings.workProjectFolder) {
+      await store.setWorkProjectFolder(folder);
+      publish();
+    }
+    const { agent } = await openProjectHandoff({
+      store, taskId: id, selection: input.attachments, projectDir: input.folder, agent: input.agent, instruction: input.instruction,
+      openExternal: url => shell.openExternal(url)
+    });
+    return { message: agent === 'codex' ? 'Codex 새 채팅에서 내용을 확인하고 전송하세요.'
+      : '선택한 프로젝트에서 Claude Code 터미널을 시작했습니다.' };
+  });
   bind('mcp-share', (id, attachments) => mcpShare.publish(store, id, attachments));
   bind('mcp-revoke', id => mcpShare.revoke(id));
   bind('mcp-open', async id => {
@@ -1176,7 +1267,11 @@ function bindHandlers() {
     if (error) throw new CalendarError('공유한 업무 폴더를 열 수 없습니다.');
   });
   bind('mcp-copy-setup', async format => {
-    clipboard.writeText(await mcpShare.setup(format));
+    const executables = format === 'ai-request' ? {
+      codex: store.settings.codexExecutable || codexCli.installedPath(),
+      claude: claudeCli.findClaude(store.settings.claudeExecutable)
+    } : undefined;
+    clipboard.writeText(await mcpShare.setup(format, executables));
   });
   bind('agent-work-start', (id, input) => {
     if (['downloading', 'installing'].includes(update.status)) throw new CalendarError('업데이트가 끝난 뒤 AI에 맡겨 주세요.');
@@ -1364,7 +1459,7 @@ if (!app.requestSingleInstanceLock()) {
     clearInterval(chatTimer);
     clearTimeout(retryTimer);
     lifetime.abort();
-    const pending = [collectorRun, brityReplyRun, chatRun, ...noteWork.pending()].filter(Boolean);
+    const pending = [collectorRun, messengerNoteRun, chatRun, ...noteWork.pending()].filter(Boolean);
     if (pending.length) {
       event.preventDefault();
       void Promise.allSettled(pending).then(() => app.quit());

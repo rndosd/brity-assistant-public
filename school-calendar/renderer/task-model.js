@@ -256,7 +256,12 @@ const taskModel = (() => {
     return !!task && task.type === '할 일' && !task.candidate && Array.isArray(task.dates) && task.dates.length === 1 && task.dates[0].kind !== '기간' && !manualLoose(task, task.dates[0]);
   }
 
-  return { TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, checkable, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat, manualLoose };
+  function priorityLevel(task) {
+    if (Number.isInteger(task?.importance) && task.importance >= 0 && task.importance <= 2) return task.importance;
+    return task?.important === true ? 2 : 0;
+  }
+
+  return { priorityLevel, TYPES, DATE_KINDS, MAX_DATES, LABEL_MAX, TIME_MAX, REPEAT_EVERY, REPEAT_MAX, cleanTime, validDate, normalizeDates, lastDay, isLegacy, fromLegacy, fromResult, checkable, boxes, finished, isPinned, pinnedDue, recipientCount, addDays, semesterEnd, repeatDates, repeatLabel, canRepeat, manualLoose };
 })();
 
 if (typeof module !== 'undefined') module.exports = taskModel;

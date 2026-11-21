@@ -8,6 +8,7 @@
   <script src="skin-boot.js"></script>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="skins.css">
+  <link rel="stylesheet" href="woodland.css">
   <script defer src="periods.js"></script>
   <script defer src="task-model.js"></script>
   <script defer src="note-view.js"></script>
@@ -15,9 +16,13 @@
 </head>
 <body>
   <!-- 선 아이콘(2026-11-20 사용자): 뜻이 하나로 읽히는 닫기·고치기·복사·폴더만. 색은 글자색, 선 굵기는 스킨이 --icon-stroke로 정한다. -->
-  <svg class="icon-sprite" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <svg class="icon-sprite" aria-hidden="true" width="0" height="0">
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-reply" viewBox="0 0 24 24"><path d="m9 5-6 6 6 6M4 11h8a8 8 0 0 1 8 8"/></symbol>
+    <symbol id="i-note-open" viewBox="0 0 24 24"><path d="M13 5h6v6m0-6-9 9M9 6H5v13h13v-4"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-3 0h6"/></symbol>
+    <symbol id="i-polish" viewBox="0 0 24 24"><path d="m6 16 10-10a2.1 2.1 0 0 1 3 3L9 19l-4 1 1-4Zm8-8 3 3M6 2l1.1 3L10 6l-2.9 1L6 10 5 7 2 6l3-1Z"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="1.5"/><path d="M15.5 8.5V5.5A1.5 1.5 0 0 0 14 4H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
   </svg>
@@ -84,13 +89,13 @@
           <span class="tab-title">확인할 것</span> <span class="tab-counts"><b id="reference-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="reference-unread"></b></span></span>
         </button>
         <button type="button" role="tab" data-view="done" id="tab-done" aria-controls="view-done">
-          <span class="tab-title">끝낸 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
+          <span class="tab-title">처리한 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
         </button>
         <button type="button" role="tab" data-view="past" id="tab-past" aria-controls="view-past">
           <span class="tab-title">지난 일정</span> <span class="tab-counts"><b id="past-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="past-unread"></b></span></span>
         </button>
         <button type="button" role="tab" data-view="hidden" id="tab-hidden" aria-controls="view-hidden">
-          <span class="tab-title">숨기기</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
+          <span class="tab-title">숨긴 것</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
         </button>
       </div>
       <p class="inbox-note" id="inbox-note" role="status"></p>
@@ -112,6 +117,16 @@
          aria-orientation="vertical" aria-label="왼쪽 목록 너비" aria-controls="calendar-list-pane"
          title="끌어서 목록 너비 조절 · 두 번 누르면 기본값"></div>
     <section class="calendar" aria-labelledby="month-title">
+      <div class="calendar-view-tools">
+        <div class="calendar-mode" role="group" aria-label="보기 방식">
+          <button type="button" id="mode-month" aria-pressed="true">월간 달력</button>
+          <button type="button" id="mode-agenda" aria-pressed="false">모아보기</button>
+        </div>
+        <label class="week-height-choice">주 높이
+          <select id="week-layout"><option value="equal">균등</option><option value="fit">업무량에 맞춤</option></select>
+        </label>
+      </div>
+      <section id="agenda" aria-label="모아보기" hidden></section>
       <div class="calendar-header">
         <h2 class="month-number" id="month-title" aria-live="polite"><span id="month-value"></span><span class="month-unit">월</span></h2>
         <p class="year" id="year-label"></p>
@@ -153,7 +168,6 @@
           <details class="detail-more" id="detail-more">
             <summary aria-label="더보기" title="더보기">⋯</summary>
             <div class="detail-menu">
-              <button type="button" class="button small task-mark" id="important" hidden aria-pressed="false" title="중요 표시 · 목록에서 위에 두고 달력에서 굵게 표시합니다"><span class="box" aria-hidden="true"></span>중요</button>
               <button type="button" class="button small task-mark" id="pin" hidden aria-pressed="false" title="목록의 상시 묶음에 띄웁니다"><span class="box" aria-hidden="true"></span>상시</button>
               <button type="button" class="button icon-button" id="note-title-edit" aria-label="업무 제목 고치기" title="고치기" aria-controls="edit-title" aria-expanded="false" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
               <button type="button" class="button icon-button" id="edit-dates" aria-controls="date-rows" aria-expanded="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
@@ -185,25 +199,33 @@
           <div class="title-field">
             <span id="edit-title-label" class="sr-only">업무 제목</span>
             <p class="task-title-view" id="task-title-view" hidden>
-              <span class="ring" id="title-loose-mark" role="img" aria-label="기한 없음" hidden></span>
               <span id="task-title-text"></span>
-              <button type="button" class="detail-action" id="title-check" hidden>완료</button>
-              <button type="button" class="detail-action" id="reference-seen" hidden>확인</button>
             </p>
             <input id="edit-title" aria-labelledby="edit-title-label" required maxlength="180" autocomplete="off">
+          </div>
+          <div class="date-view task-status-row" id="task-status-row">
+            <div class="priority-picker" id="important" role="group" aria-label="중요도" hidden>
+              <button type="button" data-stars="1" aria-label="중요" title="중요" aria-pressed="false">☆</button>
+              <button type="button" data-stars="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">☆</button>
+            </div>
+            <span class="detail-date-heading" id="loose-label" hidden><span class="ring" aria-hidden="true"></span>기한 없음</span>
+            <span class="detail-date-heading" id="reference-label" hidden>쪽지 확인</span>
+            <button type="button" class="detail-action" id="loose-complete" hidden>완료</button>
+            <button type="button" class="detail-action" id="reference-seen" hidden>확인</button>
           </div>
           <p id="refine-note" class="small-note" role="status" hidden></p>
           <p class="when" id="when-line"></p>
           <fieldset class="dates-field" id="dates-field">
             <legend class="sr-only">날짜</legend>
             <ul class="date-rows" id="date-rows"></ul>
-            <!-- 반복(2026-11-20): 보기일 때는 "↻ 매주 목 · 2/28까지 · 남은 n회 [이번만 건너뛰기] [반복 그만]",
-                 날짜 고치기 중에는 반복 고르기(날짜 하나인 할 일만). -->
-            <div class="repeat-line" id="repeat-line" hidden>
-              <span id="repeat-text"></span>
-              <button type="button" class="button text-button small" id="repeat-skip">이번만 건너뛰기</button>
-              <button type="button" class="button text-button small" id="repeat-stop">반복 그만</button>
-            </div>
+            <details class="repeat-line" id="repeat-line" hidden>
+              <summary id="repeat-text"></summary>
+              <p id="repeat-until"></p>
+              <div class="repeat-actions">
+                <button type="button" class="button text-button small" id="repeat-skip">이번 회차 건너뛰기</button>
+                <button type="button" class="button text-button small" id="repeat-stop">이 회차까지만 반복</button>
+              </div>
+            </details>
             <label class="field repeat-edit" id="repeat-edit" hidden>반복<select id="repeat-select"><option value="none">안 함</option><option value="week">매주</option><option value="2weeks">격주</option><option value="month">매월</option></select></label>
             <!-- 날짜 추가는 날짜 칸 아래에 둔다. 위에 두면 "고치기"를 누를 때 그 버튼이 옆으로 밀린다. -->
             <button type="button" class="button text-button small add-date" id="add-date" hidden>+ 날짜 추가</button>
@@ -215,7 +237,20 @@
             </datalist>
           </fieldset>
           <section class="detail-section note-reading" id="original-section" aria-labelledby="original-heading">
-            <div class="detail-section-heading"><h3 id="original-heading" tabindex="-1">쪽지 원문</h3><div class="ai-actions"><button type="button" class="button icon-button" id="copy-note" aria-label="원문 복사" title="원문 복사" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-copy"></use></svg></button><button type="button" class="button small" id="brity-reply" hidden>브리티에서 답장</button></div></div>
+            <div class="detail-section-heading">
+              <h3 id="original-heading" tabindex="-1">쪽지 원문</h3>
+              <div class="ai-actions">
+                <button type="button" class="button icon-button" id="copy-note" aria-label="원문 복사" title="원문 복사" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-copy"></use></svg></button>
+                <div class="note-reply-actions" role="group" aria-label="쪽지 답장">
+                  <button type="button" class="note-reply-action" id="open-messenger-note" aria-label="브리티에서 답장" hidden>
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-reply"></use></svg>
+                  </button>
+                  <button type="button" class="note-reply-action" id="reply-polish-open" aria-label="AI로 답장 다듬기" aria-expanded="false" aria-controls="reply-fields" hidden>
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-polish"></use></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
             <div class="paper">
               <p class="original-title" id="original-title"></p>
               <p class="small-note" id="original-review" hidden></p>
@@ -242,6 +277,23 @@
                 <p class="formatted original" id="raw-note-body"></p>
               </details>
             </div>
+            <section class="mcp-section" id="reply-fields" aria-label="답장 작성" hidden>
+              <label class="field" for="reply-intent">어떻게 답하고 싶으세요?</label>
+              <div class="field reply-input">
+                <textarea id="reply-intent" data-instant="true" rows="3" maxlength="2000" placeholder="예) 금요일은 어렵고 월요일 오후가 좋아요."></textarea>
+                <button type="button" class="note-reply-action reply-mic" id="reply-mic" aria-label="말로 입력">
+                  <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-mic"></use></svg>
+                </button>
+              </div>
+              <p class="small-note" id="reply-demo-hint" hidden>샘플에서는 답장 입력을 연습할 수 있습니다.</p>
+              <div class="ai-actions">
+                <button type="button" class="button primary" id="reply-generate">다듬기</button>
+                <button type="button" class="button" id="reply-ai-settings" hidden>AI 연결 설정</button>
+                <button type="button" class="button primary" id="reply-copy" hidden>답장 복사</button>
+                <button type="button" class="button primary" id="reply-open-messenger" title="답장 문구를 복사하고 메신저를 엽니다" hidden></button>
+              </div>
+              <p class="small-note" id="reply-inline-status" role="status" hidden></p>
+            </section>
           </section>
 
           <section class="detail-section note-attachments" id="attachments-section" aria-labelledby="attachments-heading">
@@ -265,7 +317,8 @@
             <button type="button" class="button text-button small" id="note-requester-check" hidden>이전 쪽지 확인 ↑</button>
           </section>
 
-          <label class="field memo-field"><span id="memo-label">메모</span><textarea id="edit-memo" rows="2" maxlength="4000"></textarea></label>
+          <button type="button" class="button text-button small" id="add-memo" aria-controls="edit-memo" hidden>+ 메모</button>
+          <label class="field memo-field" id="memo-field"><span id="memo-label">메모</span><textarea id="edit-memo" rows="2" maxlength="4000"></textarea></label>
           <!-- 직접 추가한 업무만 지울 수 있다(쪽지·대화방 업무는 숨기기). -->
           <button type="button" class="button text-button small danger-text" id="remove-task" hidden>업무 지우기</button>
           <section class="candidate-box" id="candidate-box" aria-labelledby="candidate-heading" hidden>
@@ -283,11 +336,35 @@
 
         <section class="detail-actions work-section" id="work-section" aria-label="이어서 하기">
           <div class="ai-actions">
-            <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note" title="Claude나 ChatGPT 채팅에 붙여 넣을 지시문을 복사합니다">채팅용 지시문 복사</button>
-            <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
-            <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
+            <button type="button" class="button small" id="project-start-open" aria-controls="project-fields" aria-expanded="false" hidden>프로젝트에서 시작</button>
           </div>
-          <p class="small-note" id="work-edit-note" hidden>저장한 뒤 복사할 수 있습니다.</p>
+          <section class="mcp-section" id="project-fields" aria-label="프로젝트에서 시작" hidden>
+            <label class="field" for="project-intent">어떤 일을 맡길까요?</label>
+            <div class="field reply-input">
+              <textarea id="project-intent" rows="3" maxlength="4000" placeholder="예) 첨부 일정안을 보고 연수 준비물을 정리해 줘."></textarea>
+              <button type="button" class="note-reply-action reply-mic" id="project-mic" aria-label="말로 입력"><svg class="icon" aria-hidden="true"><use href="#i-mic"></use></svg></button>
+            </div>
+            <div class="project-selectors">
+              <label class="field">열 앱<select id="project-agent"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+              <label class="field">프로젝트<select id="project-folder"></select></label>
+            </div>
+            <fieldset class="mcp-files" id="project-files" hidden>
+              <legend>가져갈 첨부</legend>
+              <div id="project-attachments"></div>
+            </fieldset>
+            <div class="ai-actions"><button type="button" class="button primary" id="project-start">Codex 새 채팅 열기</button><button type="button" class="button" id="project-agent-guide" hidden>에이전트 설정 열기</button></div>
+            <p class="small-note" id="project-missing-agent" role="status" hidden></p>
+            <p class="small-note" id="note-ai-status" role="status" hidden></p>
+          </section>
+          <details class="work-other" id="work-other">
+            <summary>다른 방법</summary>
+            <div class="ai-actions">
+              <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note">채팅용 지시문 복사</button>
+              <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
+              <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
+            </div>
+          </details>
+          <p class="small-note" id="work-edit-note" hidden>쪽지 변경 내용을 먼저 저장해 주세요.</p>
           <p class="small-note work-message" id="work-message" role="status" hidden></p>
         </section>
 
@@ -307,7 +384,7 @@
       <!-- 날짜 고치기와 같은 칸: 날짜 | 종류, (기간이면) 끝 날짜, 시간·교시(선택) -->
       <div class="create-date-row">
         <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
-        <label class="field">종류<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
+        <label class="field">날짜 지정<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
         <label class="field" id="create-end-field" hidden>끝 날짜<input id="create-end" type="date" required max="9999-12-31" disabled></label>
         <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 예: 6교시"></label>
         <!-- 반복(2026-11-20): 요일·날짜는 위 날짜를 따른다. 끝은 학기 끝. 날짜 하나인 할 일에만. -->
@@ -324,7 +401,10 @@
           <label><input type="radio" name="create-type" value="할 일" checked>할 일</label>
           <label><input type="radio" name="create-type" value="알아 둘 것">확인할 것</label>
         </div>
-        <label class="check-option"><input type="checkbox" id="create-important">중요</label>
+        <div class="priority-picker" id="create-important" role="group" aria-label="중요도">
+          <button type="button" data-stars="1" aria-label="중요" title="중요" aria-pressed="false">☆</button>
+          <button type="button" data-stars="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">☆</button>
+        </div>
         <label class="check-option" id="create-pinned-field"><input type="checkbox" id="create-pinned">상시</label>
       </div>
       <label class="field">내용 <span class="field-hint">(선택)</span><textarea id="create-memo" rows="4" maxlength="4000" placeholder="준비물, 제출처, 할 일 순서 등"></textarea></label>
@@ -340,15 +420,16 @@
     </div>
     <!-- 설정 묶음 탭(2026-11-15): 처음엔 AI만 보면 된다. 각 구역은 data-settings-tab으로 묶음을 정한다. -->
     <div class="settings-tabs" role="tablist" aria-label="설정 묶음">
-      <button type="button" role="tab" id="settings-tab-ai" data-tab-target="ai" aria-controls="settings-body">AI<span class="tab-dot" id="settings-ai-dot" title="아직 AI 연결 전" hidden></span></button>
+      <button type="button" role="tab" id="settings-tab-ai" data-tab-target="ai" aria-controls="settings-body">AI 연결<span class="tab-dot" id="settings-ai-dot" title="아직 AI 연결 전" hidden></span></button>
+      <button type="button" role="tab" id="settings-tab-agents" data-tab-target="agents" aria-controls="settings-body">에이전트</button>
       <button type="button" role="tab" id="settings-tab-fetch" data-tab-target="fetch" aria-controls="settings-body">가져오기</button>
-      <button type="button" role="tab" id="settings-tab-look" data-tab-target="look" aria-controls="settings-body">화면</button>
-      <button type="button" role="tab" id="settings-tab-google" data-tab-target="google" aria-controls="settings-body" hidden>구글</button>
+      <button type="button" role="tab" id="settings-tab-look" data-tab-target="look" aria-controls="settings-body">화면·알림</button>
+      <button type="button" role="tab" id="settings-tab-google" data-tab-target="google" aria-controls="settings-body">달력 연동</button>
       <button type="button" role="tab" id="settings-tab-about" data-tab-target="about" aria-controls="settings-body">백업·정보</button>
     </div>
     <div class="settings-body" id="settings-body" role="tabpanel" tabindex="-1">
       <section class="settings-section" data-settings-tab="ai" aria-labelledby="set-ai-title">
-        <h3 id="set-ai-title">AI 정리</h3>
+        <h3 id="set-ai-title">쪽지 정리와 답장 다듬기에 쓸 AI</h3>
         <!-- 연결 상태(2026-11-15 “연결됐으면 연결됐다 표시가 필요해”): 늘 맨 위에 크게 보인다. -->
         <p class="ai-connected" id="ai-connected" role="status"></p>
         <div class="ai-settings" id="ai-settings">
@@ -359,9 +440,9 @@
                 <option value="openai">개인 OpenAI API 키 · Luna</option>
                 <option value="anthropic">개인 Claude API 키 · Haiku</option>
               </optgroup>
-              <optgroup label="구독 계정 · CLI 로그인">
-                <option value="claude">Claude Code CLI · Haiku (Claude 구독)</option>
-                <option value="codex">Codex CLI (ChatGPT 구독)</option>
+              <optgroup label="이미 구독 중인 계정">
+                <option value="claude">Claude 구독 · Claude Code (Haiku)</option>
+                <option value="codex">ChatGPT 구독 · Codex</option>
               </optgroup>
               <option value="none">사용 안 함</option>
             </select>
@@ -399,18 +480,30 @@
         <div class="ai-actions"><button type="button" class="button text-button small" id="rules">정리 기준 파일 열기 ↗</button></div>
       </section>
 
-      <section class="settings-section" data-settings-tab="ai" aria-labelledby="mcp-settings-heading">
-        <h3 id="mcp-settings-heading">외부 AI 업무</h3>
+      <section class="settings-section" data-settings-tab="agents" aria-labelledby="mcp-settings-heading">
+        <h3 id="mcp-settings-heading">프로젝트에서 시작</h3>
+        <p class="small-note">쪽지에서 ‘프로젝트에서 시작’을 누르고 맡길 일과 첨부를 고르세요. Codex는 새 채팅에 초안을 열고, Claude Code는 선택한 폴더에서 바로 일을 시작합니다.</p>
+        <div class="agent-install-row"><strong>Codex 데스크톱</strong><span id="agent-codex-status"></span><button class="button small" type="button" id="guide-codex-desktop" hidden>설치 안내</button></div>
+        <div class="agent-install-row"><strong>Claude Code</strong><span id="agent-claude-status"></span><button class="button small" type="button" id="guide-claude-setup" hidden>설치 안내</button></div>
+        <div><button type="button" class="button small" id="agent-refresh">설치된 앱 다시 찾기</button></div>
+        <p class="small-note" id="agent-guide-status" role="status" hidden></p>
         <div class="setting-check">
-          <label class="check-field"><input type="checkbox" id="show-external-ai-work" aria-describedby="external-ai-work-help" checked>외부 AI 업무 기능 표시</label>
-          <p class="small-note" id="external-ai-work-help">AI로 보내기, 업무 맡기기, 작업 결과와 연결 설정을 화면에 표시합니다.</p>
+          <label class="check-field"><input type="checkbox" id="show-external-ai-work" checked>쪽지에 AI 앱 작업 메뉴와 결과 보이기</label>
         </div>
-        <div class="ai-actions" id="mcp-settings-actions"><button type="button" class="button" id="mcp-settings-open" aria-haspopup="dialog">MCP 연결 설정</button></div>
+      </section>
+      <section class="settings-section" data-settings-tab="agents" aria-labelledby="agent-mcp-heading" id="mcp-settings-actions">
+        <h3 id="agent-mcp-heading">쓰던 AI 채팅에 쪽지 공유하기</h3>
+        <p class="small-note">쓰던 채팅에 쪽지와 첨부를 공유하려면 처음 한 번 연결하세요. 새 프로젝트 채팅을 열 때는 이 단계를 건너뛰세요.</p>
+        <p class="small-note">아래 요청을 복사해 이 PC의 Codex나 Claude Code 채팅에 붙여넣고 보내세요.</p>
+        <div class="ai-actions"><button type="button" class="button primary" id="mcp-copy-connect">MCP 연결 요청 복사</button></div>
+        <p class="small-note" id="mcp-copy-connect-status" role="status" hidden></p>
+        <div class="ai-actions"><button type="button" class="button small" id="mcp-settings-open" aria-haspopup="dialog">직접 설정</button><button type="button" class="button small" id="mcp-check">연결 프로그램 확인</button></div>
+        <p class="small-note" id="mcp-check-status" role="status" hidden></p>
       </section>
 
       <fieldset class="settings-section" id="profile-settings" data-settings-tab="ai">
         <legend>내 역할</legend>
-        <p class="small-note section-note">쪽지가 나에게 해당하는지 가릴 때 씁니다.</p>
+        <p class="small-note section-note">맡은 학년과 업무를 알려 주면 AI가 나에게 해당하는 쪽지를 구분합니다.</p>
         <div class="form-grid">
           <label class="field span-2">근무처
             <select id="profile-workplace">
@@ -472,7 +565,7 @@
 
       <fieldset class="settings-section" id="auto-settings" data-settings-tab="fetch">
         <legend id="fetch-legend">브리티에서 가져오기</legend>
-        <p class="small-note section-note"><b>자동</b>은 캘린더가 켜져 있는 동안 주기마다, <b>지금 가져오기</b>는 바로 한 번 가져옵니다.</p>
+        <p class="small-note section-note">캘린더가 켜져 있는 동안 선택한 간격으로 가져옵니다.</p>
         <div class="fetch-group">
           <h3 class="fetch-title">쪽지</h3>
           <div class="auto-row">
@@ -518,9 +611,9 @@
       </fieldset>
 
       <!-- 학교(나이스, 2026-11-19): 학교를 한 번 고르면 학사일정을 달력에, 오늘 급식을 날짜 줄 아래에 보여 준다. -->
-      <fieldset class="settings-section" id="school-settings" data-settings-tab="fetch">
-        <legend>우리 학교 (나이스)</legend>
-        <p class="small-note section-note">학교를 고르면 나이스의 학사일정을 달력에, 오늘 급식을 달력 위에 보여 줍니다. 나이스에는 학교 이름과 날짜만 보냅니다.</p>
+      <fieldset class="settings-section" id="school-settings" data-settings-tab="google">
+        <legend>우리 학교 학사일정·급식</legend>
+        <p class="small-note section-note">학교를 고르면 학사일정과 오늘 급식이 달력에 보입니다. 나이스에는 학교 이름과 날짜만 보냅니다.</p>
         <div id="school-chosen" hidden>
           <p class="school-name-line"><strong id="school-name"></strong> <span class="small-note" id="school-office"></span></p>
           <p class="small-note" id="school-state" role="status"></p>
@@ -541,8 +634,8 @@
 
       <fieldset class="settings-section" id="range-settings" data-settings-tab="fetch">
         <legend>지난 쪽지 불러오기</legend>
-        <p class="small-note section-note" id="range-brity-help">브리티 쪽지 목록을 아래로 내려 가며 기간 안의 쪽지를 <b>읽었든 안 읽었든</b> 불러옵니다. 불러오는 동안 브리티의 쪽지 목록이 움직입니다. 기간이 길면 ‘먼저 몇 건인지 보기’로 건수를 미리 볼 수 있습니다(꼭 하지 않아도 됩니다). 목록에 연도가 없어 최근 1년 안의 날짜로 봅니다. 안 읽은 쪽지는 열면서 읽음 처리되고, 첨부는 복사하지 않고 원래 자리에서 엽니다.</p>
-        <p class="small-note section-note" id="range-goe-help" hidden>GOE 메신저 수신함에서 기간 안의 쪽지를 불러옵니다. 정렬이 <b>‘읽지 않은 쪽지 먼저’</b>이면 읽은 옛 쪽지에 닿지 못할 수 있습니다. 읽은 쪽지도 가져오려면 날짜순으로 바꿔 주세요. 안 읽은 쪽지는 열면서 읽음 처리됩니다. 보낸 지 7일 이내인 쪽지의 첨부를 내려받습니다.</p>
+        <p class="small-note section-note" id="range-brity-help">최근 1년 안에서 기간을 고르세요. 브리티 목록을 자동으로 내리며 쪽지를 불러옵니다. 안 읽은 쪽지도 읽음으로 바뀝니다. 첨부는 원래 위치에서 엽니다.</p>
+        <p class="small-note section-note" id="range-goe-help" hidden>읽은 쪽지도 가져오려면 GOE 수신함을 날짜순으로 정렬하세요. 불러온 쪽지는 읽음으로 바뀝니다. 첨부는 보낸 지 7일 이내인 쪽지만 내려받습니다.</p>
         <div class="form-grid">
           <label class="field span-2">시작일<input type="date" id="range-from" min="2000-01-01" max="9999-12-31"></label>
           <label class="field span-2">끝일<input type="date" id="range-to" min="2000-01-01" max="9999-12-31"></label>
@@ -564,17 +657,18 @@
       <!-- 마감 알림(2026-11-19): 하루 한 번 아침 8시 뒤 처음 확인할 때 Windows 알림. 앱이 켜져 있어야(트레이 포함) 뜬다. -->
       <fieldset class="settings-section" id="alert-settings" data-settings-tab="look">
         <legend>마감 알림</legend>
-        <label class="check-option"><input type="checkbox" id="deadline-alerts">아침에 오늘·내일 마감과 오늘 일정을 Windows 알림으로 알려 주기</label>
-        <p class="small-note">아침 8시가 지나 앱이 처음 확인할 때 하루 한 번 띄웁니다. 앱이 꺼져 있으면 켤 때 띄웁니다. 알릴 것이 없는 날은 띄우지 않습니다. Windows ‘방해 금지’가 켜져 있으면(작업 표시줄 종 아이콘에 Zz) 화면에 뜨지 않고 종 아이콘을 눌러야 보입니다.</p>
+        <label class="check-option"><input type="checkbox" id="deadline-alerts">오늘·내일 마감과 오늘 일정을 아침에 알리기</label>
+        <p class="small-note">알릴 일이 있으면 오전 8시 이후 하루 한 번 알려 드립니다. 앱을 늦게 켜면 그때 알립니다. Windows ‘방해 금지’가 켜져 있으면 작업 표시줄의 종을 눌러 확인하세요.</p>
         <div class="ai-actions"><button type="button" class="button text-button small" id="deadline-alert-test">지금 알림 보내 보기</button><span class="small-note" id="deadline-alert-status" role="status"></span></div>
       </fieldset>
 
       <fieldset class="settings-section" id="skin-settings" data-settings-tab="look">
         <legend>화면 꾸미기</legend>
-        <p class="small-note section-note">버튼과 칸의 자리는 그대로 두고 색·질감·글꼴·그림만 바꿉니다. 이 PC에만 기억합니다.</p>
+        <p class="small-note section-note">이 PC에서 쓸 화면 모양을 고르세요.</p>
         <div class="skin-choices">
           <label class="skin-choice"><input type="radio" name="skin" value="diary"><span class="skin-swatch skin-swatch-diary" aria-hidden="true"></span><span class="skin-name"><b>다이어리</b><small>종이·모눈·도장</small></span></label>
-          <label class="skin-choice"><input type="radio" name="skin" value="cute"><span class="skin-swatch skin-swatch-cute" aria-hidden="true"></span><span class="skin-name"><b>파스텔</b><small>고양이·파스텔</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="cute"><span class="skin-swatch skin-swatch-cute" aria-hidden="true"></span><span class="skin-name"><b>파스텔</b><small>고양이와 수첩</small></span></label>
+          <label class="skin-choice"><input type="radio" name="skin" value="woodland"><span class="skin-swatch skin-swatch-woodland" aria-hidden="true"></span><span class="skin-name"><b>숲속 수첩</b><small>다람쥐·관찰 수첩</small></span></label>
           <label class="skin-choice"><input type="radio" name="skin" value="evening"><span class="skin-swatch skin-swatch-evening" aria-hidden="true"></span><span class="skin-name"><b>저녁</b><small>어두운 밤하늘</small></span></label>
           <label class="skin-choice"><input type="radio" name="skin" value="minimal"><span class="skin-swatch skin-swatch-minimal" aria-hidden="true"></span><span class="skin-name"><b>미니멀</b><small>흰 바탕·가는 선·여백</small></span></label>
           <label class="skin-choice"><input type="radio" name="skin" value="contrast"><span class="skin-swatch skin-swatch-contrast" aria-hidden="true"></span><span class="skin-name"><b>고대비</b><small>굵은 글씨·진한 선</small></span></label>
@@ -586,7 +680,7 @@
 
       <fieldset class="settings-section" id="font-settings" data-settings-tab="look">
         <legend>글꼴</legend>
-        <p class="small-note section-note">고르면 앱 이름과 큰 달 숫자만 스킨 글꼴로 두고 나머지 글자를 모두 이 글꼴로 바꿉니다. 스킨 기본은 스킨이 정한 글꼴 그대로입니다. 이 PC에만 기억합니다.</p>
+        <p class="small-note section-note">이 PC에서 읽기 편한 글꼴을 고르세요. 앱 이름과 큰 달 숫자는 원래 모양을 유지합니다.</p>
         <div class="font-choices">
           <label class="font-choice font-sample-skin"><input type="radio" name="font" value="skin"><span class="font-name">스킨 기본</span><span class="font-sample">11월 20일(금)까지 · 교실 환경 정리</span></label>
           <label class="font-choice font-sample-pretendard"><input type="radio" name="font" value="pretendard"><span class="font-name">프리텐다드</span><span class="font-sample">11월 20일(금)까지 · 교실 환경 정리</span></label>
@@ -613,9 +707,9 @@
       <!-- 구글 캘린더에 보이기(한 방향, 2026-11-20). 앱 번호 파일이 있는 판에서만 보인다(google-calendar.js). -->
       <fieldset class="settings-section" id="google-settings" data-settings-tab="google" hidden>
         <legend>구글 캘린더에 보이기</legend>
-        <p class="small-note section-note">앱의 할 일·확인할 것을 내 구글 캘린더의 “학교 할 일”·“학교 알림”에 보여 줍니다. 휴대폰 구글 캘린더에서 보고 알림을 받을 수 있습니다.</p>
+        <p class="small-note section-note">연결하면 휴대폰 구글 캘린더에서도 학교 업무와 알림을 볼 수 있습니다.</p>
         <ul class="small-note google-points">
-          <li>앱의 업무가 <strong>구글 캘린더에 보이기만</strong> 합니다. 양방향 동기화는 되지 않아, 구글에서 고치거나 지운 것은 앱에 반영되지 않습니다. 고칠 때는 앱에서 고쳐 주세요.</li>
+          <li>일정을 고칠 때는 이 앱에서 수정하세요. 구글에서 바꾼 내용은 이 앱에 반영되지 않습니다.</li>
           <li>앱에서 숨기면 구글에서도 사라지고, 끝낸 일은 ✓와 회색으로 남습니다.</li>
           <li>업무 제목·날짜·시간을 구글로 보냅니다. 제목에 이름이 있으면 이름도 그대로 전송됩니다. 쪽지 원문·첨부·메모는 보내지 않습니다.</li>
         </ul>
@@ -630,7 +724,7 @@
 
       <fieldset class="settings-section" id="backup-settings" data-settings-tab="about">
         <legend>백업</legend>
-        <p class="small-note section-note">업무·설정·정리 기준<span id="backup-chat-copy">·대화방 기록</span>과 받은 쪽지·첨부를 ZIP 하나로 저장합니다. 쪽지 원문(동료 이름·학생 관련 내용)이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. AI 키는 넣지 않으므로 다른 PC에서 되돌리면 AI를 다시 연결합니다.</p>
+        <p class="small-note section-note">업무·설정·정리 기준<span id="backup-chat-copy">·대화방 기록</span>과 쪽지·첨부를 파일 하나로 보관합니다. 쪽지 원문이 들어 있으니 학교 밖으로 보내거나 공유 폴더에 두지 마세요. 다른 PC에서 복원하면 AI 키를 다시 입력하세요.</p>
         <div class="ai-actions">
           <button type="button" class="button" id="backup-create">백업 만들기</button>
           <button type="button" class="button text-button small" id="backup-restore">백업에서 되돌리기</button>
@@ -739,10 +833,14 @@
       <details class="mcp-setup" id="mcp-setup">
         <summary>처음 쓰는 AI 앱에 연결</summary>
         <div class="mcp-section">
+          <div class="ai-actions"><button type="button" class="button primary" id="mcp-copy-connect-dialog">MCP 연결 요청 복사</button></div>
+          <p class="small-note">Codex나 Claude Code 채팅에 붙여넣고 보내세요.</p>
+          <details id="mcp-manual"><summary>직접 설정</summary><div class="mcp-section">
           <label class="field">AI 앱
             <select id="mcp-client">
-              <option value="json">Claude Code · Antigravity 등 (공용 JSON)</option>
               <option value="codex">Codex</option>
+              <option value="claude">Claude Code</option>
+              <option value="json">Claude Desktop · Antigravity 등 (공용 JSON)</option>
               <option value="grok">Grok Build</option>
               <option value="vscode">VS Code</option>
             </select>
@@ -750,6 +848,7 @@
           <p class="small-note" id="mcp-client-help"></p>
           <p class="small-note">Orca·Herdr에서 실행하는 AI는 그 AI의 설정을 사용합니다.</p>
           <div class="ai-actions"><button type="button" class="button" id="mcp-copy-setup">MCP 설정 복사</button></div>
+          </div></details>
         </div>
       </details>
       <p class="small-note" id="mcp-status" role="status" hidden></p>

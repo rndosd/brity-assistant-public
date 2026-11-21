@@ -90,7 +90,8 @@ function Copy-Guides([string]$destination) {
 function Copy-AppCode([string]$appOut) {
   New-Item -ItemType Directory -Force $appOut | Out-Null
   $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','codex-cli.js','collector-link.js','demo.js','feedback.js','main.js','neis.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
-           'resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','mcp-share.js','codex-work.js','claude-work.js','note-work.js'
+           'resolve-codex.ps1','update-apply.ps1','refinement-schema.json','rules-seed.md','CHANGES.json','mcp-share.js','codex-work.js','claude-work.js','note-work.js',
+           'reply-draft.js','reply-voice.ps1','reply-schema.json','privacy.js','project-handoff.js'
   if ($Goe) { $files += 'collector-link-goe.ps1' }
   else { $files += 'chat-journal.ps1','collect-chats.ps1','collector-link.ps1' }
   foreach ($f in $files) { Copy-Item (Join-Path $app $f) $appOut }

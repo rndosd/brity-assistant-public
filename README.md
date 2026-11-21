@@ -3,14 +3,14 @@
 브리티 메신저에서 받은 쪽지와 첨부를 한곳에서 보고, 업무와 마감일을 월 달력에 정리하는 Windows 앱입니다. 학교와 교육청에서 쓸 수 있습니다. 개인이 만든 비공식 도구입니다.
 
 - **첨부는 자동으로 내려받습니다.** 새로 받은 쪽지의 첨부는 Windows **다운로드** 폴더(설정의 **첨부 저장 폴더**에서 바꿀 수 있음)에 저절로 복사되고, 캘린더의 쪽지 자세히에서 눌러 바로 엽니다. **지난 쪽지 불러오기**로 가져온 쪽지의 첨부는 복사하지 않고 원래 자리에서 엽니다.
-- **화면 꾸미기**에서 다이어리·파스텔·저녁·미니멀·고대비·팝·레트로·신문 스킨을 고를 수 있습니다.
-- **구글 캘린더**에서 업무를 보려면 **설정 → 구글 → 구글 계정 연결**을 누르고 브라우저에서 연결을 허용하세요.
+- **화면 꾸미기**에서 다이어리·파스텔·저녁·미니멀·고대비·팝·레트로·신문·숲속 수첩 스킨을 고를 수 있습니다.
+- **구글 캘린더**에서 업무를 보려면 **설정 → 달력 연동 → 구글 계정 연결**을 누르고 브라우저에서 연결을 허용하세요.
 
 ## 설치와 첫 실행
 
 ### ⬇️ [최신 판 내려받기 (Releases)](https://github.com/rndosd/brity-assistant-public/releases/latest)
 
-GOE 메신저용 **GOE 메신저 캘린더**는 [rndosd/goe-messenger-calendar 릴리스](https://github.com/rndosd/goe-messenger-calendar/releases/latest)에서 따로 받습니다.
+GOE 메신저용 **GOE 메신저 캘린더**는 [rndosd/goe-messenger-calendar 릴리스](https://github.com/rndosd/goe-messenger-calendar/releases/latest)에서 따로 받습니다. GOE판에서는 쪽지 **자세히 → GOE에서 원문 보기**를 누르면 메신저에서 받은 쪽지 창이 열립니다.
 
 위 링크에서 **`brity-messenger-calendar-windows-x64-<판>.zip`** 을 받으세요. 이 페이지 위쪽의 초록색 **Code → Download ZIP** 이나 **Source code** 는 프로그램 소스라서 실행 파일이 들어 있지 않습니다.
 
@@ -47,20 +47,29 @@ GOE 메신저용 **GOE 메신저 캘린더**는 [rndosd/goe-messenger-calendar �
 
 ## 받은 쪽지로 AI에서 업무 시작하기
 
-쪽지에서 AI 업무 단추나 결과를 숨기려면 **설정 → AI → 외부 AI 업무 기능 표시**를 끕니다. 저장된 결과는 다시 켜면 볼 수 있습니다.
+**답장을 써야 할 때** 쪽지 원문 오른쪽의 화살표를 누르면 브리티 답장 창이 열립니다. GOE판의 열기 아이콘은 GOE 원문을 엽니다. 내 말을 다듬으려면 옆의 반짝이는 연필을 누르세요. “금요일은 어렵고 월요일 오전은 가능하다고 해 줘”처럼 하고 싶은 말을 적습니다. 입력칸 오른쪽의 마이크를 누르면 Windows 받아쓰기로 말한 내용이 입력됩니다. **다듬기**를 누르면 같은 입력칸의 문장이 바뀝니다. 원하는 대로 고친 뒤 **브리티에서 답장**을 누르면 문구가 복사되고 답장 창이 열립니다. GOE판에서는 **복사하고 원문 보기**를 누르고, 열린 원문에서 직접 **답장**을 누르세요. 메신저의 답장 칸에 붙여넣으세요. 보낼 내용과 상대를 확인한 뒤 메신저에서 직접 전송하세요. 답장 다듬기에 쓸 AI는 **설정 → AI 연결**에서 고르세요.
 
-1. 쪽지 **자세히 → 쪽지에서 처리 → AI로 보내기**에서 함께 보낼 첨부를 고르고 **AI로 보내기**를 누릅니다. 쪽지 원문과 고른 첨부의 사본을 공유합니다.
-2. 처음 한 번 **처음 쓰는 AI 앱에 연결**에서 앱을 선택하고 **MCP 설정 복사**를 눌러 그 앱의 MCP 설정에 추가합니다. 캘린더 업데이트나 설치 폴더 이동 뒤에도 같은 Windows 계정에서 기존 설정을 쓸 수 있습니다. 샘플 실행기는 가상 자료용 연결을 따로 씁니다.
+**프로젝트 자료와 함께 일할 때**는 쪽지 아래 **프로젝트에서 시작**을 누르세요. 맡길 일을 쓰거나 마이크로 말한 뒤 앱과 프로젝트 이름, 가져갈 첨부를 고릅니다. Codex는 등록된 로컬 프로젝트를, Claude Code는 이 PC에서 사용한 프로젝트 폴더를 표시합니다. 목록에 없으면 **다른 폴더 고르기…**로 직접 선택하세요. 프로젝트 안의 **캘린더 쪽지**에 원문과 지시, 선택한 첨부 사본이 들어갑니다. Codex에서는 새 채팅의 첫 메시지를 확인하고 보내세요. Claude Code는 선택한 폴더에서 터미널을 열고 지시한 작업을 시작합니다.
+
+**설정 → 에이전트**에서 Codex 데스크톱과 Claude Code를 이 PC에서 열 수 있는지 확인하고 설치 안내를 볼 수 있습니다. 설치 뒤 **설치된 앱 다시 찾기**를 누르세요. 기존 채팅에 쪽지를 공유하려면 같은 탭에서 **MCP 연결 요청 복사**를 누르고 이 PC의 Codex나 Claude Code 채팅에 붙여넣어 보내세요. 복사한 요청에는 이 PC의 연결 프로그램 위치와 앱별 등록·확인 방법이 들어 있습니다. **연결 프로그램 확인**은 캘린더 쪽을 검사하며, AI 앱에서는 MCP 목록의 `calendar` 연결 상태를 확인하세요.
+
+쪽지에서 AI 업무 단추나 결과를 숨기려면 **설정 → 에이전트 → 쪽지에 AI 앱 작업 메뉴와 결과 보이기**를 끕니다. 저장된 결과는 다시 켜면 볼 수 있습니다.
+
+### 이미 쓰던 채팅에서 공유한 쪽지를 열 때
+
+1. 쪽지 **자세히 → 다른 방법 → AI로 보내기**에서 함께 보낼 첨부를 고르고 **AI로 보내기**를 누릅니다. 쪽지 원문과 고른 첨부의 사본을 공유합니다.
+2. 처음 한 번 **처음 쓰는 AI 앱에 연결 → MCP 연결 요청 복사**를 누르고 Codex나 Claude Code 채팅에 붙여넣어 보냅니다. 다른 AI 앱은 **직접 설정**에서 형식을 골라 **MCP 설정 복사**를 사용합니다. 캘린더 업데이트나 설치 폴더 이동 뒤에도 같은 Windows 계정에서 기존 설정을 쓸 수 있습니다. 샘플 실행기는 가상 자료용 연결을 따로 씁니다.
 3. **요청 문장 복사**를 누르고 평소 쓰는 Codex나 Claude Code 채팅에 붙여 넣습니다. 원하는 일을 덧붙이면 공유한 자료로 작업한 뒤 초안이 원래 쪽지의 **AI 작업 결과**에 저장됩니다. 로컬 MCP를 쓸 수 없는 앱에서는 **공유 폴더 열기**로 업무.md와 첨부 사본을 직접 올릴 수 있습니다.
 
-캘린더에서 바로 시작하려면 **자세히 → 쪽지에서 처리 → 업무 맡기기**에서 Codex나 Claude Code를 고릅니다. 요청을 쓰고 첨부를 골라 맡기면 PC에 설치해 로그인한 프로그램이 초안을 작성합니다. 두 방식의 초안은 같은 쪽지의 **AI 작업 결과**에서 각각 열어 볼 수 있습니다.
+쪽지 카드에 바로 초안을 받으려면 **자세히 → 다른 방법 → 업무 맡기기**에서 Codex나 Claude Code를 고릅니다. 요청을 쓰고 첨부를 골라 맡기면 PC에 설치해 로그인한 프로그램이 초안을 작성합니다. 두 방식의 초안은 같은 쪽지의 **AI 작업 결과**에서 각각 열어 볼 수 있습니다.
 
 캘린더에서 Claude Code에 맡기려면 Claude Code 2.1.248 이상이 필요합니다. [Claude Code 명령줄 안내](https://code.claude.com/docs/en/cli-reference)
 
 | 쓰는 앱 | 처음 연결 |
 | --- | --- |
 | Codex | **Codex**를 골라 복사한 내용을 `~/.codex/config.toml`에 추가합니다. [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) |
-| Claude Code · Claude Desktop · Cursor | **공용 JSON**을 골라 복사한 뒤 그 앱의 로컬 MCP 설정에서 기존 `mcpServers` 안에 `calendar` 항목을 추가합니다. [Claude Code MCP](https://code.claude.com/docs/en/mcp) · [Cursor MCP](https://cursor.com/docs/context/mcp) |
+| Claude Code | **Claude Code**를 골라 복사한 설정을 프로젝트의 `.mcp.json`에 추가하고, 다시 연 Claude Code의 `/mcp`에서 `calendar`를 확인합니다. [Claude Code MCP](https://code.claude.com/docs/en/mcp) |
+| Claude Desktop · Cursor | **공용 JSON**을 골라 복사한 뒤 그 앱의 로컬 MCP 설정에서 기존 `mcpServers` 안에 `calendar` 항목을 추가합니다. [Claude Code MCP](https://code.claude.com/docs/en/mcp) · [Cursor MCP](https://cursor.com/docs/context/mcp) |
 | Google Antigravity | **공용 JSON**을 골라 복사한 뒤 MCP 설정의 `mcpServers` 안에 `calendar` 항목을 추가합니다. [Antigravity MCP](https://antigravity.google/docs/mcp) |
 | Grok Build | **Grok Build**를 골라 복사한 내용을 `~/.grok/config.toml`에 추가합니다. [Grok Build MCP](https://docs.x.ai/build/features/mcp-servers) |
 | VS Code | **VS Code**를 골라 복사한 뒤 사용자 MCP 설정의 `servers` 안에 `calendar` 항목을 추가합니다. [VS Code MCP](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) |

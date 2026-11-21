@@ -13,7 +13,7 @@ const { resolveCodex, POWERSHELL, SYSTEM } = require('./refine');
 
 // 공식 설치 명령(github.com/openai/codex README, 2026-11). 관리자 권한 없이 사용자 폴더에 깐다.
 const INSTALL_COMMAND = 'irm https://chatgpt.com/codex/install.ps1 | iex';
-const GUIDE_HINT = '설정 AI 탭의 ‘안내서 열기’를 따라 직접 설치해 주세요.';
+const GUIDE_HINT = '설정 → AI 연결의 ‘막히면 안내서’를 따라 직접 설치해 주세요.';
 
 function installedPath(env = process.env) {
   const dir = env.CODEX_INSTALL_DIR || (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin') : '');

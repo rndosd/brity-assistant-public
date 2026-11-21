@@ -14,7 +14,7 @@ param(
     [string]$From,
     [string]$To,
     [ValidatePattern('^goe_\d{12}_[a-f0-9]{8}$')][string]$RetryId,
-    [switch]$Reply,             # with -RetryId: open that note in GOE and press its reply button (nothing is saved)
+    [switch]$ShowOriginal,      # with -RetryId: leave the matching original note open in GOE
     [AllowEmptyString()][string]$AttachmentFolder,
     [string]$Inbox = (Join-Path $PSScriptRoot 'inbox')
 )
@@ -31,13 +31,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $result = [ordered]@{
     status = 'ok'; visible = 0; matched = 0; fresh = 0; unknown = 0
-    remaining = 0; opened = 0; imported = 0; placeholders = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; reply = 'not-found'; busyReason = ''; reason = ''
+    remaining = 0; opened = 0; imported = 0; placeholders = 0; oldest = $null; attachStatus = 'not-found'; attached = 0; original = 'not-found'; busyReason = ''; reason = ''
 }
 
 function Publish-Result([string]$Reason) {
     if ($ResultObject) { return [pscustomobject]$result }
     if ($Reason) { Write-Output "status=$($result.status) reason=$Reason"; return }
-    if ($RetryId -and $Reply) { Write-Output "status=$($result.status) reply=$($result.reply)"; return }
+    if ($RetryId -and $ShowOriginal) { Write-Output "status=$($result.status) original=$($result.original)"; return }
     if ($RetryId) { Write-Output "status=$($result.status) attachStatus=$($result.attachStatus) filesSaved=$($result.attached)"; return }
     Write-Output ("status={0} rowsSeen={1} opened={2} verified={3} filesSaved={4} timeUnchecked={5}" -f
         $result.status, $result.visible, $result.opened,
@@ -51,6 +51,7 @@ $calendar = [Globalization.CultureInfo]::InvariantCulture
 $Inbox = [IO.Path]::GetFullPath($Inbox)
 $notesDir = Join-Path $Inbox 'notes'
 $retryNote = $null
+if ($ShowOriginal -and !$RetryId) { throw 'missing-original-note-id' }
 if ($RetryId) {
     if ($ListOnly -or $Inspect -or $RangeImport -or $From -or $To) { throw 'incompatible-attachment-retry-options' }
     $retryPath = Join-Path $notesDir "$RetryId.json"
@@ -66,12 +67,12 @@ if ($RetryId) {
             if ($savedTime -lt $retryTime) { $retryTime = $savedTime }
         }
     } catch { Publish-Result ''; return }
-    if (!$Reply -and $retryTime -lt (Get-Date).AddDays(-7)) { $result.attachStatus = 'expired'; Publish-Result ''; return }
+    if (!$ShowOriginal -and $retryTime -lt (Get-Date).AddDays(-7)) { $result.attachStatus = 'expired'; Publish-Result ''; return }
     $From = $To = $retryNote.datetime.Substring(0, 10)
     $IncludeRead = $true
-    $Download = -not $Reply
+    $Download = -not $ShowOriginal
     # an old note sits further down the list
-    if ($Reply -and $MaxPages -lt 60) { $MaxPages = 60 }
+    if ($ShowOriginal -and $MaxPages -lt 60) { $MaxPages = 60 }
     $Force = $false
 }
 $range = $RangeImport -or $From -or $To
@@ -131,7 +132,7 @@ public static class W {
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
-  public static void BringReplyToFront(IntPtr h) {
+  public static void BringNoteToFront(IntPtr h) {
     uint pid;
     uint front = GetWindowThreadProcessId(GetForegroundWindow(), out pid), me = GetCurrentThreadId();
     bool joined = front != 0 && front != me && AttachThreadInput(me, front, true);
@@ -336,7 +337,7 @@ function Reset-ListScroll {
     }
 }
 # Only the list's time column (a narrow strip, about a fifth of a full-window OCR). Used to scroll quickly toward
-# an old note for reply / download again (2026-11-19: 14 full pages, 29 of 36 s, for a 9-day-old note).
+# an old note for viewing an original / downloading again (2026-11-19: 14 full pages, 29 of 36 s, for a 9-day-old note).
 # Returns the times top to bottom, or $null when the column is not known or nothing was read.
 function Read-ListTimes([switch]$Rows) {
     if (-not $script:timeColX) { return $null }
@@ -360,7 +361,7 @@ function Read-ListTimes([switch]$Rows) {
         $candidates = @($found | Where-Object { Test-SameNoteRow $_ $retryNote })
         # Resolve ties, a missing target time, and attachment retries with the full row reader.
         # It recovers missed time cells, distinguishes senders and reads the attachment clip.
-        if ($candidates.Count -gt 1 -or !$Reply -or
+        if ($candidates.Count -gt 1 -or !$ShowOriginal -or
             (!$candidates.Count -and ($found.datetime | Sort-Object)[0] -le $retryNote.datetime)) { return }
         $sender = ''
         $title = ''
@@ -394,7 +395,7 @@ function Read-ListTimes([switch]$Rows) {
         }
     } finally { $bmp.Dispose() }
 }
-# The time column's place and the row scale from the last full read, so a reply can start from the time column.
+# The time column's place and the row scale from the last full read, so a lookup can start from the time column.
 function Save-ListLayout {
     try {
         $mrNow = Get-Rect $main
@@ -607,14 +608,14 @@ function Unpark {
     [void][GoeWin.W]::GetWindowThreadProcessId([GoeWin.W]::GetForegroundWindow(), [ref]$fgPid)
     if ($script:parked.Min) {
         $p = $script:parked
-        [void][GoeWin.Style]::SetNormal($main, $p.L, $p.T, $p.R, $p.B, $(if ($fgPid -eq $proc.Id) { 1 } else { 7 }))
+        [void][GoeWin.Style]::SetNormal($main, $p.L, $p.T, $p.R, $p.B, $(if ($originalHandle -or $fgPid -eq $proc.Id) { 1 } else { 7 }))
         [GoeWin.Style]::NoAnimation($main, $false)
         Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
         $script:parked = $null
         return
     }
     # hide first so it does not flash at its own place; the teacher may have opened it from the tray meanwhile
-    if ($fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
+    if (!$originalHandle -and $fgPid -ne $proc.Id) { [void][GoeWin.W]::ShowWindow($main, 0) }
     [void][GoeWin.Style]::SetWindowLong($main, -20, [int]$script:parked.Ex)
     [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $script:parked.L, $script:parked.T, 0, 0, 0x15)
     Remove-Item -LiteralPath $parkFile -Force -ErrorAction SilentlyContinue
@@ -642,8 +643,8 @@ if ($wasHidden) {
     # taskbar does not flash a GOE icon on every run (2026-11-17, "that would be a problem"). Put back by Unpark.
     [void][GoeWin.Style]::SetWindowLong($main, -20, (($ex -bor 0x80) -band (-bnot 0x40000)))
     $vs = Get-VirtualScreen
-    # Reply shows a note and the reply window to the teacher on purpose, so nothing is kept off screen then.
-    if (-not $Reply) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
+    # Leave the original note visible when the teacher asks to see it.
+    if (-not $ShowOriginal) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
     # SWP_SHOWWINDOW|NOACTIVATE|NOZORDER|NOSIZE: ShowWindow(SW_SHOWNOACTIVATE) on the tray window left GOE in
     # front once (2026-11-17), so the run stopped as "user is in GOE" and the window stayed out.
     [void][GoeWin.W]::SetWindowPos($main, [IntPtr]::Zero, $vs.Right + 200, $vs.Top, 0, 0, 0x55)
@@ -745,34 +746,24 @@ function Test-SameNoteRow($Row, $Note) {
     if (!$x -or !$y) { return $true }
     (Get-EditDistance $x $y) -le 2
 }
-# Press the reply button in an open note window and bring the new reply window to the front.
-function Open-GoeReply($NoteEl, $Elements) {
-    $button = $Elements | Where-Object { $_.Current.ClassName -eq 'Button' -and $_.Current.Name -eq $L.replyButton } | Select-Object -First 1
-    if (!$button -or !$button.Current.IsEnabled) { return 'reply-unavailable' }
-    $before = @{}
-    foreach ($w in $AE::RootElement.FindAll($TS::Children, $pidCond)) { $before[[int64]$w.Current.NativeWindowHandle] = $true }
-    Click $button.Current.NativeWindowHandle
-    $sendName = [System.Windows.Automation.PropertyCondition]::new($AE::NameProperty, $L.sendButton)
-    for ($i = 0; $i -lt 50; $i++) {
-        Start-Sleep -Milliseconds 100
-        $new = @($AE::RootElement.FindAll($TS::Children, $pidCond) | Where-Object {
-            !$before.ContainsKey([int64]$_.Current.NativeWindowHandle) -and [GoeWin.W]::IsWindowVisible([IntPtr]$_.Current.NativeWindowHandle)
-        })
-        foreach ($window in $new) {
-            if ($window.Current.ClassName -ne $L.childClass) { continue }
-            $send = $window.FindFirst($TS::Descendants, $sendName)
-            if (!$send -or $send.Current.ClassName -ne 'Button') { continue }
-            $h = [IntPtr]$window.Current.NativeWindowHandle
-            [void][GoeWin.W]::SetForegroundWindow($h)
-            for ($attempt = 0; $attempt -lt 2 -and [GoeWin.W]::GetForegroundWindow() -ne $h; $attempt++) {
-                [GoeWin.W]::BringReplyToFront($h)
-                Start-Sleep -Milliseconds 120
-            }
-            if ([GoeWin.W]::GetForegroundWindow() -eq $h) { return 'opened' }
-            return 'opened-background'
-        }
+# The caller has already matched this window's body against the stored note.
+function Show-OriginalWindow([IntPtr]$handle) {
+    if (-not [GoeWin.W]::IsWindow($handle)) { return 'not-found' }
+    [void][GoeWin.W]::ShowWindow($handle, 9)
+    # GOE can place a child next to its temporarily parked main window.
+    Add-Type -AssemblyName System.Windows.Forms
+    $area = [Windows.Forms.Screen]::FromHandle($handle).WorkingArea
+    $r = Get-Rect $handle
+    if ($r.L -ge $area.Right -or $r.Rt -le $area.Left -or $r.T -ge $area.Bottom -or $r.B -le $area.Top) {
+        [void][GoeWin.W]::SetWindowPos($handle, [IntPtr]::Zero, $area.Left, $area.Top, 0, 0, 0x15)
     }
-    'reply-unconfirmed'
+    for ($attempt = 0; $attempt -lt 2 -and [GoeWin.W]::GetForegroundWindow() -ne $handle; $attempt++) {
+        [GoeWin.W]::BringNoteToFront($handle)
+        Start-Sleep -Milliseconds 120
+    }
+    if (-not [GoeWin.W]::IsWindowVisible($handle)) { return 'not-found' }
+    if ([GoeWin.W]::GetForegroundWindow() -eq $handle) { return 'opened' }
+    return 'opened-background'
 }
 function Close-Note($n) {
     if (-not $n) { return }
@@ -1642,6 +1633,7 @@ $seen = @{}
 $seenRows = [Collections.Generic.List[object]]::new()
 $opened = [Collections.Generic.List[object]]::new()
 $ownedNote = $null
+$originalHandle = $null
 Mark 'controls found'
 try {
     # (a window both hidden and minimized was already parked as a tray window above)
@@ -1657,7 +1649,7 @@ try {
         $script:parked | ConvertTo-Json -Compress | Set-Content -LiteralPath $parkFile -Encoding ascii
         $vs = Get-VirtualScreen
         [GoeWin.Style]::NoAnimation($main, $true)
-        if (-not $Reply) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
+        if (-not $ShowOriginal) { [GoeWin.Keeper]::Start($proc.Id, $vs.Left, $vs.Top, $vs.Right, $vs.Bottom) }
         [void][GoeWin.Style]::SetNormal($main, $vs.Right + 200, $vs.Top, $vs.Right + 200 + ($n[2] - $n[0]), $vs.Top + ($n[3] - $n[1]), 4)
         $t0 = Get-Date
         while ([GoeWin.W]::IsIconic($main) -and ((Get-Date) - $t0).TotalSeconds -lt 3) { Start-Sleep -Milliseconds 100 }
@@ -1704,7 +1696,7 @@ try {
 
     Mark 'inbox confirmed, list at top'
     $view = $null; $retryUntil = $null; $listOcrScale = 3
-    # Reply / download again with a known layout: the first page from the time column alone (about 0.4 s instead of
+    # Original note / attachment lookup with a known layout: the first page from the time column alone (about 0.4 s instead of
     # a full-window OCR). Only when the inbox was proven by its own pane; anything unread is still skipped.
     if ($retryNote -and (Use-ListLayout) -and (Get-GoeScanFolder) -eq 'inbox') {
         Start-Sleep -Milliseconds 150
@@ -1722,7 +1714,7 @@ try {
     if (-not $view.readable) { throw 'list-unreadable' }
     Mark "first page read ($(@($view.rows).Count) rows)"
 
-    # Reply / download again: the note's time is known, so go there first reading only the time column and moving
+    # Original note / attachment lookup: the note's time is known, so go there first reading only the time column and moving
     # about a page per step, then read rows normally from there. A step that goes past the note's time goes back up
     # (2026-11-19, "8 s is not good enough, the old one far too slow").
     if ($retryNote -and @($view.rows).Count) {
@@ -1846,12 +1838,10 @@ try {
             do { $body = [GoeWin.W]::Text([IntPtr]$re.Current.NativeWindowHandle); if ($body -and $body -ne $prevBody) { break }; Start-Sleep -Milliseconds 80 } while (((Get-Date) - $t0).TotalSeconds -lt 2)
             $prevBody = $body
             Mark 'note body read'
-            if ($Reply -and $retryNote) {
-                # a reply needs only the exact body to know it is the right note: no OCR of the note window (1.2 s)
+            if ($ShowOriginal -and $retryNote) {
+                # Only hand the window to the teacher after verifying its exact body.
                 if ($body -and (Format-Body $body) -ceq (Format-Body $retryNote.body)) {
-                    $result.reply = Open-GoeReply $n $els
-                    Mark "reply $($result.reply)"
-                    # Leave the matched note available when GOE cannot show the compose window.
+                    $originalHandle = $nh
                     $stop = $true; $ownedNote = $null
                     break
                 }
@@ -2048,6 +2038,7 @@ try {
     try {
         try { if ($ownedNote) { Close-Note $ownedNote } }
         finally { Restore-Main }
+        if ($originalHandle) { $result.original = Show-OriginalWindow $originalHandle }
     } catch {
         $result.status = 'error'
         $reason = 'restore-failed'

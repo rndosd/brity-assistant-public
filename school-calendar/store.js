@@ -37,7 +37,7 @@ const BACKUP_DATA_FOLDERS = ['chats'];
 const BACKUP_INBOX_FILES = ['state.json', 'latest.json', 'digest.md'];
 const BACKUP_INBOX_FOLDERS = ['notes', 'files'];
 // 이 PC에만 맞는 설정은 백업에서 빼고, 되돌릴 때 지금 PC의 값을 쓴다.
-const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'anthropicKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'codexExecutable', 'claudeExecutable', 'seenVersion', 'alertedDay'];
+const MACHINE_SETTINGS = ['openaiKeyEncrypted', 'anthropicKeyEncrypted', 'factchatKeyEncrypted', 'inboxDir', 'baselineInbox', 'collectorConnected', 'downloadsDir', 'downloadsStartedAt', 'workProjectFolder', 'codexExecutable', 'claudeExecutable', 'seenVersion', 'alertedDay'];
 const BEFORE_RESTORE = '되돌리기 전 백업';
 const AUTO_MINUTES = [5, 10, 30, 60, 120];
 // 지금까지 배포한 정리 기준(rules-seed.md)의 지문. 설치된 파일이 이 가운데 하나면 선생님이 고치지 않은 것이다.
@@ -369,12 +369,12 @@ async function fileDigest(file) {
 
 // 반복(2026-11-19 설계, 반복-업무-설계.md 줄인 1차안): 회차마다 실제 업무를 만들고 repeat.seriesId로 묶는다.
 // 날짜 줄(종류·시간·이름)은 그대로 두고 날짜만 바꾼다.
-function repeatOccurrences({ title, memo, entry, important }, every, start, until, seriesId = randomUUID(), skip = []) {
+function repeatOccurrences({ title, memo, entry, importance }, every, start, until, seriesId = randomUUID(), skip = []) {
   const kept = [...new Set(skip.filter(date => date !== start))].sort();
   const { done, ...shape } = entry;
   return model.repeatDates(every, start, until, kept).map(date => ({
     ...newTask(null, title, [{ ...shape, date, ...(shape.kind === '까지' && { done: false }) }]),
-    memo, ...(important && { important: true }), repeat: { seriesId, every, start, until, skip: kept }
+    memo, ...(importance && { important: true, importance }), repeat: { seriesId, every, start, until, skip: kept }
   }));
 }
 
@@ -799,6 +799,7 @@ class CalendarStore {
       defaultTool: TOOLS.includes(this.settings.defaultTool) ? this.settings.defaultTool : 'claude',
       automatic: this.settings.automatic === true, showPeriods: this.settings.showPeriods !== false,
       showExternalAiWork: this.settings.showExternalAiWork !== false,
+      workProjectFolder: this.settings.workProjectFolder || null,
       aiBlocked: this.aiBlocked?.message ?? null,
       aiProvider: this.aiProvider, collectorConnected: this.settings.collectorConnected === true,
       collectorFirstImportPending: this.settings.collectorFirstImportPending === true,
@@ -1171,6 +1172,7 @@ class CalendarStore {
         throw new CalendarError(kind === '기간' ? '끝 날짜는 시작 날짜보다 뒤로 골라 주세요.' : '날짜를 확인해 주세요.');
       }
       const memo = memoValue(input?.memo);
+      const importance = model.priorityLevel(input);
       // 반복: 할 일, 날짜 하나, 기간 아님일 때만. 첫 회차부터 학기 끝(또는 받은 끝 날짜)까지 회차마다 업무를 만든다.
       const every = input?.repeat ?? 'none';
       if (every !== 'none') {
@@ -1179,14 +1181,14 @@ class CalendarStore {
         const until = input?.until ? dueValue(input.until) : model.semesterEnd(due);
         if (!until || until < due) throw new CalendarError('반복 끝 날짜를 확인해 주세요.');
         const skip = input?.skipSchoolOff === true ? this.schoolOffDays(due, until) : [];
-        const added = repeatOccurrences({ title, memo, entry: dates[0], important: input?.important === true }, every, due, until, randomUUID(), skip);
+        const added = repeatOccurrences({ title, memo, entry: dates[0], importance }, every, due, until, randomUUID(), skip);
         if (!added.length) throw new CalendarError('반복할 날짜가 없습니다. 날짜와 끝 날짜를 확인해 주세요.');
         await this.commit([...this.tasks, ...added]);
         return this.taskView(added[0]);
       }
       const task = {
         ...newTask(null, title, dates), type, memo,
-        ...(input?.important === true && { important: true }),
+        ...(importance && { important: true, importance }),
         ...(input?.pinned === true && type === '할 일' && { pinned: true })
       };
       await this.commit([...this.tasks, task]);
@@ -1224,7 +1226,7 @@ class CalendarStore {
         current = { ...plain, revision: task.revision + 1 };
       } else {
         const until = old?.until && old.until > date ? old.until : model.semesterEnd(date);
-        const [first, ...rest] = repeatOccurrences({ title: task.title, memo: task.memo || '', entry: task.dates[0] }, every, date, until, randomUUID(), old?.skip ?? []);
+        const [first, ...rest] = repeatOccurrences({ title: task.title, memo: task.memo || '', entry: task.dates[0], importance: model.priorityLevel(task) }, every, date, until, randomUUID(), old?.skip ?? []);
         current = { ...task, repeat: first.repeat, revision: task.revision + 1 };
         // 남아 있는(끝냄·따로 고침) 옛 회차와 같은 날은 새로 만들지 않는다.
         const kept = new Set(tasks.filter(item => old && item.repeat?.seriesId === old.seriesId && item.id !== task.id).map(item => item.dates[0].date));
@@ -1542,13 +1544,13 @@ class CalendarStore {
     });
   }
 
-  // 중요: 선생님이 직접 거는 표시(긴급하거나 중요한 일). 목록 묶음 안에서 맨 위에 두고 달력에서 굵게 보인다.
-  setImportant(id, important) {
-    if (typeof important !== 'boolean') throw new CalendarError('중요 여부를 확인해 주세요.');
+  setImportant(id, value) {
+    const importance = typeof value === 'boolean' ? (value ? 2 : 0) : value;
+    if (![0, 1, 2].includes(importance)) throw new CalendarError('중요도를 확인해 주세요.');
     return this.serialize(() => {
       const task = this.getTask(id);
       if (task.candidate) throw new CalendarError('대화방 후보는 먼저 올려 주세요.');
-      return this.replace(task, { important, revision: task.revision + 1 });
+      return this.replace(task, { importance, important: importance > 0, revision: task.revision + 1 });
     });
   }
 
@@ -1817,6 +1819,10 @@ class CalendarStore {
     const location = this.inbox.status === 'ready' && attachment && await this.displayAttachmentPath(task, note, attachment);
     if (!location) throw new CalendarError('저장된 첨부 파일을 찾을 수 없습니다.');
     return { path: location, direct: SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+  }
+
+  setWorkProjectFolder(folder) {
+    return this.serialize(() => this.saveSettings({ ...this.settings, workProjectFolder: folder }));
   }
 
   setAutomatic(enabled) {

@@ -135,10 +135,10 @@ function noteRoles(note, thread) {
   return { senderRole, recipientRoles, quoteRoles, aliases, recipients, key };
 }
 
-function noteMask(note) {
+function noteMask(note, conceal) {
   const item = note || {};
   const thread = quotes(item.body || '');
-  return makeNoteMask(noteRoles(item, thread).aliases, attachmentNames(item));
+  return makeNoteMask(noteRoles(item, thread).aliases, attachmentNames(item), conceal);
 }
 
 function attachmentNames(note) {

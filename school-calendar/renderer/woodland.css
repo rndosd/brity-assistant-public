@@ -1,0 +1,79 @@
+/* 숲속 수첩 — 짙은 천 표지, 크림색 속지와 식물 관찰 삽화. */
+:root[data-skin="woodland"] {
+  --paper: #eae9dc;
+  --sheet: #fffdf3;
+  --ink: #273c30;
+  --ink-2: #495c4d;
+  --ink-3: #626e60;
+  --muted-text: #566555;
+  --rule: #cbd1bd;
+  --rule-strong: #899c82;
+  --today: #f3d48d;
+  --selected: #e1ead8;
+  --hover: #f0f3e6;
+  --important-bg: #f6e5df;
+  --control-accent: #30523b;
+  --control-wash: #e6edde;
+  --control-focus: #35654a;
+  --key-face: #355941;
+  --key-ink: #fff9e6;
+  --key-edge: inset 0 -2px #284632;
+  --panel-control-radius: 6px;
+  --panel-heading-font: "Skin Gowun Batang", serif;
+  --panel-heading-ink: #263f2f;
+  --panel-heading-plain: #edf1e2;
+  --panel-heading-bg: url("skins/squirrel-peek.png") right 12px bottom / auto 40px no-repeat,
+    url("skins/paper-grain.svg"), var(--panel-heading-plain);
+  --panel-heading-edge: 1px solid #a6b59b;
+  --panel-heading-space: 78px;
+  --panel-heading-radius: 6px;
+}
+:root[data-skin="woodland"] body { background: url("skins/paper-grain.svg"), var(--paper); }
+:root[data-skin="woodland"] .app-header {
+  background: repeating-linear-gradient(90deg, transparent 0 2px, #fff1 2px 3px),
+    linear-gradient(105deg, #254b39, #365740);
+  border-bottom: 3px double #cbd1b0;
+}
+:root[data-skin="woodland"] .app-header h1 {
+  display: flex; align-items: center; gap: 8px; color: #fff7df;
+  font: 700 18px/1.2 var(--panel-heading-font);
+}
+:root[data-skin="woodland"] .app-header h1::before {
+  content: ""; flex: none; width: 32px; height: 32px;
+  background: url("skins/squirrel-face.png") center / contain no-repeat;
+}
+:root[data-skin="woodland"] .connection:not(.working) :is(strong, .small-note) { color: #fff7df; }
+:root[data-skin="woodland"] .connection.stopped:not(.working) .small-note { color: #ffcfbd; }
+:root[data-skin="woodland"] .app-header .button { background: var(--sheet); color: var(--ink); }
+:root[data-skin="woodland"] .app-header .button.primary { background: #f4d294; color: #3e3221; border-color: #d5b780; }
+:root[data-skin="woodland"] :is(.button, .zoom, .seg, .list-tabs, input, select, textarea, .paper, dialog) { border-radius: 6px; }
+:root[data-skin="woodland"] .button.primary { color: var(--key-ink); background: var(--key-face); }
+:root[data-skin="woodland"] :is(.list-tabs button[aria-selected="true"], .calendar-mode button[aria-pressed="true"], .create-type label:has(input:checked)) {
+  color: var(--key-ink); background: var(--key-face);
+}
+:root[data-skin="woodland"] .settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--ink); box-shadow: inset 0 -2px var(--key-face); }
+:root[data-skin="woodland"] :is(.today-line, .month-number, .agenda-heading, .original-title) { font-family: var(--panel-heading-font); }
+:root[data-skin="woodland"] .month-number::after {
+  content: ""; display: inline-block; width: 66px; height: 54px; margin-inline-start: 8px; vertical-align: -.12em;
+  background: url("skins/squirrel-study.png") center bottom / contain no-repeat;
+}
+:root[data-skin="woodland"] .todo::after {
+  content: ""; display: block; width: 90px; height: 63px; margin: 18px auto 4px;
+  background: url("skins/squirrel-sleep.png") center / contain no-repeat; pointer-events: none;
+}
+:root[data-skin="woodland"] .calendar-header { border-bottom: 3px double var(--rule-strong); }
+:root[data-skin="woodland"] .day.adjacent { background: #f0f0e4; }
+:root[data-skin="woodland"] .day.is-today { background: #fcf4dd; }
+:root[data-skin="woodland"] .day.is-today .day-number { background: var(--today); color: #45371d; border-radius: 4px; }
+:root[data-skin="woodland"] .detail-panel { background: url("skins/paper-grain.svg"), var(--sheet); }
+:root[data-skin="woodland"] .detail-heading { background: var(--sheet); }
+:root[data-skin="woodland"] .paper { background: #fffef8; border: 1px solid var(--rule); }
+:root[data-skin="woodland"] :focus-visible { outline-color: var(--control-focus); }
+:root[data-skin="woodland"] .app-header :focus-visible { outline-color: #f5da99; }
+.skin-swatch-woodland {
+  background: url("skins/squirrel-study.png") center / auto 53px no-repeat,
+    linear-gradient(90deg, #30503b 0 10%, #b4b492 10% 12%, transparent 12%), url("skins/paper-grain.svg"), #ebeedf;
+}
+@media (max-width: 720px) {
+  :root[data-skin="woodland"] .month-number::after { width: 38px; height: 35px; margin-inline-start: 4px; }
+}

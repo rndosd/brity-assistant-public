@@ -49,6 +49,7 @@ test('백업은 API 키를 빼고, 다른 PC에서 되돌리면 지금 자료를
   await store.refresh();
   const manual = await store.create({ title: '백업할 업무', due: '2026-11-20', memo: '메모도 남는다' });
   await store.saveAiConnection('factchat', 'ENCRYPTED-ONLY-HERE');
+  await store.setWorkProjectFolder(path.join(first.dataDir, 'project'));
   const { buffer, manifest } = await store.createBackup();
   assert.equal(manifest.tasks, 2);
   assert.equal(manifest.notes, 1);
@@ -58,16 +59,20 @@ test('백업은 API 키를 빼고, 다른 PC에서 되돌리면 지금 자료를
   const savedSettings = JSON.parse(readZip(buffer).find(entry => entry.name === 'data/settings.json').data);
   assert.equal(savedSettings.factchatKeyEncrypted, undefined);
   assert.equal(savedSettings.inboxDir, undefined);
+  assert.equal(savedSettings.workProjectFolder, undefined);
   assert.equal(savedSettings.aiProvider, 'factchat');
 
   const second = place('pc2');
   const other = await makeStore(second);
+  const localProject = path.join(second.dataDir, 'project');
+  await other.setWorkProjectFolder(localProject);
   const before = await other.create({ title: '되돌리기 전에 있던 업무', due: '2026-11-21' });
   const result = await other.restoreBackup(buffer);
   assert.equal(result.aiReset, true);
   assert.equal(other.settings.aiProvider, 'none');
   assert.equal(other.settings.automatic, false);
   assert.equal(other.settings.inboxDir, path.resolve(second.inboxDir));
+  assert.equal(other.snapshot().workProjectFolder, localProject);
   await other.refresh();
   const titles = other.snapshot().tasks.map(task => task.title).sort();
   assert.deepEqual(titles, ['백업 시험 쪽지', '백업할 업무']);

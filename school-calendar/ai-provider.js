@@ -49,9 +49,9 @@ function apiError(status, { name, limitMessage }, failure) {
 const REQUEST = Object.freeze({ effort: 'high', fallbackEffort: 'medium', timeoutMs: 90_000 });
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504, 529]);
 
-async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl }) {
+async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl, outputSchema, outputName }) {
   if (provider.kind === 'anthropic') {
-    return require('./anthropic-api').callClaude(provider, input, effort, schema, { apiKey, signal, fetchImpl, timeoutMs: REQUEST.timeoutMs });
+    return require('./anthropic-api').callClaude(provider, input, effort, outputSchema, { apiKey, signal, fetchImpl, timeoutMs: REQUEST.timeoutMs });
   }
   const deadline = AbortSignal.timeout(REQUEST.timeoutMs);
   const execution = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -64,7 +64,7 @@ async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl }) 
       body: JSON.stringify({
         model: provider.model, input, store: false,
         reasoning: { effort }, max_output_tokens: provider.maxOutputTokens,
-        text: { format: { type: 'json_schema', name: 'school_note', strict: true, schema } }
+        text: { format: { type: 'json_schema', name: outputName, strict: true, schema: outputSchema } }
       })
     });
     if (!response.ok) {
@@ -86,15 +86,15 @@ async function callOnce(provider, input, effort, { apiKey, signal, fetchImpl }) 
   }
 }
 
-async function refineApi(provider, note, { rulesPath, apiKey, signal, profile, fetchImpl = fetch, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+async function requestApi(provider, input, { apiKey, signal, fetchImpl = fetch, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) },
+  outputSchema, outputName, resultName) {
   const { name } = provider;
   if (typeof apiKey !== 'string' || !apiKey.trim()) {
     throw aiStopError(`AI 연결 설정에 ${name} 키를 먼저 등록해 주세요.`);
   }
-  const failure = `${name}에서 정리를 받지 못했습니다.`;
+  const failure = `${name}에서 ${resultName} 받지 못했습니다.`;
   try {
-    const input = await buildClassifierInput(note, rulesPath, profile);
-    const options = { apiKey, signal, fetchImpl };
+    const options = { apiKey, signal, fetchImpl, outputSchema, outputName };
     let reply = await callOnce(provider, input, REQUEST.effort, options);
     if (reply.limit) reply = await callOnce(provider, input, REQUEST.fallbackEffort, options);
     else if (RETRY_STATUS.has(reply.status) || reply.timeout) {
@@ -117,7 +117,8 @@ async function refineWithProvider(provider, note, options) {
   if (provider === 'claude') return require('./claude-cli').refineClaude(note, options);
   const connection = apiProviders.get(provider);
   if (!connection) throw aiStopError('설정에서 AI 연결 방식을 선택해 주세요.');
-  return refineApi(connection, note, options);
+  const input = await buildClassifierInput(note, options.rulesPath, options.profile);
+  return requestApi(connection, input, options, schema, 'school_note', '정리를');
 }
 
-module.exports = { apiProviders, classifierSample, refineWithProvider, cleanReplyBody };
+module.exports = { apiProviders, classifierSample, refineWithProvider, cleanReplyBody, requestApi };

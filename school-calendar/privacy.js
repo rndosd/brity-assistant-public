@@ -252,7 +252,7 @@ function noteLinks(text, source) {
   });
 }
 
-function makeNoteMask(aliases, attachmentNames = []) {
+function makeNoteMask(aliases, attachmentNames = [], conceal = (_original, label) => label) {
   const names = [...aliases.keys()].sort((a, b) => b.length - a.length);
   const escape = text => text.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
   const patterns = names.map(name => {
@@ -270,31 +270,34 @@ function makeNoteMask(aliases, attachmentNames = []) {
   return value => {
     let text = String(value ?? '');
     for (const attachment of attachments) {
-      const masked = filenamePatterns.reduce((filename, [pattern, alias]) => filename.replace(pattern, alias), attachment);
+      if (!text.includes(attachment)) continue;
+      const masked = filenamePatterns.reduce((filename, [pattern, alias]) => filename.replace(pattern, name => conceal(name, alias)), attachment);
       if (masked !== attachment) text = text.replaceAll(attachment, () => masked);
     }
-    text = text.replace(URL_TEXT, url => '[링크]' + splitNoteLink(url)[1])
-      .replace(NATIONAL_ID, '[주민등록번호]')
-      .replace(COMPACT_NATIONAL_ID, '$1[주민등록번호]')
-      .replace(STUDENT_ID, (match, label, number) => ISO_DAY.test(number) ? match : label + '[학생 번호]')
+    text = text.replace(URL_TEXT, url => {
+      const [value, suffix] = splitNoteLink(url);
+      return conceal(value, '[링크]') + suffix;
+    }).replace(NATIONAL_ID, value => conceal(value, '[주민등록번호]'))
+      .replace(COMPACT_NATIONAL_ID, (match, label) => label + conceal(match.slice(label.length), '[주민등록번호]'))
+      .replace(STUDENT_ID, (match, label, number) => ISO_DAY.test(number) ? match : label + conceal(number, '[학생 번호]'))
       .replace(STUDENT_CLASS, (match, _grade, _room, number, name) => number && aliases.has(name) ?
-        match.replace(/\d{1,2}[ \t]*번/u, '[학생 번호]') : match)
-      .replace(ACCOUNT_NUMBER, (match, label, account) => ISO_DAY.test(account) ? match : label + '[계좌번호]')
-      .replace(ADDRESS_UNIT, '[상세 주소]')
-      .replace(PASSWORD_FIELD, '$1[비밀번호]');
+        match.replace(/\d{1,2}[ \t]*번/u, value => conceal(value, '[학생 번호]')) : match)
+      .replace(ACCOUNT_NUMBER, (match, label, account) => ISO_DAY.test(account) ? match : label + conceal(account, '[계좌번호]'))
+      .replace(ADDRESS_UNIT, value => conceal(value, '[상세 주소]'))
+      .replace(PASSWORD_FIELD, (match, label) => label + conceal(match.slice(label.length), '[비밀번호]'));
     for (const [label, pattern] of CONTACT_PATTERNS) {
-      text = text.replace(pattern, label === '전화' ? '[전화번호]' : '[이메일]');
+      text = text.replace(pattern, value => conceal(value, label === '전화' ? '[전화번호]' : '[이메일]'));
     }
     for (const pattern of STUDENT_NAMES) {
       text = text.replace(pattern, (match, name) => {
         const alias = aliases.get(name);
         if (!alias) return match;
         const offset = match.lastIndexOf(name);
-        return match.slice(0, offset) + alias + match.slice(offset + name.length);
+        return match.slice(0, offset) + conceal(name, alias) + match.slice(offset + name.length);
       });
     }
-    for (const [pattern, replacement] of patterns) text = text.replace(pattern, replacement);
-    for (const [pattern, replacement] of signaturePatterns) text = text.replace(pattern, replacement);
+    for (const [pattern, replacement] of patterns) text = text.replace(pattern, value => conceal(value, replacement));
+    for (const [pattern, replacement] of signaturePatterns) text = text.replace(pattern, value => conceal(value, replacement));
     return text;
   };
 }
