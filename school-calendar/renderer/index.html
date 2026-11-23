@@ -14,6 +14,8 @@
   <script defer src="task-model.js"></script>
   <script defer src="note-view.js"></script>
   <script defer src="app.js"></script>
+  <script defer src="memo-ui.js"></script>
+  <script defer src="batch-edit.js"></script>
 </head>
 <body>
   <!-- 선 아이콘(2026-11-20 사용자): 뜻이 하나로 읽히는 닫기·고치기·복사·폴더만. 색은 글자색, 선 굵기는 스킨이 --icon-stroke로 정한다. -->
@@ -26,6 +28,7 @@
     <symbol id="i-polish" viewBox="0 0 24 24"><path d="m6 16 10-10a2.1 2.1 0 0 1 3 3L9 19l-4 1 1-4Zm8-8 3 3M6 2l1.1 3L10 6l-2.9 1L6 10 5 7 2 6l3-1Z"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="1.5"/><path d="M15.5 8.5V5.5A1.5 1.5 0 0 0 14 4H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
+    <symbol id="i-view-settings" viewBox="0 0 24 24"><path d="M4 6h5m4 0h7M9 3v6M4 12h10m4 0h2m-6-3v6M4 18h3m4 0h9M7 15v6"/></symbol>
   </svg>
   <header class="app-header">
     <h1><span id="app-name">브리티 메신저 캘린더</span> <span class="badge" id="demo-badge" hidden>샘플</span></h1>
@@ -92,9 +95,6 @@
         <button type="button" role="tab" data-view="done" id="tab-done" aria-controls="view-done">
           <span class="tab-title">처리한 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
         </button>
-        <button type="button" role="tab" data-view="past" id="tab-past" aria-controls="view-past">
-          <span class="tab-title">지난 일정</span> <span class="tab-counts"><b id="past-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="past-unread"></b></span></span>
-        </button>
         <button type="button" role="tab" data-view="hidden" id="tab-hidden" aria-controls="view-hidden">
           <span class="tab-title">숨긴 것</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
         </button>
@@ -106,7 +106,6 @@
       <div class="list-view" id="view-candidate" data-view="candidate" role="tabpanel" aria-labelledby="tab-candidate" hidden><div id="candidate-list"></div></div>
       <div class="list-view" id="view-reference" data-view="reference" role="tabpanel" aria-labelledby="tab-reference" hidden><ul class="rows refs" id="reference-list"></ul></div>
       <div class="list-view" id="view-done" data-view="done" role="tabpanel" aria-labelledby="tab-done" hidden><ul class="rows" id="done-list"></ul></div>
-      <div class="list-view" id="view-past" data-view="past" role="tabpanel" aria-labelledby="tab-past" hidden><ul class="rows" id="past-list"></ul></div>
       <div class="list-view" id="view-hidden" data-view="hidden" role="tabpanel" aria-labelledby="tab-hidden" hidden><ul class="rows" id="hidden-list"></ul></div>
       <section class="search-view" id="view-search" aria-label="검색 결과" hidden>
         <p class="search-status" id="search-status" role="status"></p>
@@ -118,40 +117,49 @@
          aria-orientation="vertical" aria-label="왼쪽 목록 너비" aria-controls="calendar-list-pane"
          title="끌어서 목록 너비 조절 · 두 번 누르면 기본값"></div>
     <section class="calendar" aria-labelledby="month-title">
-      <div class="calendar-view-tools">
-        <div class="calendar-mode" role="group" aria-label="보기 방식">
-          <button type="button" id="mode-month" aria-pressed="true">월간 달력</button>
-          <button type="button" id="mode-agenda" aria-pressed="false">모아보기</button>
-        </div>
-        <label class="week-height-choice">주 높이
-          <select id="week-layout"><option value="equal">균등</option><option value="fit">업무량에 맞춤</option></select>
-        </label>
-      </div>
-      <section id="agenda" aria-label="모아보기" hidden></section>
       <div class="calendar-header">
-        <h2 class="month-number" id="month-title" aria-live="polite"><span id="month-value"></span><span class="month-unit">월</span></h2>
-        <p class="year" id="year-label"></p>
-        <!-- 오늘 급식(나이스, 2026-11-20 사용자 "너무 꽉 차니까 캘린더 상단에"): 달 이름 옆 한 줄, 누르면 메뉴를 한 줄에 하나씩. 설정에서 끈다. -->
+        <div class="calendar-date">
+          <h2 class="month-number" id="month-title" aria-live="polite"><span id="month-value"></span><span class="month-unit">월</span></h2>
+          <p class="year" id="year-label"></p>
+        </div>
+        <div class="calendar-mode" role="group" aria-label="보기 방식">
+          <button type="button" id="mode-month" aria-pressed="true">월간</button>
+          <button type="button" id="mode-agenda" aria-pressed="false">목록</button>
+        </div>
         <div class="header-meal" id="meal-box" hidden>
           <button type="button" class="today-meal" id="today-meal" aria-expanded="false" aria-controls="meal-pop"></button>
           <div class="meal-pop" id="meal-pop" hidden></div>
         </div>
-        <ul class="legend" aria-label="표시 기호">
-          <li><span class="box" aria-hidden="true"></span>마감</li>
-          <li><span class="disc" aria-hidden="true"></span>일정</li>
-          <li title="날짜 없이 받은 할 일. 끝낼 때까지 오늘 칸에 따라옵니다"><span class="ring" aria-hidden="true"></span>기한 없음</li>
-          <li><span class="bar" aria-hidden="true"></span>기간</li>
-          <li class="ref-label">확인할 것</li>
-          <li id="chat-candidate-legend"><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
-        </ul>
-        <div class="calendar-controls" aria-label="달력 이동">
-          <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
-          <button type="button" class="button" id="today">오늘</button>
-          <button type="button" class="button" id="next" aria-label="다음 달">›</button>
+        <div class="calendar-view-actions">
+          <button type="button" class="button small" id="batch-open">묶어서 편집</button>
+          <details id="calendar-view-settings">
+            <summary class="button icon-button" aria-label="보기 설정" title="보기 설정"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-view-settings"></use></svg></summary>
+            <div class="calendar-view-options">
+              <fieldset id="week-layout">
+                <legend>달력 칸 크기</legend>
+                <label><input type="radio" name="calendar-week-layout" value="equal" checked>같은 크기로</label>
+                <label><input type="radio" name="calendar-week-layout" id="week-layout-fit" value="fit">업무 많은 주는 넓게</label>
+              </fieldset>
+            </div>
+          </details>
+          <div class="calendar-controls" role="group" aria-label="달력 이동">
+            <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
+            <button type="button" class="button" id="today">오늘</button>
+            <button type="button" class="button" id="next" aria-label="다음 달">›</button>
+          </div>
         </div>
       </div>
+      <section id="agenda" aria-label="업무 목록" hidden></section>
       <div class="weekdays" aria-hidden="true"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="weekday-sat">토</span><span class="weekday-sun">일</span></div>
       <div class="month" id="month" aria-label="날짜별 업무"></div>
+      <ul class="legend" aria-label="표시 기호">
+        <li><span class="box" aria-hidden="true"></span>마감</li>
+        <li><span class="disc" aria-hidden="true"></span>일정</li>
+        <li title="날짜 없이 받은 할 일. 끝낼 때까지 오늘 칸에 따라옵니다"><span class="ring" aria-hidden="true"></span>기한 없음</li>
+        <li><span class="bar" aria-hidden="true"></span>기간</li>
+        <li class="ref-label">확인할 것</li>
+        <li id="chat-candidate-legend"><span class="candidate-swatch" aria-hidden="true"></span>후보</li>
+      </ul>
     </section>
 
     <div class="pane-divider" id="detail-divider" role="separator" tabindex="0"
@@ -177,6 +185,7 @@
             </div>
           </details>
         </div>
+        <button type="button" class="button small" id="batch-return" hidden>묶음으로 돌아가기</button>
         <button type="button" class="button icon-button close" id="detail-close" aria-label="자세히 닫기" title="닫기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button>
       </div>
       <p class="detail-message" id="detail-message" role="status" hidden></p>
@@ -206,8 +215,8 @@
           </div>
           <div class="date-view task-status-row" id="task-status-row">
             <div class="priority-picker" id="important" role="group" aria-label="중요도" hidden>
-              <button type="button" data-stars="1" aria-label="중요" title="중요" aria-pressed="false">☆</button>
-              <button type="button" data-stars="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">☆</button>
+              <button type="button" data-priority="1" aria-label="중요" title="중요" aria-pressed="false">중요</button>
+              <button type="button" data-priority="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">매우 중요</button>
             </div>
             <span class="detail-date-heading" id="loose-label" hidden><span class="ring" aria-hidden="true"></span>기한 없음</span>
             <span class="detail-date-heading" id="reference-label" hidden>쪽지 확인</span>
@@ -337,7 +346,7 @@
 
         <section class="detail-actions work-section" id="work-section" aria-label="이어서 하기">
           <div class="ai-actions">
-            <button type="button" class="button small" id="project-start-open" aria-controls="project-fields" aria-expanded="false" hidden>프로젝트에서 시작</button>
+            <button type="button" class="button small" id="project-start-open" aria-describedby="work-edit-note" aria-controls="project-fields" aria-expanded="false" hidden>프로젝트에서 시작</button>
           </div>
           <section class="mcp-section" id="project-fields" aria-label="프로젝트에서 시작" hidden>
             <label class="field" for="project-intent">어떤 일을 맡길까요?</label>
@@ -357,14 +366,6 @@
             <p class="small-note" id="project-missing-agent" role="status" hidden></p>
             <p class="small-note" id="note-ai-status" role="status" hidden></p>
           </section>
-          <details class="work-other" id="work-other">
-            <summary>다른 방법</summary>
-            <div class="ai-actions">
-              <button type="button" class="button text-button small" id="work-copy" aria-describedby="work-edit-note">채팅용 지시문 복사</button>
-              <button type="button" class="button small" id="mcp-share-open" aria-haspopup="dialog" hidden>AI로 보내기</button>
-              <button type="button" class="button small" id="codex-work-open" aria-haspopup="dialog" hidden>업무 맡기기</button>
-            </div>
-          </details>
           <p class="small-note" id="work-edit-note" hidden>쪽지 변경 내용을 먼저 저장해 주세요.</p>
           <p class="small-note work-message" id="work-message" role="status" hidden></p>
         </section>
@@ -379,20 +380,35 @@
   </main>
 
   <dialog id="create-dialog" aria-labelledby="create-heading">
-    <form id="create-form">
+    <div class="create-unified-header">
       <h2 id="create-heading">업무 추가</h2>
+      <div class="create-mode-tabs" role="tablist" aria-label="업무 추가 방법">
+        <button type="button" role="tab" id="create-mode-memo" aria-controls="memo-form" aria-selected="true">메모로 적기</button>
+        <button type="button" role="tab" id="create-mode-direct" aria-controls="create-form" aria-selected="false" tabindex="-1">직접 입력</button>
+      </div>
+    </div>
+    <form id="memo-form" role="tabpanel" aria-labelledby="create-mode-memo">
+      <div id="memo-source">
+        <label class="field" for="memo-text">메모를 자유롭게 적어 주세요</label>
+        <textarea id="memo-text" rows="9" maxlength="4000" aria-describedby="memo-input-hint" placeholder="내일 출장 신청하기&#10;금요일까지 연수 보고서 제출&#10;학년 회의 아이디어: 책상 배치 바꿔볼까&#10;전화해야 하는데 누구였지…"></textarea>
+        <p class="field-hint" id="memo-input-hint">생각이나 참고할 내용도 함께 적어도 됩니다. 업무 후보는 한 번에 20개까지 확인합니다.</p>
+        <p class="field-hint">적은 메모를 설정한 AI로 보냅니다. 닫아 둔 메모는 이 PC에 임시로 남습니다.</p>
+        <p class="field-hint" id="memo-reference"></p>
+      </div>
+      <div class="memo-review-header"><h3 id="memo-result-heading" hidden>업무 후보</h3><button type="button" class="button text-button small" id="memo-edit-source" aria-controls="memo-source" aria-expanded="false" hidden>원문 고치기</button></div>
+      <div id="memo-preview" hidden></div>
+      <p id="memo-status" class="form-message" role="status" hidden></p>
+      <div class="dialog-actions"><button type="button" class="button" id="memo-close">닫기</button><button type="button" class="button primary" id="memo-polish">AI로 다듬기</button><button type="button" class="button primary" id="memo-register" hidden>달력에 넣기</button></div>
+    </form>
+    <form id="create-form" role="tabpanel" aria-labelledby="create-mode-direct" hidden>
       <label class="field">제목<input id="create-title" required maxlength="180" autocomplete="off" autofocus placeholder="예: 학년 협의회 자료 준비"></label>
       <!-- 날짜 고치기와 같은 칸: 날짜 | 종류, (기간이면) 끝 날짜, 시간·교시(선택) -->
       <div class="create-date-row">
         <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
+        <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 6교시"></label>
         <label class="field">날짜 지정<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
         <label class="field" id="create-end-field" hidden>끝 날짜<input id="create-end" type="date" required max="9999-12-31" disabled></label>
-        <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 예: 6교시"></label>
-        <!-- 반복(2026-11-20): 요일·날짜는 위 날짜를 따른다. 끝은 학기 끝. 날짜 하나인 할 일에만. -->
-        <label class="field" id="create-repeat-field">반복<select id="create-repeat"><option value="none">안 함</option><option value="week">매주</option><option value="2weeks">격주</option><option value="month">매월</option></select></label>
       </div>
-      <p class="create-repeat-hint" id="create-repeat-hint" hidden><span id="create-repeat-summary"></span>
-        <label class="check-option" id="create-skip-off-field" hidden><input type="checkbox" id="create-skip-off" checked><span id="create-skip-off-label">학교 쉬는 날 빼기</span></label></p>
       <!-- 더 넣는 날짜(2026-11-19): 제출일과 행사일처럼 날짜가 둘 이상인 업무. 모두 합쳐 셋까지, 마감·일정만. -->
       <ul class="create-extra-dates" id="create-extra-dates"></ul>
       <button type="button" class="button text-button small" id="create-add-date">+ 날짜 더하기</button>
@@ -403,16 +419,24 @@
           <label><input type="radio" name="create-type" value="알아 둘 것">확인할 것</label>
         </div>
         <div class="priority-picker" id="create-important" role="group" aria-label="중요도">
-          <button type="button" data-stars="1" aria-label="중요" title="중요" aria-pressed="false">☆</button>
-          <button type="button" data-stars="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">☆</button>
+          <button type="button" data-priority="1" aria-label="중요" title="중요" aria-pressed="false">중요</button>
+          <button type="button" data-priority="2" aria-label="매우 중요" title="매우 중요" aria-pressed="false">매우 중요</button>
         </div>
+        <label class="check-option" id="create-repeat-toggle"><input type="checkbox" id="create-repeat-enabled">반복</label>
         <label class="check-option" id="create-pinned-field"><input type="checkbox" id="create-pinned">상시</label>
+      </div>
+      <div class="create-repeat-settings" id="create-repeat-settings" hidden>
+        <label class="field" id="create-repeat-field" hidden>반복 간격<select id="create-repeat"><option value="none" hidden>안 함</option><option value="week">매주</option><option value="2weeks">격주</option><option value="month">매월</option></select></label>
+        <div class="create-repeat-hint" id="create-repeat-hint" hidden><span id="create-repeat-summary"></span>
+          <label class="check-option" id="create-skip-off-field" hidden><input type="checkbox" id="create-skip-off" checked><span id="create-skip-off-label">학교 쉬는 날 빼기</span></label></div>
       </div>
       <label class="field">내용 <span class="field-hint">(선택)</span><textarea id="create-memo" rows="4" maxlength="4000" placeholder="준비물, 제출처, 할 일 순서 등"></textarea></label>
       <p class="form-error" id="create-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" class="button" id="create-cancel">취소</button><button type="submit" class="button primary" id="create-save">업무 추가</button></div>
     </form>
   </dialog>
+
+
 
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-heading">
     <div class="settings-head">
@@ -878,9 +902,37 @@
     <div class="dialog-body">
       <h2 id="day-heading"></h2>
       <div id="day-items-list"></div>
-      <div class="dialog-actions"><button type="button" class="button" id="day-close">닫기</button></div>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="day-batch">묶어서 편집</button>
+        <button type="button" class="button" id="day-close">닫기</button>
+      </div>
     </div>
   </dialog>
+  <dialog id="batch-dialog" aria-labelledby="batch-heading">
+    <div class="dialog-body">
+      <h2 id="batch-heading">업무 묶어서 편집</h2>
+      <div class="batch-range">
+        <div class="calendar-mode" role="group" aria-label="편집 범위">
+          <button type="button" id="batch-day" aria-pressed="true" autofocus>하루</button>
+          <button type="button" id="batch-week" aria-pressed="false">일주일</button>
+        </div>
+        <input type="date" id="batch-date" aria-label="기준 날짜">
+        <span class="small-note" id="batch-range-label"></span>
+        <label class="batch-select-all check-field" id="batch-select-all-label" hidden><input type="checkbox" id="batch-select-all">전체 선택</label>
+      </div>
+      <div id="batch-rows"></div>
+      <p class="small-note" id="batch-message" role="status" hidden></p>
+      <div class="dialog-actions batch-actions">
+        <button type="button" class="button" id="batch-complete" disabled>선택 완료·확인</button>
+        <button type="button" class="button" id="batch-close">닫기</button>
+        <button type="button" class="button primary" id="batch-save" disabled>저장</button>
+      </div>
+    </div>
+  </dialog>
+  <div id="processing-undo" class="notice" hidden>
+    <span id="processing-undo-message" role="status"></span>
+    <button id="processing-undo-button" type="button">되돌리기</button>
+  </div>
   <div id="notice" class="notice" role="status" hidden></div>
 </body>
 </html>

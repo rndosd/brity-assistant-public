@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "kind", "date", "end", "time", "note"],
+        "properties": {
+          "title": {"type": "string"},
+          "kind": {"type": "string", "enum": ["까지", "그날", "기간", "기한 없음"]},
+          "date": {"type": ["string", "null"]},
+          "end": {"type": ["string", "null"]},
+          "time": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

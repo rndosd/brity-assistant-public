@@ -1145,6 +1145,38 @@ class CalendarStore {
     });
   }
 
+  registerMemo(input) {
+    return this.serialize(async () => {
+      const { validateDraft, normalizeProposals } = require('./memo');
+      let draft, items;
+      try {
+        draft = validateDraft(input?.draft);
+        items = normalizeProposals(input?.items);
+      } catch (error) { throw new CalendarError(error.message); }
+      if (!items.length) throw new CalendarError('달력에 넣을 업무를 하나 이상 골라 주세요.');
+      const fingerprint = textHash(JSON.stringify({ draft, items }));
+      const existing = this.tasks.filter(task => task.memoImportId === draft.id);
+      if (existing.length) {
+        if (existing.some(task => task.memoImportHash !== fingerprint)) throw new CalendarError('이미 넣은 메모입니다. 새 메모로 적어 주세요.');
+        return existing.map(task => this.taskView(task));
+      }
+      const added = items.map(item => {
+        const loose = item.kind === '기한 없음';
+        const entry = {
+          date: loose ? draft.referenceDate : item.date,
+          kind: loose ? '그날' : item.kind,
+          label: item.title.slice(0, model.LABEL_MAX), done: false,
+          ...(loose ? { received: true } : item.time ? { time: item.time } : {}),
+          ...(item.kind === '기간' && { end: item.end })
+        };
+        const dates = model.normalizeDates([entry], item.title, true);
+        return { ...newTask(null, item.title, dates), memo: memoValue(draft.text), memoImportId: draft.id, memoImportHash: fingerprint, memoReferenceDate: draft.referenceDate };
+      });
+      await this.commit([...this.tasks, ...added]);
+      return added.map(task => this.taskView(task));
+    });
+  }
+
   create(input) {
     return this.serialize(async () => {
       const title = titleValue(input?.title);
@@ -1337,6 +1369,100 @@ class CalendarStore {
     });
   }
 
+  batchEdit(changes) {
+    if (!Array.isArray(changes) || !changes.length) throw new CalendarError('바꿀 업무를 확인해 주세요.');
+    return this.serialize(async () => {
+      const edits = new Map();
+      for (const change of changes) {
+        const task = this.getTask(change?.id);
+        if (task.type === '없음' || task.candidate || task.revision !== change.revision) {
+          throw new CalendarError('다른 곳에서 업무가 바뀌었어요. 목록을 다시 열어 주세요.');
+        }
+        if (!edits.has(task.id)) edits.set(task.id, new Map());
+        const entries = edits.get(task.id);
+        const index = change.index;
+        if (entries.has(index) || (index === null
+          ? task.dates.length || task.type !== '할 일'
+          : !Number.isInteger(index) || !task.dates[index])) {
+          throw new CalendarError('바꿀 업무의 날짜를 확인해 주세요.');
+        }
+        entries.set(index, change);
+      }
+      const updated = this.tasks.map(task => {
+        const entries = edits.get(task.id);
+        if (!entries) return task;
+        const next = { ...task, dates: task.dates.slice(), revision: task.revision + 1, autoPending: false };
+        let scheduleChanged = false;
+        for (const [index, change] of entries) {
+          const original = task.dates[index];
+          const entry = original ? { ...original } : {
+            label: task.title.slice(0, model.LABEL_MAX), kind: '까지', done: task.done === true
+          };
+          if (change.done !== undefined) {
+            if (typeof change.done !== 'boolean' || task.type !== '할 일' || !model.checkable(entry)) {
+              throw new CalendarError('완료로 표시할 업무를 확인해 주세요.');
+            }
+            entry.done = change.done;
+            if (!original) next.done = change.done;
+          }
+          if (change.seen !== undefined) {
+            if (typeof change.seen !== 'boolean' || task.type !== '알아 둘 것') {
+              throw new CalendarError('확인할 쪽지를 다시 골라 주세요.');
+            }
+            next.referenceSeen = change.seen;
+          }
+          if (change.date !== undefined) {
+            if (!model.validDate(change.date)) throw new CalendarError('날짜를 입력해 주세요.');
+            entry.date = change.date;
+            if (entry.received) {
+              delete entry.received;
+              entry.kind = '까지';
+            }
+            scheduleChanged = true;
+          }
+          if (change.end !== undefined) {
+            if (entry.kind !== '기간' || !model.validDate(change.end)) throw new CalendarError('끝 날짜를 확인해 주세요.');
+            entry.end = change.end;
+            scheduleChanged = true;
+          }
+          if (change.time !== undefined) {
+            if (entry.kind === '기간' || !entry.date || entry.received || typeof change.time !== 'string') {
+              throw new CalendarError('시간을 적으려면 날짜를 입력해 주세요.');
+            }
+            const time = model.cleanTime(change.time);
+            if (time) entry.time = time;
+            else delete entry.time;
+            scheduleChanged = true;
+          }
+          if (entry.kind === '기간' && entry.end <= entry.date) {
+            throw new CalendarError(`‘${entry.label}’의 끝 날짜는 시작 날짜보다 뒤여야 합니다.`);
+          }
+          if (original) next.dates[index] = entry;
+          else if (entry.date) {
+            next.dates.push(entry);
+            next.done = false;
+          }
+        }
+        if (scheduleChanged) {
+          const dates = model.normalizeDates(next.dates, task.title, true);
+          if (dates.length !== next.dates.length) {
+            throw new CalendarError(`‘${task.title}’에 같은 날짜 항목이 겹칩니다. 날짜나 시간을 바꿔 주세요.`);
+          }
+          next.dates = dates;
+          if (task.repeat) next.repeat = { ...task.repeat, edited: true };
+          next.uncertain = false;
+          next.refineFailure = undefined;
+          const after = answerOf(next);
+          if (task.noteId && JSON.stringify(answerOf(task)) !== JSON.stringify(after)) {
+            next.correction = { ai: task.aiAnswer ?? null, value: after, at: new Date().toISOString() };
+          }
+        }
+        return next;
+      });
+      await this.commit(updated);
+    });
+  }
+
   candidateTask(id) {
     const task = this.getTask(id);
     if (!isCandidate(task)) throw new CalendarError('이미 정한 후보입니다. 목록을 다시 확인해 주세요.');
@@ -1510,20 +1636,27 @@ class CalendarStore {
     });
   }
 
-  markReferenceSeen(id) {
+  markReferenceSeen(id, seen = true, expectedRevision) {
+    if (typeof seen !== 'boolean') throw new CalendarError('확인 여부를 확인해 주세요.');
     return this.serialize(() => {
       const task = this.getTask(id);
       if (task.type !== '알아 둘 것') throw new CalendarError('알아 둘 것만 목록에서 내릴 수 있습니다.');
-      return this.replace(task, { referenceSeen: true });
+      if (expectedRevision !== undefined && task.revision !== expectedRevision) {
+        throw new CalendarError('쪽지가 바뀌어 방금 처리를 되돌릴 수 없습니다.');
+      }
+      return this.replace(task, { referenceSeen: seen, revision: task.revision + 1 });
     });
   }
 
   // index가 숫자면 그 까지·그날 날짜 하나, 'all'이면 남은 □ 모두, null이면 날짜 없는 할 일.
-  setDone(id, done, index = 'all') {
+  setDone(id, done, index = 'all', expectedRevision) {
     if (typeof done !== 'boolean') throw new CalendarError('완료 여부를 확인해 주세요.');
     return this.serialize(() => {
       const task = this.getTask(id);
       if (task.candidate) throw new CalendarError('대화방 후보는 먼저 올려 주세요.');
+      if (expectedRevision !== undefined && task.revision !== expectedRevision) {
+        throw new CalendarError('업무가 바뀌어 방금 완료를 되돌릴 수 없습니다.');
+      }
       const list = model.boxes(task);
       const targets = index === 'all' ? list : list.filter(box => box.index === index);
       if (!targets.length) throw new CalendarError('끝냄으로 표시할 칸이 없습니다.');

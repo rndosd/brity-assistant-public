@@ -149,6 +149,8 @@ function entryLate(task, entry, today = key(new Date())) {
   return task.type === '할 일' && entry?.kind === '까지' && !entry.done && entry.date < today;
 }
 
+const DATE_PASSED = '날짜 지남';
+
 function entryPastSchedule(task, entry, today) {
   return !task.candidate && task.type === '할 일' && entry?.kind === '그날' && !looseEntry(task, entry) && entry.done !== true && entry.date < today;
 }
@@ -258,15 +260,110 @@ function restoreFocus(focusKey) {
 }
 
 // index: 까지 날짜의 순번, null이면 날짜 없는 할 일.
-async function toggleDone(task, index, done) {
+// 처리 전 목록 순서를 기억한다. 저장 중 다른 쪽지를 열었으면 이동하지 않는다.
+function completionQueue(id) {
+  const view = document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view;
+  if (!['todo', 'reference'].includes(view)) return null;
+  const rows = [...$(`view-${view}`).querySelectorAll('.row')];
+  const current = rows.findIndex(row => row.classList.contains('selected'));
+  if (current < 0 || id !== state.selected) return null;
+  const ids = [...rows.slice(current + 1), ...rows.slice(0, current)].map(row => row.dataset.taskId);
+  return { id, view, ids: [...new Set(ids)].filter(next => next && next !== id) };
+}
+
+function advanceAfterCompletion(queue) {
+  if (!queue || state.selected !== queue.id || state.dirty ||
+      document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view !== queue.view) return;
+  const rows = [...$(`view-${queue.view}`).querySelectorAll('.row')];
+  const next = queue.ids.map(id => rows.find(row => row.dataset.taskId === id)).find(Boolean);
+  if (!next) { closeDetail(); return; }
+  const pick = next.querySelector('.pick');
+  selectTask(next.dataset.taskId, pick?.dataset.focusKey);
+  next.scrollIntoView({ block: 'nearest' });
+}
+
+const completingTasks = new Set();
+let processingUndo;
+let processingUndoTimer;
+
+function expireProcessingUndo() {
+  const panel = $('processing-undo');
+  if (panel.matches(':hover, :focus-within')) {
+    processingUndoTimer = setTimeout(expireProcessingUndo, 1000);
+    return;
+  }
+  processingUndo = null;
+  panel.hidden = true;
+}
+
+function offerProcessingUndo(saved, index, reference = false) {
+  clearTimeout(processingUndoTimer);
+  processingUndo = { id: saved.id, revision: saved.revision, index, reference };
+  $('processing-undo-button').disabled = false;
+  $('processing-undo').hidden = false;
+  $('processing-undo-message').textContent = reference ? '확인했어요.' : '완료했어요.';
+  processingUndoTimer = setTimeout(expireProcessingUndo, 8000);
+}
+
+$('processing-undo-button').addEventListener('click', async () => {
+  const action = processingUndo;
+  if (!action || completingTasks.has(action.id)) return;
+  if (state.dirty || state.saving) {
+    notice('지금 편집 중인 내용을 저장한 뒤 되돌릴 수 있습니다.');
+    return;
+  }
+  const { selected, selectedChat, forwardedDraft } = state;
+  clearTimeout(processingUndoTimer);
+  completingTasks.add(action.id);
+  $('processing-undo-button').disabled = true;
+  try {
+    const { id, index, revision, reference } = action;
+    if (reference) await api.markReferenceSeen(id, false, revision);
+    else await api.setDone(id, false, index, revision);
+    redraw();
+    if (selected === state.selected && selectedChat === state.selectedChat &&
+        forwardedDraft === state.forwardedDraft && !state.dirty && !state.saving) {
+      selectTask(id);
+      revealInList(id, index);
+    }
+    notice(reference ? '확인을 되돌렸어요.' : '완료를 되돌렸어요.');
+  } catch (error) {
+    notice(error.message);
+    if (action === processingUndo) {
+      $('processing-undo-button').disabled = false;
+      processingUndoTimer = setTimeout(expireProcessingUndo, 8000);
+    }
+    return;
+  } finally {
+    completingTasks.delete(action.id);
+  }
+  if (action === processingUndo) {
+    processingUndo = null;
+    $('processing-undo').hidden = true;
+  }
+});
+
+async function toggleDone(task, index, done, advance = false) {
+  if (completingTasks.has(task.id)) return;
   if (task.id === state.selected && state.dirty) {
     notice('변경을 저장한 뒤 끝냄을 표시할 수 있습니다.');
     return;
   }
+  const queue = advance && done ? completionQueue(task.id) : null;
+  completingTasks.add(task.id);
   try {
-    await api.setDone(task.id, done, index);
+    const saved = await api.setDone(task.id, done, index);
+    const today = key(new Date());
+    if (queue && boxes(saved).every(({ index, done }) =>
+      done || (index !== null && entryPastSchedule(saved, saved.dates[index], today)))) {
+      redraw();
+      advanceAfterCompletion(queue);
+    }
+    if (advance && done) offerProcessingUndo(saved, index);
   } catch (error) {
     notice(error.message);
+  } finally {
+    completingTasks.delete(task.id);
   }
 }
 
@@ -358,29 +455,18 @@ function calendarLabel(task, entry) {
   return ambiguous ? entry.label : brief;
 }
 
-function priorityMark(level) {
-  const mark = element('span', 'priority-mark', '★'.repeat(level));
-  mark.dataset.level = String(level);
-  mark.title = level === 2 ? '매우 중요' : '중요';
-  mark.setAttribute('role', 'img');
-  mark.setAttribute('aria-label', mark.title);
-  return mark;
-}
-
 function drawPriority(picker, level, disabled = false) {
   picker.dataset.level = String(level);
-  for (const star of picker.children) {
-    const value = Number(star.dataset.stars);
-    const filled = value <= level;
-    star.classList.toggle('filled', filled);
-    star.textContent = filled ? '★' : '☆';
-    star.setAttribute('aria-pressed', String(value === level));
-    star.disabled = disabled;
+  for (const control of picker.children) {
+    const value = Number(control.dataset.priority);
+    control.textContent = value === 2 ? '매우 중요' : '중요';
+    control.setAttribute('aria-pressed', String(value === level));
+    control.disabled = disabled;
   }
 }
 
-function nextPriority(picker, star) {
-  const value = Number(star.dataset.stars);
+function nextPriority(picker, control) {
+  const value = Number(control.dataset.priority);
   return Number(picker.dataset.level) === value ? 0 : value;
 }
 
@@ -389,7 +475,7 @@ function markCalendarPriority(node, level) {
   const label = level === 2 ? '매우 중요' : '중요';
   node.dataset.priority = String(level);
   node.setAttribute('aria-description', label);
-  node.title += ' · ' + label;
+  node.title = [node.title, label].filter(Boolean).join(' · ');
 }
 
 function calendarItem(task, entry, index, today, dupes = [], expanded = false) {
@@ -411,7 +497,7 @@ function calendarItem(task, entry, index, today, dupes = [], expanded = false) {
   item.classList.toggle('candidate', isCandidate(task));
   item.title = [entry.label, task.title !== entry.label ? task.title : null,
     entry.kind === '까지' ? `${shortDate(entry.date)}${entry.time ? ` ${entry.time}` : ''}까지` : entry.time, task.chatSource?.time,
-    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : seen ? '확인함' : past ? '지난 일정' : '',
+    isCandidate(task) ? `${candidateBadge(task)} · 분류할 것에서 정하기` : chatLabels[task.chatSource?.action], done ? '끝냄' : seen ? '확인함' : past ? DATE_PASSED : '',
     type === 'loose' ? `기한 없음 · ${shortDate(entry.date)} ${taskModel.manualLoose(task, entry) ? '등록' : '받음'}` : '',
     dupes.length ? `같은 업무 쪽지 ${all.length}건` : ''].filter(Boolean).join(' · ');
   // 받은 날이 지나 오늘 칸에 따라온 기한 없는 할 일은 받은 지 며칠째인지 붙인다.
@@ -448,7 +534,7 @@ function calendarItem(task, entry, index, today, dupes = [], expanded = false) {
     item.title += ' · ' + elapsed;
     item.append(element('span', 'sr-only', elapsed));
   }
-  if (past) item.append(element('span', 'sr-only', '지난 일정'));
+  if (past) item.append(element('span', 'sr-only', DATE_PASSED));
   item.addEventListener('click', () => { if (selectTask(task.id, item.dataset.focusKey) !== false) revealInList(task.id, past ? index : null); });
   return item;
 }
@@ -542,7 +628,7 @@ function agendaRow(task, entry, index, caption) {
   row.append(element('span', 'agenda-caption', caption),
     element('span', 'agenda-action', entry?.label || task.title));
   const level = priorityLevel(task);
-  if (level) row.insertBefore(priorityMark(level), row.querySelector('.agenda-action'));
+  markCalendarPriority(row, level);
   row.addEventListener('click', () => selectTask(task.id, row.dataset.focusKey));
   return row;
 }
@@ -600,10 +686,11 @@ function renderAgenda(today) {
   if (loose.childElementCount > 1) side.append(loose);
   if (notices.childElementCount > 1) side.append(notices);
   content.append(now,side,later);
-  $('agenda').replaceChildren(element('h2','agenda-heading','모아보기'),content);
+  $('agenda').replaceChildren(element('h2','agenda-heading','업무 목록'),content);
 }
 
 function setCalendarMode(agenda) {
+  if (agenda) $('calendar-view-settings').open = false;
   $('calendar-workspace').classList.toggle('agenda-mode',agenda);
   $('agenda').hidden = !agenda;
   $('mode-month').setAttribute('aria-pressed',String(!agenda));
@@ -615,59 +702,75 @@ function setCalendarMode(agenda) {
 $('mode-month').addEventListener('click', () => setCalendarMode(false));
 $('mode-agenda').addEventListener('click', () => setCalendarMode(true));
 
-const weekLayout = $('week-layout');
+const calendarViewSettings = $('calendar-view-settings');
+document.addEventListener('click', event => {
+  if (calendarViewSettings.open && !calendarViewSettings.contains(event.target)) calendarViewSettings.open = false;
+});
+calendarViewSettings.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !calendarViewSettings.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  calendarViewSettings.open = false;
+  calendarViewSettings.querySelector('summary').focus();
+});
+
+const fitWeeks = $('week-layout-fit');
 try {
-  if (localStorage.getItem('calendar-week-layout') === 'fit') weekLayout.value = 'fit';
+  if (localStorage.getItem('calendar-week-layout') === 'fit') fitWeeks.checked = true;
 } catch {}
-weekLayout.addEventListener('change', () => {
-  try { localStorage.setItem('calendar-week-layout', weekLayout.value); } catch {}
+$('week-layout').addEventListener('change', () => {
+  try { localStorage.setItem('calendar-week-layout', fitWeeks.checked ? 'fit' : 'equal'); } catch {}
   renderMonth();
 });
 
 // 접힌 단추도 같은 폭으로 측정해 제목이 두 줄이거나 스킨이 바뀔 때의 높이를 반영한다.
 function fitDayItems(list) {
-  const items = Array.from(list.querySelectorAll('.item'));
+  const items = [...list.querySelectorAll('.item')];
   const more = list.lastElementChild;
   const style = getComputedStyle(list);
   const available = parseFloat(style.height);
-  const gap = parseFloat(style.rowGap);
+  const gap = parseFloat(style.rowGap) || 0;
   const heights = items.map(item => parseFloat(getComputedStyle(item).height));
-  const full = heights.reduce((sum, height) => sum + height, 0) + gap * (items.length - 1);
+  const active = items.map((item, i) => item.classList.contains('done') ? -1 : i).filter(i => i >= 0);
+  const closed = items.map((item, i) => item.classList.contains('done') ? i : -1).filter(i => i >= 0);
+  const moreHeight = parseFloat(getComputedStyle(more).height);
+  const size = indices => indices.reduce((sum, i) => sum + heights[i], 0) + Math.max(0, indices.length - 1) * gap;
   const day = list.parentElement;
   const dayStyle = getComputedStyle(day);
   const spans = list.previousElementSibling;
   const frame = parseFloat(dayStyle.paddingTop) + parseFloat(dayStyle.paddingBottom) +
     parseFloat(dayStyle.borderTopWidth) + parseFloat(dayStyle.borderBottomWidth) +
     (spans.offsetHeight ? spans.offsetHeight + parseFloat(getComputedStyle(spans).marginBottom) : 0);
-  day.dataset.fullHeight = Math.ceil(frame + full);
+  // 끝낸 항목은 업무량에서 빼고 남는 공간에 최대 3개만 둔다. 나머지는 +N으로 연다.
+  const workload = size(active) + (closed.length ? moreHeight + (active.length ? gap : 0) : 0);
+  day.dataset.fullHeight = Math.ceil(frame + workload);
   if (day.parentElement.classList.contains('week-fit')) {
-    // 처음에는 여섯 제목까지 펼치고, 더 있으면 +N 단추 한 줄을 둔다.
-    const preview = items.length <= 6 ? full : heights.slice(0, 6).reduce((sum, h) => sum + h, 0) +
-      6 * gap + parseFloat(getComputedStyle(more).height);
+    const preview = size(active.slice(0, 6)) + (active.length > 6 || closed.length ? moreHeight + (active.length ? gap : 0) : 0);
     day.dataset.previewHeight = Math.ceil(frame + preview);
   }
-  const fitsAll = full <= available + 0.01;
   const selected = items.findIndex(item => item.classList.contains('selected'));
+  const closedPreview = closed.slice(0, 3);
+  if (closed.includes(selected) && !closedPreview.includes(selected)) closedPreview[closedPreview.length - 1] = selected;
+  const eligible = [...active, ...closedPreview];
+  const fitsAll = eligible.length === items.length && size(eligible) <= available + 0.01;
   const visible = new Set();
-  if (!fitsAll) {
-    let space = available - parseFloat(getComputedStyle(more).height);
-    if (selected >= 0 && heights[selected] + gap <= space) {
+  if (fitsAll) eligible.forEach(i => visible.add(i));
+  else {
+    let space = available - moreHeight;
+    if (eligible.includes(selected) && heights[selected] + gap <= space) {
       visible.add(selected);
       space -= heights[selected] + gap;
     }
-    for (let i = 0; i < items.length; i++) {
+    for (const i of eligible) {
       if (visible.has(i)) continue;
       if (heights[i] + gap > space + 0.01) break;
       visible.add(i);
       space -= heights[i] + gap;
     }
   }
-  items.forEach((item, i) => item.classList.toggle('folded', !fitsAll && !visible.has(i)));
+  items.forEach((item, i) => item.classList.toggle('folded', !visible.has(i)));
   more.classList.toggle('folded', fitsAll);
-  if (!fitsAll) {
-    const label = '+' + (items.length - visible.size);
-    if (more.textContent !== label) more.textContent = label;
-  }
+  if (!fitsAll) more.textContent = '+' + (items.length - visible.size);
 }
 
 function updateAutoWeeks(grid) {
@@ -762,15 +865,15 @@ function weekDivider(monday, row, cells, autoTrack) {
 
 function renderMonth() {
   const today = key(new Date());
-  if (!$('agenda').hidden) {
-    renderAgenda(today);
-    return;
-  }
   const current = monthOf(state.month);
   const year = current.getFullYear();
   const month = current.getMonth();
   $('year-label').textContent = `${year}년`;
   $('month-value').textContent = String(month + 1);
+  if (!$('agenda').hidden) {
+    renderAgenda(today);
+    return;
+  }
   const first = shift(current, -weekday(current));
   const next = new Date(current);
   next.setMonth(month + 1);
@@ -810,7 +913,7 @@ function renderMonth() {
     state.dayKey = today.startsWith(key(current).slice(0, 7)) ? today : key(current);
   }
   const schoolDays = schoolCalendar(state.snapshot.schoolEvents || [], state.snapshot.profile);
-  const fit = weekLayout.value === 'fit';
+  const fit = fitWeeks.checked;
   const days = [];
   daySizeObserver.disconnect();
   for (let index = 0; index < weeks * 7; index++) {
@@ -912,6 +1015,7 @@ function renderMonth() {
 
 // 하루 전체 보기 창. 항목을 누르면 자세히가 열리고 창은 닫힌다.
 function showDayItems(date, dayTasks, today) {
+  $('day-batch').dataset.date = key(date);
   $('day-heading').textContent = dateLabel.format(date);
   const list = element('div', 'day-dialog-items');
   for (const { task, entry, index, dupes } of dayTasks) {
@@ -992,6 +1096,7 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
     : task.dates?.some(item => item.kind === '까지') ? 'task'
     : !task.dates?.length || task.dates.every(item => looseEntry(task, item)) ? 'loose' : 'event';
   const row = element('li', `row type-${type}`);
+  row.dataset.taskId = task.id;
   const rowKey = entry ? `${task.id}-${index}` : task.id;
   const doneNow = entry ? entry.done === true : finished(task);
   const selected = task.id === state.selected || dupes.some(dupe => dupe.task.id === state.selected);
@@ -1031,13 +1136,15 @@ function listRow(task, list, today, { entry = null, index = null, unread = false
   if (task.repeat) pick.querySelector('.row-text')?.prepend(repeatMark(task));
   if (unread) markUnreadRow(row, pick);
   const level = Math.max(priorityLevel(task), ...dupes.map(dupe => priorityLevel(dupe.task)));
-  if (level) pick.insertBefore(priorityMark(level), heading);
+  markCalendarPriority(pick, level);
   if (dupes.length) pick.append(sameCountBadge(dupes.length + 1));
   if (needsCheck(task)) pick.append(element('span', 'flag', checkLabel(task)));
   // AI가 아직 정리하지 않은 쪽지: 제목이 쪽지 제목 그대로인 까닭을 보인다.
   if (task.refining) pick.append(element('span', 'flag soft', '분류 중'));
   else if (task.queued && state.snapshot.aiProvider !== 'none') pick.append(element('span', 'flag soft', '분류 대기'));
-  pick.append(element('span', 'row-when', entry ? entryWhen(task, entry, today) : whenText(task, today)));
+  const when = entry ? entryWhen(task, entry, today) : whenText(task, today);
+  const passed = entry && entryPastSchedule(task, entry, today);
+  pick.append(element('span', 'row-when', passed ? when + ' · ' + DATE_PASSED : when));
   pick.addEventListener('click', () => { if (selectTask(task.id, pick.dataset.focusKey) !== false) showTaskMonth(task, entry); });
   row.append(pick);
   return row;
@@ -1396,7 +1503,8 @@ function renderLists() {
   const candidateBatches = renderReviewQueue(unread, notesForReview);
   const checked = new Set(noteReviewIds);
   // 상시: 직접 켠 할 일. 날짜 묶음에는 다시 넣지 않는다(달력에는 그대로 뜬다).
-  const pinnedTasks = tasks.filter(task => isPinned(task) && !checked.has(task.id))
+  const pinnedTasks = tasks.filter(task => isPinned(task) && !checked.has(task.id) &&
+    (!task.dates?.length || task.dates.some(entry => !entry.done && !entryPastSchedule(task, entry, today))))
     .sort((a, b) => (pinnedDue(a, today)?.date || '9999').localeCompare(pinnedDue(b, today)?.date || '9999') || a.title.localeCompare(b.title, 'ko'));
   for (const task of pinnedTasks) checked.add(task.id);
   // 반복: 같은 반복에서 오늘 이후 가장 가까운 남은 회차 하나만 목록에 둔다(지난 안 끝낸 회차는 "지남"에 그대로).
@@ -1408,14 +1516,14 @@ function renderLists() {
     if (!best || entry.date < best.dates[0].date) nextRepeat.set(task.repeat.seriesId, task);
   }
   const laterRepeat = task => !!task.repeat && task.dates?.[0]?.date >= today && nextRepeat.get(task.repeat.seriesId) !== task;
-  // 날짜 하나가 한 줄이다. 완료 표시가 없는 지난 일정은 마감이나 다른 날짜와 별도로 찾을 수 있다.
+  // 날짜 하나가 한 줄이다. 지난 일정은 완료를 저장하지 않고 처리한 것에 표시한다.
   const rows = [];
-  const pastRows = [];
+  const elapsedRows = [];
   for (const task of tasks) {
     if (task.type !== '할 일' || noteReviewIds.has(task.id) || laterRepeat(task)) continue;
     (task.dates || []).forEach((entry, index) => {
       if (entryPastSchedule(task, entry, today)) {
-        pastRows.push({ task, entry, index });
+        elapsedRows.push({ task, entry, index });
       } else if (!checked.has(task.id) && !entry.done && (entry.kind === '까지' || looseEntry(task, entry) || lastDay(entry) >= today)) {
         rows.push({ task, entry, index });
       }
@@ -1455,40 +1563,36 @@ function renderLists() {
 
   updateTab('todo', todoCount, todoUnread);
 
-  const past = mergeSame(pastRows).sort((a, b) => b.entry.date.localeCompare(a.entry.date) || byDate(a, b));
-  const pastTasks = new Set(past.flatMap(groupTasks));
-  const pastMessages = new Set([...pastTasks].map(taskMessageKey));
-  const unreadInPast = message => unread.has(message) && !todoMessages.has(message);
-  updateTab('past', past.length, [...pastMessages].filter(unreadInPast).length);
-  $('past-list').replaceChildren(...(past.length
-    ? past.map(({ task, entry, index, dupes }) => listRow(task, 'past', today, {
-      entry, index, dupes, unread: [task, ...dupes.map(dupe => dupe.task)].some(one => unreadInPast(taskMessageKey(one)))
-    }))
-    : [element('li', 'empty-row', '지난 일정이 없습니다.')]));
-
   const references = tasks.filter(task => task.type === '알아 둘 것' && !task.referenceSeen && !checked.has(task.id)).sort(byReceived);
   updateTab('reference', references.length, references.filter(task => unread.has(taskMessageKey(task))).length);
   $('reference-list').replaceChildren(...(references.length
     ? references.map(task => listRow(task, 'reference', today, { unread: unread.has(taskMessageKey(task)) }))
     : [element('li', 'empty-row', '확인할 것이 없습니다.')]));
 
-  // 목록에서 내려간 쪽지도 다시 열 수 있게 한다. 여러 날짜 중 남은 일이 있으면 해야 할 것에 둔다.
-  const done = tasks.filter(task => {
+  // 지난 날짜만 옮긴다. 같은 쪽지에 남은 마감이 있으면 그 마감은 할 일에서도 찾을 수 있다.
+  const elapsed = mergeSame(elapsedRows);
+  const elapsedTasks = new Set(elapsed.flatMap(groupTasks));
+  const doneTasks = tasks.filter(task => {
     if (noteReviewIds.has(task.id)) return false;
     if (task.type === '알아 둘 것') return task.referenceSeen;
-    if (task.type !== '할 일' || todoTasks.has(task) || pastTasks.has(task)) return false;
+    if (task.type !== '할 일' || todoTasks.has(task) || elapsedTasks.has(task)) return false;
     return finished(task) || ((task.noteId || task.chatSource) && task.dates?.length);
-  }).sort(byReceived);
-  const doneMessages = new Set(done.map(taskMessageKey));
+  });
+  const processed = [...elapsed, ...doneTasks.map(task => ({ task }))].sort((a, b) =>
+    (b.entry?.date || b.task.datetime || '').localeCompare(a.entry?.date || a.task.datetime || '') || byReceived(a.task, b.task));
+  const processedTasks = new Set(processed.flatMap(groupTasks));
+  const doneMessages = new Set([...processedTasks].map(taskMessageKey));
   const unreadInDone = message => unread.has(message) && !todoMessages.has(message);
-  updateTab('done', done.length, [...doneMessages].filter(unreadInDone).length);
-  $('done-list').replaceChildren(...(done.length
-    ? done.map(task => listRow(task, 'done', today, { unread: unreadInDone(taskMessageKey(task)) }))
-    : [element('li', 'empty-row', '끝낸 항목이 없습니다.')]));
+  updateTab('done', processed.length, [...doneMessages].filter(unreadInDone).length);
+  $('done-list').replaceChildren(...(processed.length
+    ? processed.map(item => listRow(item.task, 'done', today, {
+      ...item, unread: groupTasks(item).some(task => unreadInDone(taskMessageKey(task)))
+    }))
+    : [element('li', 'empty-row', '처리한 항목이 없습니다.')]));
 
   const referenceMessages = new Set(references.map(taskMessageKey));
   const hidden = messages.filter(message => message.kind === 'note' ? message.type === '없음' && !noteReviewIds.has(message.id)
-    : ![todoMessages, pastMessages, doneMessages, referenceMessages, candidateBatches].some(set => set.has(`chat:${message.id}`)));
+    : ![todoMessages, doneMessages, referenceMessages, candidateBatches].some(set => set.has(`chat:${message.id}`)));
   // 버린 후보: 숨긴 것에서 다시 열어 되살릴 수 있다.
   const discarded = state.snapshot.tasks.filter(task => task.candidate?.discarded).sort(byReceived);
   updateTab('hidden', hidden.length + discarded.length, hidden.filter(message => message.unread).length);
@@ -1508,8 +1612,7 @@ function renderLists() {
   put('candidate', [...notesForReview, ...state.snapshot.tasks.filter(isCandidate)]);
   put('todo', todoTasks);
   put('reference', references);
-  put('past', pastTasks);
-  put('done', done);
+  put('done', processedTasks);
   put('hidden', discarded);
   for (const message of hidden) if (message.kind === 'note' && !views.has(message.id)) views.set(message.id, 'hidden');
   state.taskViews = views;
@@ -1562,13 +1665,13 @@ function readOnlyDateRow(task, entry, index, today, heading) {
   row.classList.toggle('late', entryLate(task, entry, today));
   row.classList.toggle('done', done);
   const name = heading || element('span', 'date-name', entry.label);
-  if (entryPastSchedule(task, entry, today)) name.append(' ', element('span', 'date-state', '지난 일정'));
+  if (entryPastSchedule(task, entry, today)) name.append(' ', element('span', 'date-state', DATE_PASSED));
   if (entryLate(task, entry, today)) name.append(' ', element('span', 'date-state', daysBetween(entry.date, today) + '일 지남'));
   row.append(name);
   if (canCheck && !task.candidate) {
     const check = button('detail-action complete-action');
     showCompletion(check, done, entry.label);
-    check.addEventListener('click', () => void toggleDone(task, index, !done));
+    check.addEventListener('click', () => void toggleDone(task, index, !done, true));
     row.append(check);
   }
   return row;
@@ -1843,11 +1946,8 @@ function enableForm() {
   $('loose-label').hidden = check.hidden;
   if (!check.hidden) showCompletion(check, task.done === true, task.title);
   $('refine').disabled = state.demo || !state.detail?.note || task?.refining || state.dirty;
-  $('work-copy').disabled = state.dirty || state.saving;
   $('reply-polish-open').disabled = state.dirty || state.saving;
   $('project-start-open').disabled = state.dirty || state.saving;
-  $('mcp-share-open').disabled = state.dirty || state.saving;
-  $('codex-work-open').disabled = state.dirty || state.saving || agentWork?.job?.status === 'running';
   $('work-edit-note').hidden = !state.dirty;
   $('repeat-skip').disabled = $('repeat-stop').disabled = state.saving || state.dirty;
   // 날짜 줄은 입력 중 다시 그리지 않는다(글자 입력이 끊기지 않게). 저장 상태가 바뀔 때만 다시 그린다.
@@ -1956,14 +2056,12 @@ async function refreshAgentWork(watch) {
   try {
     const { job, results } = await api.noteAgentWork(watch.taskId);
     if (agentWork !== watch) return;
-    watch.job = job;
     const running = job?.status === 'running';
     const failed = job?.status === 'failed';
     const agent = workAgents[job?.agent] || 'AI';
     const message = running ? `${agent}에서 작업 중입니다.` : failed ? job.error || `${agent} 작업을 완료하지 못했습니다.` : '';
     const status = $('codex-work-status');
     if (status.textContent !== message || status.classList.contains('error') !== failed) setMessage('codex-work-status', message, failed);
-    $('codex-work-open').disabled = state.dirty || state.saving || running;
     $('codex-work-section').hidden = !message && !results.length;
     const list = $('codex-work-results');
     const ids = new Set(results.map(result => result.id));
@@ -1995,7 +2093,7 @@ function watchAgentWork(taskId) {
   $('codex-work-results').replaceChildren();
   $('codex-work-section').hidden = true;
   setMessage('codex-work-status', '');
-  agentWork = taskId ? { taskId, job: null, pending: false, timer: null } : null;
+  agentWork = taskId ? { taskId, pending: false, timer: null } : null;
   if (agentWork) void refreshAgentWork(agentWork);
 }
 
@@ -2007,9 +2105,7 @@ function renderExternalAiWork(detail) {
   $('mcp-settings-actions').hidden = !visible;
   $('reply-polish-open').hidden = !verifiedNote;
   $('project-start-open').hidden = !canUseNote;
-  $('mcp-share-open').hidden = !canUseNote;
-  $('codex-work-open').hidden = !canUseNote;
-  $('work-section').hidden = !visible || !detail?.task || !!detail.task.chatSource;
+  $('work-section').hidden = !canUseNote || !detail?.task || !!detail.task.chatSource;
   const activeTask = noteAi?.taskId || projectSession?.taskId;
   if (activeTask && (!verifiedNote || detail.task.id !== activeTask || state.selected !== activeTask)) closeNoteAi();
   else {
@@ -2446,7 +2542,6 @@ let lastFocus;
 function openDetail(taskId, chatId, focusKey) {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return false;
   closeNoteAi();
-  $('work-other').open = false;
   watchAgentWork(null);
   if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.selected = taskId;
@@ -2502,13 +2597,13 @@ function showTaskMonth(task, entry) {
 }
 
 // 달력에서 고르면 왼쪽을 그 업무가 있는 탭으로 바꾸고 그 줄이 보이게 한다.
-function revealInList(id, pastIndex = null) {
-  const pastRow = pastIndex === null ? null :
-    $('past-list').querySelector(`[data-focus-key="${CSS.escape(`past-${id}-${pastIndex}`)}"]`)?.closest('.row');
-  const view = pastRow ? 'past' : state.taskViews.get(id);
+function revealInList(id, elapsedIndex = null) {
+  const elapsedRow = elapsedIndex === null ? null :
+    $('done-list').querySelector(`[data-focus-key="${CSS.escape(`done-${id}-${elapsedIndex}`)}"]`)?.closest('.row');
+  const view = elapsedRow ? 'done' : state.taskViews.get(id);
   if (!view) return;
   showView(view);
-  const row = pastRow || $(`view-${view}`).querySelector('.row.selected');
+  const row = elapsedRow || $(`view-${view}`).querySelector('.row.selected');
   row?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -3889,7 +3984,8 @@ $('profile-save').addEventListener('click', async () => {
 const KIND_NAMES = { 까지: '마감', 그날: '일정', 기간: '기간' };
 
 // 업무 추가 창: 날짜 고치기와 같은 칸(날짜·종류·끝 날짜·시간·교시)을 쓴다.
-function showCreate(date) {
+function showCreate(date, mode = 'direct') {
+  if ($('create-dialog').open) { window.setCreateMode?.(mode);return; }
   $('create-form').reset();
   drawPriority($('create-important'), 0);
   $('create-due').value = date;
@@ -3898,7 +3994,9 @@ function showCreate(date) {
   updateCreateEnd();
   updateCreateOptions();
   setMessage('create-error', '');
+  window.prepareCreateDialog?.(mode);
   $('create-dialog').showModal();
+  ($('create-form').hidden ? $('memo-text') : $('create-title')).focus();
 }
 
 // 업무 추가 창의 더 넣는 날짜 한 줄: 날짜 | 마감·일정 | 이름(비우면 제목) | 지우기.
@@ -3950,9 +4048,15 @@ function updateCreateOptions() {
     input.closest('label').hidden = loose;
   }
   const repeatable = !reference && !extra && !loose && kind.value !== '기간';
-  $('create-repeat-field').hidden = !repeatable;
-  if (!repeatable) $('create-repeat').value = 'none';
-  const repeating = $('create-repeat').value !== 'none';
+  const repeatEnabled = $('create-repeat-enabled');
+  repeatEnabled.disabled = !repeatable;
+  $('create-repeat-toggle').hidden = !repeatable;
+  if (!repeatable) repeatEnabled.checked = false;
+  if (!repeatEnabled.checked) $('create-repeat').value = 'none';
+  else if ($('create-repeat').value === 'none') $('create-repeat').value = 'week';
+  const repeating = repeatable && repeatEnabled.checked && $('create-repeat').value !== 'none';
+  $('create-repeat-field').hidden = !repeating;
+  $('create-repeat-settings').hidden = !repeating;
   $('create-add-date').hidden = loose || repeating || extra >= taskModel.MAX_DATES - 1;
   $('create-pinned-field').hidden = reference || repeating;
   if (reference || repeating) $('create-pinned').checked = false;
@@ -3976,7 +4080,11 @@ function updateRepeatHint() {
   $('create-skip-off-field').hidden = !offCount;
   $('create-skip-off-label').textContent = `학교 쉬는 날 ${offCount}회 빼기`;
 }
-$('create-repeat').addEventListener('input', updateCreateOptions);
+$('create-repeat-enabled').addEventListener('change', updateCreateOptions);
+$('create-repeat').addEventListener('input', () => {
+  $('create-repeat-enabled').checked = $('create-repeat').value !== 'none';
+  updateCreateOptions();
+});
 $('create-skip-off').addEventListener('change', updateRepeatHint);
 $('create-due').addEventListener('input', updateRepeatHint);
 $('create-kind').addEventListener('input', updateCreateOptions);
@@ -4084,7 +4192,7 @@ function stepMonth(step) {
 $('previous').addEventListener('click', () => stepMonth(-1));
 $('next').addEventListener('click', () => stepMonth(1));
 $('today').addEventListener('click', () => { state.month = new Date(); state.dayKey = key(state.month); renderMonth(); });
-$('add-today').addEventListener('click', () => showCreate(key(new Date())));
+$('add-today').addEventListener('click', () => showCreate(key(new Date()), 'last'));
 $('detail-close').addEventListener('click', closeDetail);
 const detailMore = $('detail-more');
 detailMore.addEventListener('click', event => {
@@ -4104,7 +4212,9 @@ document.addEventListener('keydown', event => {
 $('create-cancel').addEventListener('click', () => $('create-dialog').close());
 $('create-form').addEventListener('submit', async event => {
   event.preventDefault();
+  if ($('create-save').disabled || $('create-form').hidden) return;
   $('create-save').disabled = true;
+  window.setCreateSaving?.(true);
   try {
     const kind = $('create-kind').value;
     const task = await api.create({
@@ -4119,11 +4229,12 @@ $('create-form').addEventListener('submit', async event => {
     state.month = fromKey(task.dates[0].date);
     state.dayKey = task.dates[0].date;
     renderMonth();
-    selectTask(task.id, `calendar-${task.id}-0`);
+    notice('업무를 달력에 넣었습니다.');
   } catch (error) {
     setMessage('create-error', error.message, true);
   } finally {
     $('create-save').disabled = false;
+    window.setCreateSaving?.(false);
   }
 });
 $('settings-open').addEventListener('click', () => openSettings());
@@ -4140,8 +4251,9 @@ for (const id of ['settings-dialog', 'changes-dialog', 'create-dialog', 'day-dia
   };
   dialog.addEventListener('pointerdown', event => { downOutside = event.target === dialog && outside(event); });
   dialog.addEventListener('click', event => {
-    if (downOutside && event.target === dialog && outside(event)) dialog.close();
+    const close = downOutside && event.target === dialog && outside(event);
     downOutside = false;
+    if (close && !(id === 'create-dialog' && dialog.dataset.createSaving === 'true')) dialog.close();
   });
 }
 $('ai-provider').addEventListener('change', () => { $('ai-key').value = ''; renderAiSettings(); });
@@ -4395,14 +4507,14 @@ $('candidate-restore').addEventListener('click', async () => {
   }
 });
 $('create-important').addEventListener('click', event => {
-  const star = event.target.closest('button[data-stars]');
-  if (star) drawPriority(event.currentTarget, nextPriority(event.currentTarget, star));
+  const control = event.target.closest('button[data-priority]');
+  if (control) drawPriority(event.currentTarget, nextPriority(event.currentTarget, control));
 });
 $('important').addEventListener('click', async event => {
-  const star = event.target.closest('button[data-stars]');
+  const control = event.target.closest('button[data-priority]');
   const task = state.detail?.task;
-  if (!star || !task || state.dirty || state.saving || pendingPriority === task.id) return;
-  const level = nextPriority(event.currentTarget, star);
+  if (!control || !task || state.dirty || state.saving || pendingPriority === task.id) return;
+  const level = nextPriority(event.currentTarget, control);
   pendingPriority = task.id;
   drawPriority(event.currentTarget, level, true);
   try {
@@ -4521,7 +4633,7 @@ document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) 
 });
 // 업무·쪽지 검색(2026-11-18 사용자 "대화방 검색보다 중요한게 쪽지 검색"): 탭과 상관없이 전체에서 찾고,
 // 결과마다 지금 어느 목록에 있는지(할 일·끝낸 것·숨김 등)와 받은 날을 붙인다. 찾기는 앱 안쪽(store.search)에서 한다.
-const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '처리한 것', past: '지난 일정', hidden: '숨긴 것' };
+const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '처리한 것', hidden: '숨긴 것' };
 const search = { query: '', result: null, timer: null, token: 0 };
 
 // 찾은 말에 형광펜(mark). 찾기는 띄어쓰기·대소문자를 무시하므로(store.searchFold) 글자 사이 공백을 허용해 맞춘다.
@@ -4648,19 +4760,25 @@ document.addEventListener('keydown', event => {
 
 let savedView = 'todo';
 try { savedView = localStorage.getItem('calendar-list-view') || 'todo'; } catch {}
-showView(savedView);
+showView(savedView === 'past' ? 'done' : savedView);
 $('loose-complete').addEventListener('click', () => {
   const task = state.detail?.task;
-  if (task) void toggleDone(task, null, !task.done);
+  if (task) void toggleDone(task, null, !task.done, true);
 });
 $('reference-seen').addEventListener('click', async () => {
   const id = state.selected;
-  if (!id) return;
+  if (!id || state.dirty || completingTasks.has(id)) return;
+  const queue = completionQueue(id);
+  completingTasks.add(id);
   try {
-    await api.markReferenceSeen(id);
-    if (id === state.selected) flash('detail-message', '처리한 것에서 다시 볼 수 있습니다.');
+    const saved = await api.markReferenceSeen(id);
+    redraw();
+    advanceAfterCompletion(queue);
+    offerProcessingUndo(saved, null, true);
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
+  } finally {
+    completingTasks.delete(id);
   }
 });
 async function showMessengerNote(id, messageId = 'detail-message', current = () => state.selected === id) {
@@ -4720,16 +4838,6 @@ $('refine').addEventListener('click', () => {
 });
 $('send-cancel').addEventListener('click', () => $('send-dialog').close());
 $('send-confirm').addEventListener('click', () => { $('send-dialog').close(); void refine(); });
-$('work-copy').addEventListener('click', async () => {
-  const id = state.selected;
-  if (!id) return;
-  try {
-    await api.copyWorkPrompt(id);
-    if (id === state.selected) flash('work-message', '지시문을 복사했습니다. 원하는 채팅에 붙여 넣으세요.');
-  } catch (error) {
-    if (id === state.selected) setMessage('work-message', error.message, true);
-  }
-});
 
 function closeProject() {
   projectSession = null;
@@ -5078,13 +5186,6 @@ async function runMcpAction(action, message, nextFocus) {
   }
 }
 
-function openMcpDraft(mode) {
-  const { task, note } = state.detail || {};
-  if (note?.verified !== true || task.id !== state.selected) return;
-  void openMcpDialog({ taskId: task.id, title: note.title, body: note.body, attachments: note.attachments, mode });
-}
-$('mcp-share-open').addEventListener('click', () => openMcpDraft('share'));
-$('codex-work-open').addEventListener('click', () => openMcpDraft('delegate'));
 $('mcp-settings-open').addEventListener('click', () => void openMcpDialog());
 function closeMcpDialog() {
   if (mcpSession?.phase === 'working') return;
@@ -5183,7 +5284,7 @@ function fitPanes(viewWidth, narrow) {
   const detailMax = () => narrow ? Math.min(700, viewWidth - 72) : Math.max(detailMin, Math.min(700, calendarWidth * .5));
   const detail = clamp(paneWidths.detail ?? (narrow ? 440 : Math.max(360, weekend)), detailMin, detailMax());
   // 달력 머리(달·범례·‹ 오늘 ›)는 가리지 않는다: 자세히는 그 아래, 요일 줄부터 덮는다.
-  const header = document.querySelector($('agenda').hidden ? '.calendar-header' : '.calendar-mode');
+  const header = document.querySelector('.calendar-header');
   workspace.style.setProperty('--detail-top', narrow || !header ? '0px' : `${header.offsetTop + header.offsetHeight}px`);
   for (const [side, value, min, max] of [
     ['list', list, listMin, listMax()], ['detail', detail, detailMin, detailMax()]

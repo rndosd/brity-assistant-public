@@ -86,13 +86,20 @@ button:disabled { cursor: default; opacity: .5; }
 .feedback-status.error { color: var(--red); font-weight: 700; }
 .feedback-actions { display: flex; justify-content: end; gap: 6px; }
 
-/* 월간과 모아보기는 동일한 업무와 자세히 창을 사용한다. */
+/* 월간과 목록은 동일한 업무와 자세히 창을 사용한다. */
 .calendar-mode { display:flex; gap:2px; align-self:flex-start; background:var(--sheet); border:1px solid var(--rule-strong); border-radius:6px; padding:2px; margin-bottom:10px; }
-.calendar-view-tools { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
-.calendar-view-tools .calendar-mode { margin-bottom:0; }
-.week-height-choice { display:flex; gap:5px; align-items:center; color:var(--ink-2); font-size:12px; }
-.week-height-choice select { font:inherit; color:var(--ink); background:var(--sheet); border:1px solid var(--rule-strong); border-radius:5px; padding:4px; cursor:pointer; }
-.agenda-mode .week-height-choice { display:none; }
+.calendar-header .calendar-mode { flex:none; align-self:center; margin:0; }
+.calendar-view-actions { display:flex; align-items:center; align-self:center; gap:8px; flex:none; margin-inline-start:auto; }
+#calendar-view-settings { position:relative; }
+#calendar-view-settings summary { cursor:pointer; list-style:none; }
+#calendar-view-settings summary::-webkit-details-marker { display:none; }
+#calendar-view-settings[open] summary { background:var(--hover); border-color:var(--rule-strong); }
+.calendar-view-options { position:absolute; z-index:4; inset:calc(100% + 5px) 0 auto auto; width:max-content; padding:10px 12px; border:1px solid var(--rule-strong); border-radius:6px; background:var(--sheet); color:var(--ink); box-shadow:0 6px 18px #0000001f; }
+#week-layout { display:grid; gap:6px; margin:0; padding:0; border:0; font-size:13px; }
+#week-layout legend { margin-bottom:5px; padding:0; color:var(--ink-2); font-size:12px; font-weight:700; }
+#week-layout label { display:flex; align-items:center; gap:7px; cursor:pointer; }
+#week-layout input { accent-color:var(--ink); }
+.agenda-mode :is(#calendar-view-settings,.calendar-controls,.header-meal) { display:none; }
 .month.week-fit { position:relative; align-content:start; }
 .month.week-fit .day { min-height:48px; }
 .week-divider { position:absolute; grid-column:1 / -1; left:0; right:0; bottom:0; height:6px; z-index:2; cursor:row-resize; touch-action:none; }
@@ -100,7 +107,7 @@ button:disabled { cursor: default; opacity: .5; }
 .calendar-mode button { border:0; padding:4px 12px; border-radius:4px; color:var(--ink-2); background:transparent; font:inherit; font-size:13px; cursor:pointer; }
 .calendar-mode button[aria-pressed="true"] { background:var(--ink); color:var(--sheet); font-weight:700; }
 .workspace.agenda-mode:is(#calendar-workspace) { grid-template-columns:minmax(0,1fr); }
-.agenda-mode :is(#calendar-list-pane,#list-divider,.calendar-header,.weekdays,#month) { display:none; }
+.agenda-mode :is(#calendar-list-pane,#list-divider,.weekdays,#month,.legend) { display:none; }
 #agenda { width:100%; max-width:1120px; align-self:center; padding:4px clamp(0px,2vw,25px) 24px; }
 .agenda-heading { font-size:28px; line-height:1.25; margin:6px 0 22px; }
 .agenda-content { display:grid; grid-template-columns:minmax(0,2.4fr) minmax(210px,1fr); column-gap:32px; row-gap:18px; align-items:start; }
@@ -186,9 +193,10 @@ button:disabled { cursor: default; opacity: .5; }
 .search-match:empty { display: none; }
 .search-pick mark { background: var(--today); color: inherit; padding: 0 1px; }
 .search-hint { display: block; margin-top: 2px; color: var(--ink-3); }
-/* 목록 탭: 2칸씩(할 일·분류할 것 / 확인할 것·끝낸 것 / 지난 일정·숨기기). 칸 사이 1px 괘선은 바탕색으로 낸다.
+/* 목록 탭: 2칸씩, 마지막 숨긴 목록은 한 줄로 표시한다. 칸 사이 1px 괘선은 바탕색으로 낸다.
    고른 칸은 먹색으로 채우고, 건수는 늘 보인다. 안 읽은 새 쪽지가 있으면 빨간 점. */
 .list-tabs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px; background: var(--ink); border: 1px solid var(--ink); margin-bottom: 12px; }
+#tab-hidden { grid-column: 1 / -1; }
 .list-tabs button { min-width: 0; white-space: nowrap; }
 .list-tabs button { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; padding: 6px 9px; border: 0; background: var(--sheet); font-size: 13px; text-align: left; }
 .list-tabs button:hover { background: var(--hover); }
@@ -239,12 +247,12 @@ button:disabled { cursor: default; opacity: .5; }
 
 /* 가운데: 달력 */
 .calendar { display: flex; flex-direction: column; padding: 14px 18px 16px; min-width: 0; overflow: auto; container-type: inline-size; }
-.calendar-header { display: flex; align-items: flex-end; gap: 12px; padding-bottom: 6px; border-bottom: 2px solid var(--rule-strong); }
-.month-number, .year, .calendar-controls { flex: none; white-space: nowrap; }
+.calendar-header { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; padding-bottom:6px; border-bottom:2px solid var(--rule-strong); }
+.calendar-date { display:flex; flex:none; align-items:baseline; gap:8px; white-space:nowrap; }
 .month-number { font-family: "Noto Serif KR", "Batang", "바탕", serif; font-size: 42px; line-height: .9; font-weight: 700; }
 .year { font-size: 12.5px; color: var(--ink-2); padding-bottom: 2px; }
 .year b { display: block; font-size: 14px; color: var(--ink); }
-.legend { margin-left: auto; display: flex; gap: 12px; align-items: center; color: var(--ink-2); font-size: 12px; padding-bottom: 3px; }
+.legend { display:flex; flex-wrap:wrap; gap:3px 12px; align-items:center; color:var(--ink-2); font-size:12px; padding-top:8px; }
 .legend li { display: flex; gap: 5px; align-items: center; white-space: nowrap; }
 .legend .box { width: 11px; height: 11px; }
 .legend .disc { width: 7px; height: 7px; }
@@ -252,10 +260,16 @@ button:disabled { cursor: default; opacity: .5; }
 .legend .ref-label { color: var(--muted-text); }
 .calendar-controls { display: flex; gap: 2px; padding-bottom: 1px; }
 .calendar-controls .button { min-height: 26px; padding: 1px 9px; }
-@container (max-width: 540px) {
-  .calendar-header { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 6px 10px; }
-  .calendar-controls { grid-column: 4; grid-row: 1; }
-  .legend { grid-column: 1 / -1; margin-left: 0; flex-wrap: wrap; gap: 3px 12px; }
+@container (max-width: 560px) {
+  .calendar-header, .calendar-view-actions { gap:6px; }
+  .calendar-header .calendar-mode button { padding-inline:7px; }
+  .calendar-header .calendar-controls .button { padding-inline:6px; }
+  .calendar .calendar-header .calendar-date .month-number { font-size:30px; }
+  .calendar .calendar-header .calendar-date .month-number::after { display:none; }
+  :root:is([data-skin="nacre"],[data-skin="linen"],[data-skin="glass"],[data-skin="chalk"]) .calendar-header .month-number { padding:6px; background:none; }
+  .calendar-header .month-unit { font-size:17px; }
+  .calendar-header .year { display:none; }
+  .calendar-header .header-meal { order:1; flex:1 0 100%; max-width:100%; padding:0; }
 }
 .weekdays, .month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .weekdays span { padding: 5px 6px 3px; font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--rule); }
@@ -355,8 +369,9 @@ button:disabled { cursor: default; opacity: .5; }
 .task-status-row:not(:has(.detail-action:not([hidden]),.priority-picker:not([hidden]))) { display: none; }
 :root { --overdue:#805500; --star-blue:#2465ae; --star-red:#b93342; }
 :root[data-skin="evening"] { --overdue:#e8bd76; --star-blue:#93c8ff; --star-red:#ff9caa; }
-.priority-picker { display:inline-flex; align-items:center; gap:1px; flex:none; }
-.priority-picker button { color:var(--ink-2); background:transparent; border:0; border-radius:4px; padding:0; width:27px; height:28px; cursor:pointer; font:20px/1 "Segoe UI Symbol",sans-serif; }
+.priority-picker { display:inline-flex; align-items:center; gap:4px; flex:none; --priority-selected-ink:#fff; }
+:root[data-skin="evening"] .priority-picker { --priority-selected-ink:#132331; }
+.priority-picker button { color:var(--ink-2); background:transparent; border:0; border-radius:4px; padding:4px 9px; width:auto; min-height:28px; cursor:pointer; font:inherit; font-size:13px; font-weight:500; line-height:1.4; white-space:nowrap; }
 .priority-picker button:hover:not(:disabled) { background:var(--hover); }
 .priority-picker button:focus-visible { outline:2px solid var(--ink); outline-offset:-2px; }
 .priority-picker button:disabled { opacity:.55; cursor:default; }
@@ -364,9 +379,10 @@ button:disabled { cursor: default; opacity: .5; }
 .span-piece[data-priority="1"]:not(.past) .span-label { color:var(--star-blue); }
 .item[data-priority="2"]:not(.done):not(.past) .item-title,
 .span-piece[data-priority="2"]:not(.past) .span-label { color:var(--star-red); font-weight:750; }
-.priority-mark { flex:none; font:12px/1.1 "Segoe UI Symbol",sans-serif; white-space:nowrap; }
-.priority-mark[data-level="1"], .priority-picker[data-level="1"] .filled { color:var(--star-blue); }
-.priority-mark[data-level="2"], .priority-picker[data-level="2"] .filled { color:var(--star-red); }
+.priority-picker button[data-priority="1"][aria-pressed="true"] { background:var(--star-blue); color:var(--priority-selected-ink); }
+.priority-picker button[data-priority="2"][aria-pressed="true"] { background:var(--star-red); color:var(--priority-selected-ink); }
+.row:not(.done) .pick[data-priority="1"] :is(.row-text,.row-action), .agenda-row[data-priority="1"] .agenda-action { color:var(--star-blue); }
+.row:not(.done) .pick[data-priority="2"] :is(.row-text,.row-action), .agenda-row[data-priority="2"] .agenda-action { color:var(--star-red); font-weight:750; }
 .task-status-row .detail-date-heading { margin: 0; }
 .edit-form:has(#loose-complete:not([hidden])[aria-pressed="true"]) #task-title-text { color: var(--ink-3); text-decoration: line-through; }
 .detail-action { flex: none; margin-inline-start: auto; min-width: 3.7em; min-height: 27px; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 4px; background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; line-height: 1.35; white-space: nowrap; }
@@ -387,7 +403,8 @@ button:disabled { cursor: default; opacity: .5; }
 .detail-message { margin: 10px 0 0; padding: 8px 11px; font-size: 13px; border: 1px solid var(--rule); background: var(--paper); }
 .detail-message.error, .form-error { color: var(--red); border: 1px solid currentColor; background: var(--sheet); }
 .detail-content { margin-top: 10px; }
-.edit-form { display: grid; gap: 10px; scroll-margin-top: 40px; }
+/* 긴 첨부 이름이 자세히 본문 전체의 너비를 늘리지 않게 한다. */
+.edit-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; scroll-margin-top: 40px; }
 .type-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .detail-toolbar { margin-top: 6px; padding-bottom: 9px; border-bottom: 1px solid var(--rule); gap: 5px 8px; }
 .type-row .seg { max-width: 100%; }
@@ -477,9 +494,6 @@ button:disabled { cursor: default; opacity: .5; }
 #original-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .note-actions:not([hidden]) { margin-top: 0; padding-top: 0; border-top: 0; }
 .work-section .ai-actions { flex-wrap: wrap; gap: 4px 8px; align-items: center; }
-.work-other { max-width: 100%; }
-.work-other summary { width: fit-content; padding: 4px 0; color: var(--ink-2); font-size: 13px; cursor: pointer; }
-.work-other .ai-actions { padding-block: 4px; }
 .formatted { white-space: pre-wrap; overflow-wrap: anywhere; }
 .summary { font-size: 14.5px; line-height: 1.75; color: var(--ink); word-break: keep-all; margin-bottom: 6px; }
 .attachment-list { border-top: 1px solid var(--rule); }
@@ -534,6 +548,34 @@ dialog::backdrop { background: #1f1d1a66; }
 dialog form, .dialog-body { padding: 20px 22px; display: grid; gap: 14px; }
 dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--rule-strong); }
 .dialog-actions { display: flex; justify-content: end; gap: 6px; }
+#batch-dialog { width: min(800px, calc(100% - 24px)); overflow: hidden; }
+#batch-dialog .dialog-body { display: flex; flex-direction: column; max-height: calc(100vh / var(--zoom, 1) - 26px); min-height: 0; gap: 12px; }
+.batch-range { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.batch-range .calendar-mode { margin: 0; }
+.batch-select-all { margin-inline-start: auto; font-size: 13px; }
+#batch-rows { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.batch-day-heading { margin: 0; padding: 5px 8px; background: var(--hover); color: var(--ink); font-size: 13px; }
+.batch-day + .batch-day { margin-top: 12px; }
+.batch-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) minmax(126px, auto) 72px 88px; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--rule); }
+.batch-row input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); }
+.batch-title { padding: 0; text-align: start; border: 0; background: none; color: var(--ink); font: inherit; line-height: 1.35; overflow-wrap: anywhere; cursor: pointer; }
+.batch-title:hover { text-decoration: underline; }
+.batch-kind { display: block; margin-top: 2px; color: var(--ink-2); font-size: 11px; }
+.batch-dates { display: grid; gap: 4px; min-width: 0; }
+.batch-row input:not([type="checkbox"]), .batch-row select, #batch-date { font: inherit; font-size: 13px; min-height: 30px; min-width: 0; border: 1px solid var(--rule-strong); border-radius: 4px; padding: 3px 5px; color: var(--ink); background: var(--sheet); }
+.batch-row [data-field="time"] { width: 100%; grid-column: 4; }
+.batch-status { min-width: 0; grid-column: 5; }
+.batch-actions { flex-wrap: wrap; }
+#batch-complete { margin-inline-end: auto; }
+#batch-message { margin: 0; }
+@media (max-width: 620px) {
+  #batch-dialog .dialog-body { padding: 12px; gap: 10px; }
+  .batch-row { grid-template-columns: 15px minmax(115px, 1.6fr) minmax(56px, .75fr) minmax(73px, 1fr); gap: 5px; }
+  .batch-title { grid-column: 2 / -1; }
+  .batch-dates { grid-column: 2; }
+  .batch-row [data-field="time"] { grid-column: 3; }
+  .batch-status { grid-column: 4; }
+}
 .check-field { display: flex; align-items: center; gap: 6px; font-weight: 700; }
 .check-field input { width: 15px; height: 15px; accent-color: var(--ink); }
 .ai-settings, .ai-key-options { display: grid; gap: 8px; }
@@ -618,6 +660,10 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .mcp-setup .mcp-section { margin-top: 9px; }
 .mcp-setup select { width: 100%; min-width: 0; }
 .notice { position: fixed; z-index: 5; bottom: 14px; right: 14px; max-width: calc(100vw - 28px); padding: 7px 12px; background: var(--ink); color: var(--sheet); }
+#processing-undo:not([hidden]) { display: flex; align-items: center; gap: 10px; }
+#processing-undo:not([hidden]) + .notice { bottom: 68px; }
+#processing-undo-button { min-height: 28px; padding: 2px 8px; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: inherit; white-space: nowrap; cursor: pointer; }
+#processing-undo-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* 좁은 창: 자세히를 아래로, 더 좁으면 한 줄 */
 /* 좁은 창: 글자 크기를 키운 만큼 좁게 친다(app.js가 html에 narrow·tiny를 붙임) */
@@ -863,8 +909,12 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 /* 내용이 길어져 스크롤바가 생겨도 오른쪽 버튼들이 옆으로 밀리지 않게 자리를 미리 둔다. */
 .detail-panel { scrollbar-gutter: stable; }
 #chat-collection-status { white-space: pre-line; }
-/* 업무 추가 창의 날짜 줄: 날짜 | 종류, 끝 날짜 | 시간·교시. 날짜 고치기와 같은 칸. */
-.create-date-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
+/* 업무 추가의 기본 날짜·시각·종류는 한 줄로 읽고 기간 끝 날짜만 다음 줄에 둔다. */
+.create-date-row { display: grid; grid-template-columns: minmax(134px, 1.4fr) minmax(84px, 1fr) minmax(96px, 1fr); gap: 8px; }
+.create-date-row #create-end-field { grid-column: 1 / -1; }
+.create-repeat-settings { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 16px; }
+.create-repeat-settings #create-repeat-field { min-width: 100px; }
+.create-repeat-settings .create-repeat-hint { margin: 0; align-self: center; }
 .create-date-row .field input, .create-date-row .field select { width: 100%; min-width: 0; }
 
 /* 화면 꾸미기(2026-11-13): 스킨 세 가지를 견본 그림과 함께 고른다. 견본은 스킨과 상관없이 늘 같은 모습. */
@@ -900,7 +950,7 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 :root .day.school-off .day-number, :root[data-skin] .day.school-off .day-number { color: var(--red); }
 /* 오늘 급식(2026-11-20 달력 위로 옮김): 달 이름 옆 한 줄(넘치면 …), 누르면 아래로 작은 창. */
 .calendar-header { position: relative; }
-.header-meal { position: relative; flex: 0 1 auto; min-width: 0; max-width: 46%; padding-bottom: 3px; }
+.header-meal { position: relative; flex: 1 1 0; min-width: 0; max-width: 38%; padding-bottom: 3px; }
 .today-meal { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); padding: 2px 10px; text-align: left; font: inherit; font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .today-meal:hover, .today-meal[aria-expanded="true"] { border-color: var(--ink-3); color: var(--ink); }
 .meal-label { font-weight: 700; color: var(--ink); }
@@ -951,3 +1001,36 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .settings-tabs button[hidden] { display: none; }
 .google-points { margin: 6px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
 .google-state { margin: 4px 0 8px; }
+
+#create-dialog { width: min(680px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; }
+#create-dialog form { display: grid; gap: 14px; }
+#create-dialog h2, #create-dialog h3, #create-dialog p { margin: 0; }
+.create-unified-header { padding: 20px 22px 0; }
+.create-mode-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin-top: 12px; padding: 4px; border: 1px solid var(--rule); background: var(--paper); }
+.create-mode-tabs button { padding: 8px; border: 0; background: transparent; color: var(--ink-2); }
+.create-mode-tabs button[aria-selected="true"] { background: var(--sheet); color: var(--ink); font-weight: 700; }
+#memo-source { display: grid; gap: 8px; }
+#create-dialog .field-hint { font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+#memo-form textarea { width: 100%; resize: vertical; min-height: 220px; padding: 12px; font: inherit; line-height: 1.8; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); }
+.memo-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memo-review-header h3 { font-size: 14px; }
+.memo-review-header:has(h3[hidden]) { display: none; }
+#memo-preview { display: grid; }
+.memo-proposal { min-width: 0; border-bottom: 1px solid var(--rule); padding: 7px 0; }
+.memo-proposal-head { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.memo-proposal-head > input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--ink); }
+.memo-title { min-width: 0; width: 100%; min-height: 36px; padding: 4px 0; font: inherit; font-size: 14px; background: transparent; color: var(--ink); border: 0; border-bottom: 1px solid transparent; border-radius: 0; }
+.memo-title:hover, .memo-title:focus { border-bottom-color: var(--rule); }
+.memo-date-toggle { max-width: 170px; min-height: 32px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 5px; font: inherit; font-size: 12px; color: var(--ink-2); background: var(--sheet); text-align: center; }
+.memo-date-toggle:hover { background: var(--hover); }
+.memo-proposal-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 10px 0 6px 28px; padding: 10px; background: var(--paper); }
+.memo-proposal-dates .field { min-width: 0; margin: 0; }
+.memo-proposal-dates input, .memo-proposal-dates select { max-width: 100%; min-width: 0; }
+.memo-check-note { margin-left: 28px !important; padding: 4px 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+.memo-excluded { opacity: .6; }
+#create-dialog .dialog-actions { position: sticky; bottom: -1px; margin-top: 0; padding-top: 12px; background: var(--sheet); flex-wrap: wrap; }
+@media (max-width: 520px) {
+  .memo-proposal-head { gap: 7px; }
+  .memo-date-toggle { max-width: 128px; padding: 5px; }
+  .memo-proposal-dates { grid-template-columns: minmax(0, 1fr); }
+}

@@ -274,20 +274,23 @@ function Find-ReplyButtons($root) {
     return $found
 }
 
+function Find-EnabledReplyButton($win, $detailGroup) {
+    $buttons = @()
+    if ($detailGroup) { $buttons = @(Find-ReplyButtons $detailGroup) }
+    if (-not $buttons.Count) { $buttons = @(Find-ReplyButtons $win) }
+    if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { return $buttons[0] }
+}
+
 # The note is already shown in Brity when this runs. Every failure here still leaves it on screen.
-function Open-ReplyComposer($win, $note, $detailGroup) {
+function Open-ReplyComposer($win, $note, $detailGroup, $replyButton) {
     if (@(Get-ComposeHandles).Count) { return 'reply-in-use' }
     # The button can draw a moment after the detail pane, and can sit outside it (a toolbar above).
-    $replyButton = $null
     # Short polls everywhere below: each lookup takes about 20 ms (measured 2026-11-12), the wait was the cost.
     for ($i = 0; $i -lt 30 -and -not $replyButton; $i++) {
         if ($i) { Start-Sleep -Milliseconds 100 }
         $detail = Read-Detail $win
         if ($detail) { $detailGroup = $detail.group }
-        $buttons = @()
-        if ($detailGroup) { $buttons = @(Find-ReplyButtons $detailGroup) }
-        if (-not $buttons.Count) { $buttons = @(Find-ReplyButtons $win) }
-        if ($buttons.Count -eq 1 -and $buttons[0].Current.IsEnabled) { $replyButton = $buttons[0] }
+        $replyButton = Find-EnabledReplyButton $win $detailGroup
     }
     if (-not $replyButton) { return 'reply-unavailable' }
     if (-not (Test-NoteHeader (Read-Detail $win) $note)) { return 'unverified' }
@@ -340,7 +343,7 @@ function Show-OriginalNote($note, [switch]$Reply) {
             for ($i = 0; $i -lt 40 -and -not (Find-ByName $win $CT::List $L.noteListName); $i++) { Start-Sleep -Milliseconds 150 }
         }
         # An older note is not on screen: scroll the list to it.
-        [void](Find-NoteRow $win $note.id)
+        [void](Find-NoteRow $win $note.id $note.datetime)
         $rowCondition = [System.Windows.Automation.AndCondition]::new(
             (New-Cond $AE::ControlTypeProperty $CT::ListItem),
             (New-Cond $AE::AutomationIdProperty $note.id)
@@ -357,6 +360,21 @@ function Show-OriginalNote($note, [switch]$Reply) {
                     $row = $rows.Item(0)
                     $name = Norm $row.Current.Name
                     if (-not $name.Contains((Norm $note.sender)) -or -not $name.Contains((Norm $note.title))) { return 'not-found' }
+                    $selection = $null
+                    if ($Reply -and $i -eq 0 -and
+                        $row.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection) -and
+                        $selection.Current.IsSelected) {
+                        $currentDetail = Read-Detail $win
+                        if (Test-NoteHeader $currentDetail $note) {
+                            # Reinvoking an already selected row can temporarily remove its reply button.
+                            $readyButton = Find-EnabledReplyButton $win $currentDetail.group
+                            $replyAction = $null
+                            if ($readyButton -and
+                                $readyButton.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$replyAction)) {
+                                return (Open-ReplyComposer $win $note $currentDetail.group -ReplyButton $readyButton)
+                            }
+                        }
+                    }
                     if (-not $invoked -or $i -in 20, 40) { $invoked = Invoke-El $row }
                     $detail = Read-Detail $win
                     # Classic view: nothing in the main window, so open (and show) the note's own window.
@@ -534,13 +552,32 @@ function Get-VisibleNoteRow($win, [string]$id) {
     return $null
 }
 
-function Find-NoteRow($win, [string]$id) {
+function Get-NoteDateRange($win) {
+    $rows = @(Get-NoteRows $win)
+    if (-not $rows.Count) { return $null }
+    $newest = ''; $oldest = ''
+    foreach ($row in $rows) {
+        $day = Get-ListDate (Norm $row.Current.Name)
+        if (-not $day -or ($oldest -and $day -gt $oldest)) { return $null }
+        if (-not $newest) { $newest = $day }
+        $oldest = $day
+    }
+    return @{ newest = $newest; oldest = $oldest }
+}
+
+function Find-NoteRow($win, [string]$id, [string]$datetime) {
     $el = Get-VisibleNoteRow $win $id
     if ($el) { return $el }
+    $up = $false
+    if ($datetime -match '^\d{4}-\d{2}-\d{2}(?: |$)') {
+        $targetDay = $datetime.Substring(0, 10)
+        $range = Get-NoteDateRange $win
+        $up = $range -and $targetDay -ge $range.newest -and $targetDay -gt $range.oldest
+    }
     foreach ($pass in 0, 1) {
         if ($pass -eq 1) { Reset-NoteList $win; $el = Get-VisibleNoteRow $win $id; if ($el) { return $el } }
         for ($i = 0; $i -lt 400; $i++) {
-            if (-not (Move-NoteList $win)) { break }
+            if (-not (Move-NoteList $win -Up:($up -and $pass -eq 0))) { break }
             $el = Get-VisibleNoteRow $win $id
             if ($el) { return $el }
         }
@@ -953,6 +990,7 @@ function Write-CollectorJson($value, [string]$path) {
 
 # ---- main ----
 if ($FunctionsOnly) { return }
+. (Join-Path $PSScriptRoot 'list-date.ps1')
 if ($DiagnosticReadId -and (-not $Observe -or $Open -or $Download -or $ShowNote -or $ListOnly)) { throw 'Invalid diagnostic arguments' }
 if ($ShowNote) {
     [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
@@ -993,7 +1031,6 @@ if (-not $list) {
 # New notes are at the top. A list left scrolled down would hide them, so go back up first.
 Reset-NoteList $win
 $ranged = [bool]($From -or $To)
-. (Join-Path $PSScriptRoot 'list-date.ps1')
 if ($ranged) {
     $items = @(Get-AllNoteItems $win $From)
 } else {

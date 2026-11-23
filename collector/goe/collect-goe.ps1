@@ -73,7 +73,7 @@ if ($RetryId) {
     $Download = -not $ShowOriginal
     # an old note sits further down the list
     if ($ShowOriginal -and $MaxPages -lt 60) { $MaxPages = 60 }
-    $Force = $false
+    $Force = [bool]$ShowOriginal
 }
 $range = $RangeImport -or $From -or $To
 foreach ($day in @($From, $To)) {
@@ -362,7 +362,7 @@ function Read-ListTimes([switch]$Rows) {
         # Resolve ties, a missing target time, and attachment retries with the full row reader.
         # It recovers missed time cells, distinguishes senders and reads the attachment clip.
         if ($candidates.Count -gt 1 -or !$ShowOriginal -or
-            (!$candidates.Count -and ($found.datetime | Sort-Object)[0] -le $retryNote.datetime)) { return }
+            (!$candidates.Count -and @($found.datetime | Sort-Object)[0] -le $retryNote.datetime)) { return }
         $sender = ''
         $title = ''
         if ($candidates.Count) {
@@ -395,6 +395,18 @@ function Read-ListTimes([switch]$Rows) {
         }
     } finally { $bmp.Dispose() }
 }
+function Read-OriginalSeekRows([int]$Scale) {
+    if ($ShowOriginal -and $retryNote -and $script:timeColX -and (Get-GoeScanFolder) -eq 'inbox') {
+        $rows = @(Read-ListTimes -Rows | Where-Object { $_ })
+        if ((Get-GoeScanFolder) -ne 'inbox') { throw 'inbox-lost-while-paging' }
+        $matches = @($rows | Where-Object { Test-SameNoteRow $_ $retryNote })
+        if ($matches.Count -eq 1 -and $matches[0].sender -and $matches[0].unread -eq $false) {
+            return @{ inbox = $true; readable = $true; visual = $false; rows = $rows }
+        }
+    }
+    Read-Rows $Scale
+}
+
 # The time column's place and the row scale from the last full read, so a lookup can start from the time column.
 function Save-ListLayout {
     try {
@@ -1719,15 +1731,23 @@ try {
     # (2026-11-19, "8 s is not good enough, the old one far too slow").
     if ($retryNote -and @($view.rows).Count) {
         $target = $retryNote.datetime
-        $times = @($view.rows | ForEach-Object { $_.datetime } | Where-Object { $_ })
-        $prevMin = ($times | Sort-Object)[0]; $prevMax = ($times | Sort-Object)[-1]
+        $times = @($view.rows | ForEach-Object { $_.datetime } | Where-Object { $_ } | Sort-Object)
+        $prevMin = $times[0]; $prevMax = $times[-1]
         $visible = [Math]::Max(4, $times.Count)
         $ticks = 6; $moves = 0
         while ($prevMin -gt $target -and $moves -lt $MaxPages) {
-            Scroll-List $ticks; Start-Sleep -Milliseconds 200; $moves++
-            $new = @(Read-ListTimes | Where-Object { $_ })
+            Scroll-List $ticks
+            $moves++
+            $settle = if ($ShowOriginal) { [Diagnostics.Stopwatch]::StartNew() }
+            Start-Sleep -Milliseconds $(if ($ShowOriginal) { 75 } else { 200 })
+            $new = @(Read-ListTimes | Where-Object { $_ } | Sort-Object)
+            if ($ShowOriginal -and (!$new.Count -or ($new[0] -eq $prevMin -and $new[-1] -eq $prevMax))) {
+                $remaining = 200 - $settle.ElapsedMilliseconds
+                if ($remaining -gt 0) { Start-Sleep -Milliseconds $remaining }
+                $new = @(Read-ListTimes | Where-Object { $_ } | Sort-Object)
+            }
             if (!$new.Count) { break }
-            $newMin = ($new | Sort-Object)[0]; $newMax = ($new | Sort-Object)[-1]
+            $newMin = $new[0]; $newMax = $new[-1]
             Mark "  step $moves ($ticks ticks): $($new.Count) times $newMax .. $newMin"
             if ($newMin -eq $prevMin -and $newMax -eq $prevMax) { break }   # end of the list
             # Rows skipped between two steps are all newer than what is now shown; that only matters when the note
@@ -1746,13 +1766,13 @@ try {
         }
         Mark "seek: $moves steps, last step $ticks ticks"
         if ($moves) {
-            $view = Read-Rows $listOcrScale
+            $view = Read-OriginalSeekRows $listOcrScale
             if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
             if (-not $view.readable) { throw 'list-unreadable' }
             # the note must not sit above the rows now shown
-            for ($up = 0; $up -lt 3 -and @($view.rows).Count -and (@($view.rows | ForEach-Object { $_.datetime }) | Sort-Object)[-1] -lt $target; $up++) {
+            for ($up = 0; $up -lt 3 -and @($view.rows).Count -and @($view.rows | ForEach-Object { $_.datetime } | Sort-Object)[-1] -lt $target; $up++) {
                 Scroll-List (-[Math]::Max(6, [int]($ticks / 2))); Start-Sleep -Milliseconds 300
-                $view = Read-Rows $listOcrScale
+                $view = Read-OriginalSeekRows $listOcrScale
                 if (-not $view.inbox) { throw 'inbox-lost-while-paging' }
                 if (-not $view.readable) { throw 'list-unreadable' }
             }
@@ -1999,7 +2019,7 @@ try {
         }
         if ($stop) { break }
         if ($retryFullScan) {
-            if ((Goe-IsForeground) -or (Get-NoteWindow)) { throw 'folder-busy' }
+            if ((-not $Force -and (Goe-IsForeground)) -or (Get-NoteWindow)) { throw 'folder-busy' }
             $retryFullScan = $false
             Reset-ListScroll
             $view = Read-Rows $listOcrScale

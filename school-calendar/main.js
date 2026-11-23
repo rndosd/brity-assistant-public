@@ -862,13 +862,27 @@ function bindHandlers() {
   bind('open-messenger-note', openMessengerNote);
   bind('goe-attachment-retry', retryNoteAttachments);
   bind('create', async input => changed(await store.create(input)));
+  bind('memo-polish', async draft => {
+    if (demo) throw new CalendarError('메모 다듬기는 AI를 연결한 일반 실행에서 쓸 수 있습니다.');
+    const provider = store.aiProvider;
+    if (provider === 'none') throw new CalendarError('설정에서 AI를 먼저 연결해 주세요.');
+    const connection = apiProviders.get(provider);
+    return require('./memo').polishMemo(provider, draft, {
+      apiKey: connection ? savedApiKey(connection) : undefined,
+      codexExecutable: store.settings.codexExecutable,
+      claudeExecutable: store.settings.claudeExecutable,
+      signal: lifetime.signal
+    });
+  });
+  bind('memo-register', async input => changed(await store.registerMemo(input)));
   bind('update', async (id, input) => changed(await store.update(id, input)));
-  bind('reference-seen', async id => changed(await store.markReferenceSeen(id)));
+  bind('batch-edit', async changes => { await store.batchEdit(changes); return changed(snapshot()); });
+  bind('reference-seen', async (id, seen, revision) => changed(await store.markReferenceSeen(id, seen, revision)));
   bind('candidate-accept', async (id, input) => changed(await store.acceptCandidate(id, input)));
   bind('candidate-apply', async (id, targetId) => changed(await store.applyCandidateChange(id, targetId)));
   bind('candidate-discard', async input => changed(await store.discardCandidates({ id: input?.id, batchId: input?.batchId })));
   bind('candidate-restore', async id => changed(await store.restoreCandidate(id)));
-  bind('done', async (id, done, index) => changed(await store.setDone(id, done, index === undefined ? 'all' : index)));
+  bind('done', async (id, done, index, revision) => changed(await store.setDone(id, done, index, revision)));
   bind('pinned', async (id, pinned) => changed(await store.setPinned(id, pinned)));
   bind('important', async (id, important) => changed(await store.setImportant(id, important)));
   bind('replied', async (id, replied) => changed(await store.setReplied(id, replied)));
