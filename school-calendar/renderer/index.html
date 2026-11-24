@@ -98,7 +98,7 @@
           <span class="tab-title">처리한 것</span> <span class="tab-counts"><b id="done-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="done-unread"></b></span></span>
         </button>
         <button type="button" role="tab" data-view="hidden" id="tab-hidden" aria-controls="view-hidden">
-          <span class="tab-title">숨긴 것</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
+          <span class="tab-title">다른 메시지</span> <span class="tab-counts"><b id="hidden-count"></b><span class="tab-unread" hidden><span class="sr-only">안 읽음 </span><b id="hidden-unread"></b></span></span>
         </button>
       </div>
       <p class="inbox-note" id="inbox-note" role="status"></p>
@@ -174,7 +174,7 @@
           <select id="detail-type" aria-label="업무 분류">
             <option value="할 일">할 일</option>
             <option value="알아 둘 것">확인할 것</option>
-            <option value="없음" hidden>숨긴 것</option>
+            <option value="없음" hidden>다른 메시지</option>
           </select>
           <details class="detail-more" id="detail-more">
             <summary aria-label="더보기" title="더보기">⋯</summary>
@@ -183,7 +183,7 @@
               <button type="button" class="button icon-button" id="note-title-edit" aria-label="업무 제목 고치기" title="고치기" aria-controls="edit-title" aria-expanded="false" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
               <button type="button" class="button icon-button" id="edit-dates" aria-controls="date-rows" aria-expanded="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-edit"></use></svg></button>
               <button type="button" class="button text-button small" id="refine">다듬기</button>
-              <button type="button" id="to-greeting" data-type="없음" hidden>숨기기</button>
+              <button type="button" id="to-greeting" data-type="없음" hidden>다른 메시지로 이동</button>
             </div>
           </details>
         </div>

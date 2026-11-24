@@ -9,7 +9,7 @@ const WEEKDAYS = '일월화수목금토';
 // 한 주는 월요일에 시작해 일요일에 끝난다(2026-11-15 사용자). 달력 칸·기간 띠·목록의 이번 주가 같은 기준을 쓴다.
 const weekday = date => (date.getDay() + 6) % 7;
 const TYPE_ORDER = { span: 0, event: 0, task: 1, loose: 1, ref: 2 };
-const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '없음': '숨기기' };
+const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '없음': '다른 메시지' };
 const aiNames = { claude: 'Claude Code · Haiku', codex: 'Codex', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
 const state = {
   snapshot: { tasks: [], messages: [], inbox: { status: 'loading', pending: 0 } },
@@ -86,7 +86,7 @@ let pendingPriority = null;
 const { priorityLevel, checkable, boxes, finished, isPinned, pinnedDue, lastDay } = taskModel;
 const chatLabels = { task: '대화방', confirmed: '대화방 확정', changed: '대화방 변경', cancelled: '대화방 취소' };
 
-// 대화방 후보(분류할 것 탭). 아직 정하지 않은 것만 후보이고, 버린 후보는 숨긴 것에 둔다.
+// 대화방 후보(분류할 것 탭). 아직 정하지 않은 것만 후보이고, 제외한 후보는 다른 메시지에 둔다.
 function isCandidate(task) {
   return !!task?.candidate && !task.candidate.discarded;
 }
@@ -217,7 +217,8 @@ async function resolveCheck(task, type) {
   if (task.id === state.selected && state.dirty) { notice('자세히에서 저장하지 않은 변경을 먼저 저장해 주세요.'); return; }
   try {
     await api.update(task.id, { type, revision: task.revision });
-    notice(type === task.type ? '확인했습니다.' : type === '할 일' ? '할 일로 옮겼습니다.' : `‘${type === '없음' ? '숨긴 것' : typeLabels[type]}’으로 옮겼습니다.`);
+    notice(type === task.type ? '확인했습니다.' : type === '할 일' ? '할 일로 옮겼습니다.'
+      : type === '없음' ? '다른 메시지로 옮겼습니다.' : '확인할 것으로 옮겼습니다.');
   } catch (error) {
     notice(error.message);
   }
@@ -1332,10 +1333,10 @@ function candidateRow(task, today, unread, existing) {
       bar.append(choice);
     }
   }
-  // ×만으로는 결과가 안 보여 글자로 쓴다(2026-11-18 사용자 평가). 제외한 후보는 숨긴 것에서 되살릴 수 있다.
+  // ×만으로는 결과가 안 보여 글자로 쓴다(2026-11-18 사용자 평가). 제외한 후보는 다른 메시지에서 다시 볼 수 있다.
   const drop = button('button text-button small candidate-drop', '후보 제외');
   drop.setAttribute('aria-label', `${task.title} 후보 제외`);
-  drop.title = '이 후보를 올리지 않습니다. 숨긴 것에서 되살릴 수 있습니다.';
+  drop.title = '이 후보를 올리지 않습니다. 다른 메시지에서 다시 볼 수 있습니다.';
   drop.dataset.focusKey = `candidate-${task.id}-drop`;
   drop.addEventListener('click', () => void discardCandidates({ id: task.id }));
   bar.append(drop);
@@ -1361,7 +1362,7 @@ async function acceptCandidate(task, type) {
 async function discardCandidates(input) {
   try {
     await api.discardCandidates(input);
-    notice(input.batchId ? '남은 후보를 버렸습니다. 숨긴 것에서 되살릴 수 있습니다.' : '버렸습니다. 숨긴 것에서 되살릴 수 있습니다.');
+    notice(input.batchId ? '남은 후보를 제외했습니다. 다른 메시지에서 다시 볼 수 있습니다.' : '후보를 제외했습니다. 다른 메시지에서 다시 볼 수 있습니다.');
   } catch (error) {
     notice(error.message);
   }
@@ -1448,7 +1449,7 @@ function requestBatchFinish(id, list) {
   }
   if (!list.length) return void finishCandidateBatch(id, []);
   pendingBatchFinish = { id, candidates: list.map(task => task.id) };
-  $('finish-chat-copy').textContent = `남은 후보 ${list.length}개는 버립니다. 숨긴 것에서 되살릴 수 있습니다.`;
+  $('finish-chat-copy').textContent = `남은 후보 ${list.length}개는 제외합니다. 다른 메시지에서 다시 볼 수 있습니다.`;
   $('finish-chat-dialog').showModal();
   $('finish-chat-cancel').focus();
 }
@@ -1659,18 +1660,18 @@ function renderLists() {
   const referenceMessages = new Set(references.map(taskMessageKey));
   const hidden = messages.filter(message => message.kind === 'note' ? message.type === '없음' && !noteReviewIds.has(message.id)
     : ![todoMessages, doneMessages, referenceMessages, candidateBatches].some(set => set.has(`chat:${message.id}`)));
-  // 버린 후보: 숨긴 것에서 다시 열어 되살릴 수 있다.
+  // 제외한 후보는 다른 메시지에서 다시 올릴 수 있다.
   const discarded = state.snapshot.tasks.filter(task => task.candidate?.discarded).sort(byReceived);
   updateTab('hidden', hidden.length + discarded.length, hidden.filter(message => message.unread).length);
   const discardedRows = discarded.map(task => {
     const row = listRow(task, 'hidden', today);
     const pick = row.querySelector('.pick');
-    pick.insertBefore(element('span', 'flag soft', '버린 후보'), pick.querySelector('.row-when'));
+    pick.insertBefore(element('span', 'flag soft', '제외한 후보'), pick.querySelector('.row-when'));
     return row;
   });
   $('hidden-list').replaceChildren(...(hidden.length || discarded.length
     ? [...discardedRows, ...hidden.map(hiddenMessageRow)]
-    : [element('li', 'empty-row', '숨긴 항목이 없습니다.')]));
+    : [element('li', 'empty-row', '다른 메시지가 없습니다.')]));
 
   // 달력에서 업무를 누르면 왼쪽을 그 업무가 있는 탭으로 바꾼다. 앞선 탭이 우선.
   const views = new Map();
@@ -4216,7 +4217,8 @@ async function saveDetail(type = state.editType) {
     await refreshDetail(true);
     if (id !== state.selected) return;
     const message = type === previousType ? '변경을 저장했습니다.'
-      : type === '할 일' ? '할 일로 옮겼습니다.' : `‘${type === '없음' ? '숨긴 것' : typeLabels[type]}’으로 옮겼습니다.`;
+      : type === '할 일' ? '할 일로 옮겼습니다.'
+      : type === '없음' ? '다른 메시지로 옮겼습니다.' : '확인할 것으로 옮겼습니다.';
     flash('detail-message', message);
   } catch (error) {
     if (id === state.selected) setMessage('detail-message', error.message, true);
@@ -4705,8 +4707,8 @@ document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) 
   });
 });
 // 업무·쪽지 검색(2026-11-18 사용자 "대화방 검색보다 중요한게 쪽지 검색"): 탭과 상관없이 전체에서 찾고,
-// 결과마다 지금 어느 목록에 있는지(할 일·끝낸 것·숨김 등)와 받은 날을 붙인다. 찾기는 앱 안쪽(store.search)에서 한다.
-const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '처리한 것', hidden: '숨긴 것' };
+// 결과마다 지금 어느 목록에 있는지(할 일·처리한 것·다른 메시지 등)와 받은 날을 붙인다. 찾기는 앱 안쪽(store.search)에서 한다.
+const SEARCH_VIEWS = { todo: '할 일', candidate: '분류할 것', reference: '확인할 것', done: '처리한 것', hidden: typeLabels['없음'] };
 const search = { query: '', result: null, timer: null, token: 0 };
 
 // 찾은 말에 형광펜(mark). 찾기는 띄어쓰기·대소문자를 무시하므로(store.searchFold) 글자 사이 공백을 허용해 맞춘다.
