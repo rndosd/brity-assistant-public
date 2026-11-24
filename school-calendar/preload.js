@@ -18,7 +18,6 @@ contextBridge.exposeInMainWorld('calendar', {
   reviewForwardedBatch: id => invoke('calendar:forwarded-review', id),
   finishChatBatch: (id, candidateIds) => invoke('calendar:chat-batch-finish', id, candidateIds),
   markMessageSeen: (kind, id) => invoke('calendar:message-seen', kind, id),
-  startReplyVoice: (id, mode) => invoke('calendar:reply-voice', id, mode),
   openMessengerNote: id => invoke('calendar:open-messenger-note', id),
   create: input => invoke('calendar:create', input),
   memoPolish: draft => invoke('calendar:memo-polish', draft),

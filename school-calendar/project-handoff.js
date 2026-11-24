@@ -90,13 +90,14 @@ async function openProjectHandoff({ store, taskId, selection, projectDir, agent,
   const folder = await fs.mkdtemp(path.join(parent, '쪽지-'));
   const card = path.join(folder, '업무.md');
   try {
-    await store.prepareMcpWork(taskId, selection, folder);
+    await store.prepareMcpWork(taskId, selection, folder, { includeAttachmentPaths: true });
     const relativeCard = path.relative(project, card).split(path.sep).join('/');
-    let prompt = `이 프로젝트의 ${relativeCard} 파일에서 받은 쪽지 원문과 첨부 목록을 확인해 주세요. 이 자료와 프로젝트 맥락을 참고해서 아래에 적은 일을 도와주세요. 아직 요청이 없으면 어떤 일을 할지 물어봐 주세요.\n\n`;
+    const material = `이 프로젝트의 ${relativeCard}에서 받은 쪽지와 첨부 목록을 확인해 주세요. 작업에 필요한 첨부는 목록에 적힌 위치에서 열어 주세요.`;
+    let prompt = `${material}\n\n아직 맡긴 일이 없으면 어떤 일을 할지 물어봐 주세요.\n\n`;
     if (request) {
       await fs.appendFile(card, '\n\n## 사용자가 요청한 작업\n\n' + request + '\n', 'utf8');
-      const reference = `이 프로젝트의 ${relativeCard} 파일에서 쪽지와 첨부를 확인하고 ‘사용자가 요청한 작업’을 진행해 주세요.`;
-      const withRequest = reference + '\n\n' + request;
+      const reference = `${material}\n\n같은 파일의 ‘사용자가 요청한 작업’을 진행해 주세요.`;
+      const withRequest = `${material}\n\n아래 요청을 진행해 주세요.\n\n${request}`;
       // Keep arbitrary user text out of shell arguments and long Windows protocol URLs.
       prompt = agent === 'codex' && encodeURIComponent(withRequest).length < 6000 ? withRequest : reference;
     }

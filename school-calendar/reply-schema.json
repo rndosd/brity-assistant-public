@@ -1,6 +1,21 @@
 {
   "type": "object",
-  "properties": { "reply": { "type": "string" } },
-  "required": ["reply"],
+  "properties": {
+    "reply": { "type": "string" },
+    "question": { "type": "string" },
+    "choices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "reply": { "type": "string" }
+        },
+        "required": ["label", "reply"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["reply", "question", "choices"],
   "additionalProperties": false
 }

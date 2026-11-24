@@ -259,9 +259,8 @@ function restoreFocus(focusKey) {
   focus?.focus({ preventScroll: true });
 }
 
-// index: 까지 날짜의 순번, null이면 날짜 없는 할 일.
-// 처리 전 목록 순서를 기억한다. 저장 중 다른 쪽지를 열었으면 이동하지 않는다.
-function completionQueue(id) {
+// 처리하거나 건너뛰기 전의 목록 순서를 기억한다.
+function detailQueue(id) {
   const view = document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view;
   if (!['todo', 'reference'].includes(view)) return null;
   const rows = [...$(`view-${view}`).querySelectorAll('.row')];
@@ -271,18 +270,32 @@ function completionQueue(id) {
   return { id, view, ids: [...new Set(ids)].filter(next => next && next !== id) };
 }
 
-function advanceAfterCompletion(queue) {
-  if (!queue || state.selected !== queue.id || state.dirty ||
+function advanceInList(queue, closeWhenEmpty = false) {
+  if (!queue || state.selected !== queue.id || state.dirty || state.saving ||
       document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view !== queue.view) return;
   const rows = [...$(`view-${queue.view}`).querySelectorAll('.row')];
   const next = queue.ids.map(id => rows.find(row => row.dataset.taskId === id)).find(Boolean);
-  if (!next) { closeDetail(); return; }
+  if (!next) {
+    if (closeWhenEmpty) closeDetail();
+    return;
+  }
   const pick = next.querySelector('.pick');
   selectTask(next.dataset.taskId, pick?.dataset.focusKey);
   next.scrollIntoView({ block: 'nearest' });
 }
 
 const completingTasks = new Set();
+
+function updateDetailNext() {
+  const queue = state.detail && detailQueue(state.selected);
+  $('detail-next').hidden = !queue?.ids.length;
+}
+
+$('detail-next').addEventListener('click', () => {
+  if (!state.detail || completingTasks.has(state.selected)) return;
+  advanceInList(detailQueue(state.selected));
+});
+
 let processingUndo;
 let processingUndoTimer;
 
@@ -296,9 +309,9 @@ function expireProcessingUndo() {
   panel.hidden = true;
 }
 
-function offerProcessingUndo(saved, index, reference = false) {
+function offerProcessingUndo(saved, index, reference = false, source = 'detail') {
   clearTimeout(processingUndoTimer);
-  processingUndo = { id: saved.id, revision: saved.revision, index, reference };
+  processingUndo = { id: saved.id, revision: saved.revision, index, reference, source };
   $('processing-undo-button').disabled = false;
   $('processing-undo').hidden = false;
   $('processing-undo-message').textContent = reference ? '확인했어요.' : '완료했어요.';
@@ -313,15 +326,17 @@ $('processing-undo-button').addEventListener('click', async () => {
     return;
   }
   const { selected, selectedChat, forwardedDraft } = state;
+  const undoControl = $('processing-undo-button');
+  const undoFocused = document.activeElement === undoControl;
   clearTimeout(processingUndoTimer);
   completingTasks.add(action.id);
-  $('processing-undo-button').disabled = true;
+  undoControl.disabled = true;
   try {
     const { id, index, revision, reference } = action;
     if (reference) await api.markReferenceSeen(id, false, revision);
     else await api.setDone(id, false, index, revision);
     redraw();
-    if (selected === state.selected && selectedChat === state.selectedChat &&
+    if (action.source === 'detail' && selected === state.selected && selectedChat === state.selectedChat &&
         forwardedDraft === state.forwardedDraft && !state.dirty && !state.saving) {
       selectTask(id);
       revealInList(id, index);
@@ -340,30 +355,64 @@ $('processing-undo-button').addEventListener('click', async () => {
   if (action === processingUndo) {
     processingUndo = null;
     $('processing-undo').hidden = true;
+    const focusNow = document.activeElement;
+    if (action.source === 'agenda' && !$('agenda').hidden && undoFocused &&
+        (focusNow === document.body || focusNow === undoControl)) {
+      const restored = [...$('agenda').querySelectorAll('.agenda-process')].find(control =>
+        control.dataset.taskId === action.id && (action.reference || control.dataset.dateIndex === String(action.index ?? -1)));
+      restored?.focus({ preventScroll: true });
+    }
   }
 });
 
-async function toggleDone(task, index, done, advance = false) {
-  if (completingTasks.has(task.id)) return;
-  if (task.id === state.selected && state.dirty) {
+// index는 마감 날짜의 순번이다. 기한 없는 할 일은 null을 쓴다.
+async function toggleDone(task, index, done, source) {
+  if (completingTasks.has(task.id)) return false;
+  if (task.id === state.selected && (state.dirty || state.saving)) {
     notice('변경을 저장한 뒤 끝냄을 표시할 수 있습니다.');
-    return;
+    return false;
   }
-  const queue = advance && done ? completionQueue(task.id) : null;
+  const queue = source === 'detail' && done ? detailQueue(task.id) : null;
   completingTasks.add(task.id);
   try {
-    const saved = await api.setDone(task.id, done, index);
+    const saved = await api.setDone(task.id, done, index, source === 'agenda' ? task.revision : undefined);
     const today = key(new Date());
     if (queue && boxes(saved).every(({ index, done }) =>
       done || (index !== null && entryPastSchedule(saved, saved.dates[index], today)))) {
       redraw();
-      advanceAfterCompletion(queue);
+      advanceInList(queue, true);
     }
-    if (advance && done) offerProcessingUndo(saved, index);
+    if (source && done) offerProcessingUndo(saved, index, false, source);
+    return true;
   } catch (error) {
     notice(error.message);
+    return false;
   } finally {
     completingTasks.delete(task.id);
+  }
+}
+
+async function confirmReference(task, source) {
+  const { id } = task;
+  if (completingTasks.has(id)) return false;
+  if (id === state.selected && (state.dirty || state.saving)) {
+    if (source === 'agenda') notice('변경을 저장한 뒤 확인을 표시할 수 있습니다.');
+    return false;
+  }
+  const queue = source === 'detail' ? detailQueue(id) : null;
+  completingTasks.add(id);
+  try {
+    const saved = await api.markReferenceSeen(id, true, source === 'agenda' ? task.revision : undefined);
+    redraw();
+    advanceInList(queue, true);
+    offerProcessingUndo(saved, null, true, source);
+    return true;
+  } catch (error) {
+    if (source === 'agenda') notice(error.message);
+    else if (id === state.selected) setMessage('detail-message', error.message, true);
+    return false;
+  } finally {
+    completingTasks.delete(id);
   }
 }
 
@@ -622,6 +671,7 @@ function agendaSection(heading, note) {
 }
 
 function agendaRow(task, entry, index, caption) {
+  const item = element('div', 'agenda-item');
   const row = button('agenda-row');
   row.dataset.focusKey = 'agenda-' + task.id + '-' + index;
   row.setAttribute('aria-pressed', String(state.selected === task.id));
@@ -630,7 +680,31 @@ function agendaRow(task, entry, index, caption) {
   const level = priorityLevel(task);
   markCalendarPriority(row, level);
   row.addEventListener('click', () => selectTask(task.id, row.dataset.focusKey));
-  return row;
+  item.append(row);
+
+  const reference = task.type === '알아 둘 것';
+  if (reference || task.type === '할 일' && (!entry || checkable(entry))) {
+    const process = button('detail-action agenda-process', reference ? '확인' : '완료');
+    const date = entry && !reference && !looseEntry(task, entry) ? ' · ' + shortDate(entry.date) : '';
+    process.setAttribute('aria-label', process.textContent + ': ' + (entry?.label || task.title) + date);
+    process.dataset.focusKey = 'process-' + row.dataset.focusKey;
+    process.dataset.taskId = task.id;
+    process.dataset.dateIndex = String(index);
+    process.addEventListener('click', async () => {
+      const focused = document.activeElement === process;
+      const actions = [...$('agenda').querySelectorAll('.agenda-process')];
+      const position = actions.indexOf(process);
+      const neighbors = [...actions.slice(position + 1), ...actions.slice(0, position).reverse()];
+      const nextFocus = neighbors.find(control => !reference || control.dataset.taskId !== task.id)?.dataset.focusKey;
+      const saved = reference ? await confirmReference(task, 'agenda') : await toggleDone(task, entry ? index : null, true, 'agenda');
+      if (saved && focused && !$('agenda').hidden && document.activeElement === document.body) {
+        restoreFocus(nextFocus);
+        if (document.activeElement === document.body) $('mode-agenda').focus({ preventScroll: true });
+      }
+    });
+    item.append(process);
+  }
+  return item;
 }
 
 function renderAgenda(today) {
@@ -744,10 +818,6 @@ function fitDayItems(list) {
   // 끝낸 항목은 업무량에서 빼고 남는 공간에 최대 3개만 둔다. 나머지는 +N으로 연다.
   const workload = size(active) + (closed.length ? moreHeight + (active.length ? gap : 0) : 0);
   day.dataset.fullHeight = Math.ceil(frame + workload);
-  if (day.parentElement.classList.contains('week-fit')) {
-    const preview = size(active.slice(0, 6)) + (active.length > 6 || closed.length ? moreHeight + (active.length ? gap : 0) : 0);
-    day.dataset.previewHeight = Math.ceil(frame + preview);
-  }
   const selected = items.findIndex(item => item.classList.contains('selected'));
   const closedPreview = closed.slice(0, 3);
   if (closed.includes(selected) && !closedPreview.includes(selected)) closedPreview[closedPreview.length - 1] = selected;
@@ -777,16 +847,12 @@ function updateAutoWeeks(grid) {
   if (!grid.classList.contains('week-fit')) return;
   const days = grid.querySelectorAll('.day');
   for (let start = 0; start < days.length; start += 7) {
-    let preview = 0;
     let full = 0;
     for (let i = start; i < start + 7; i++) {
-      preview = Math.max(preview, Number(days[i].dataset.previewHeight) || 0);
       full = Math.max(full, Number(days[i].dataset.fullHeight) || 0);
     }
-    for (const [prefix, size] of [['--preview-week-', preview], ['--full-week-', full]]) {
-      const prop = prefix + start / 7;
-      if (grid.style.getPropertyValue(prop) !== size + 'px') grid.style.setProperty(prop, size + 'px');
-    }
+    const prop = '--full-week-' + start / 7;
+    if (grid.style.getPropertyValue(prop) !== full + 'px') grid.style.setProperty(prop, full + 'px');
   }
 }
 
@@ -796,7 +862,7 @@ const daySizeObserver = new ResizeObserver(entries => {
   updateAutoWeeks($('month'));
 });
 
-function weekDivider(monday, row, cells, autoTrack) {
+function weekDivider(monday, row, cells) {
   const cell = cells[0];
   const grid = $('month');
   const storageKey = 'calendar-week-height-' + monday;
@@ -806,9 +872,10 @@ function weekDivider(monday, row, cells, autoTrack) {
   let height = null;
   function apply(value, save) {
     height = value === null ? null : Math.max(min, Math.round(value));
-    grid.style.setProperty(property, height === null ? autoTrack : height + 'px');
+    // Grid stretches automatic rows after reserving the height each week needs.
+    grid.style.setProperty(property, height === null ? 'auto' : height + 'px');
     for (const day of cells) day.style.minHeight = height === null
-      ? 'max(clamp(58px, 8vh, 80px), var(--preview-week-' + row + ', 0px))' : '';
+      ? 'max(clamp(58px, 8vh, 80px), var(--full-week-' + row + ', 0px))' : '';
     if (save) {
       try {
         if (height === null) localStorage.removeItem(storageKey);
@@ -999,8 +1066,7 @@ function renderMonth() {
   grid.classList.toggle('week-fit', fit);
   const handles = [];
   for (let row = 0; fit && row < weeks; row++) {
-    const auto = 'max(clamp(58px, 8vh, 80px), var(--full-week-' + row + ', 0px))';
-    handles.push(weekDivider(key(shift(first, row * 7)), row, days.slice(row * 7, row * 7 + 7), auto));
+    handles.push(weekDivider(key(shift(first, row * 7)), row, days.slice(row * 7, row * 7 + 7)));
   }
   grid.style.gridTemplateRows = handles.map((_, row) => 'minmax(max-content, var(--week-' + row + '))').join(' ');
   grid.replaceChildren(...days, ...handles);
@@ -1633,6 +1699,7 @@ function renderLists() {
   $('backlog-text').textContent = `AI 연결 전에 가져온 쪽지 ${backlog}건이 아직 정리되지 않았습니다.`;
   $('backlog-classify').disabled = !!state.backlogBusy;
   renderSearch();
+  updateDetailNext();
 }
 
 function aiNotConnected() {
@@ -1671,7 +1738,7 @@ function readOnlyDateRow(task, entry, index, today, heading) {
   if (canCheck && !task.candidate) {
     const check = button('detail-action complete-action');
     showCompletion(check, done, entry.label);
-    check.addEventListener('click', () => void toggleDone(task, index, !done, true));
+    check.addEventListener('click', () => void toggleDone(task, index, !done, 'detail'));
     row.append(check);
   }
   return row;
@@ -1907,6 +1974,7 @@ function refreshDraftState(task) {
 function enableForm() {
   const task = state.detail?.task;
   const type = state.editType;
+  $('detail-next').disabled = state.saving || state.dirty;
   $('edit-title').disabled = state.saving;
   $('note-title-edit').disabled = state.saving;
   $('edit-memo').disabled = state.saving;
@@ -2327,6 +2395,7 @@ function renderDetail(detail, reset = false) {
   }
   $('detail-content').hidden = false;
   $('detail-toolbar').hidden = false;
+  updateDetailNext();
   $('source-badge').textContent = task.forwardedSource ? '전달 글 원문' : task.candidate ? candidateBadge(task) : task.chatSource ? chatLabels[task.chatSource.action] : '';
   $('source-badge').hidden = !!task.noteId || !!state.forwardedDraft || !$('source-badge').textContent;
   arrangeForwardedDraft(!!state.forwardedDraft);
@@ -2684,6 +2753,7 @@ async function selectChat(id, focusKey, { forwarded = false } = {}) {
 
 function closeDetail() {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return;
+  const panel = $('detail-panel');
   $('repeat-line').open = false;
   watchAgentWork(null);
   if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
@@ -2704,10 +2774,12 @@ function closeDetail() {
   $('chat-original').hidden = true;
   $('same-work').hidden = true;
   $('detail-heading').textContent = '자세히';
-  $('detail-panel').classList.remove('open');
+  panel.classList.remove('open');
   fitWidth();
   setMessage('detail-message', '');
   redraw();
+  // 숨긴 패널에 초점이 아직 남아 있으면 열었던 목록이나 달력 칸으로 돌려준다.
+  if (panel.contains(document.activeElement)) document.activeElement.blur();
   restoreFocus(lastFocus);
 }
 
@@ -4618,6 +4690,7 @@ function showView(view) {
     tab.tabIndex = on ? 0 : -1;
   }
   for (const panel of document.querySelectorAll('.list-view')) panel.hidden = panel.dataset.view !== current;
+  updateDetailNext();
   try { localStorage.setItem('calendar-list-view', current); } catch {}
 }
 document.querySelectorAll('.list-tabs [role="tab"]').forEach((tab, index, tabs) => {
@@ -4763,23 +4836,11 @@ try { savedView = localStorage.getItem('calendar-list-view') || 'todo'; } catch 
 showView(savedView === 'past' ? 'done' : savedView);
 $('loose-complete').addEventListener('click', () => {
   const task = state.detail?.task;
-  if (task) void toggleDone(task, null, !task.done, true);
+  if (task) void toggleDone(task, null, !task.done, 'detail');
 });
-$('reference-seen').addEventListener('click', async () => {
-  const id = state.selected;
-  if (!id || state.dirty || completingTasks.has(id)) return;
-  const queue = completionQueue(id);
-  completingTasks.add(id);
-  try {
-    const saved = await api.markReferenceSeen(id);
-    redraw();
-    advanceAfterCompletion(queue);
-    offerProcessingUndo(saved, null, true);
-  } catch (error) {
-    if (id === state.selected) setMessage('detail-message', error.message, true);
-  } finally {
-    completingTasks.delete(id);
-  }
+$('reference-seen').addEventListener('click', () => {
+  const task = state.detail?.task;
+  if (task) void confirmReference(task, 'detail');
 });
 async function showMessengerNote(id, messageId = 'detail-message', current = () => state.selected === id) {
   if (!current() || !state.messenger.noteAction || state.demo || !id || state.detail?.note?.verified !== true || messengerBusy()) return;
@@ -4851,6 +4912,7 @@ function closeNoteAi() {
     $('reply-fields').hidden = true;
     $('reply-polish-open').setAttribute('aria-expanded', 'false');
     $('reply-intent').value = '';
+    clearReplyClarification(noteAi);
     noteAi = null;
   }
   closeProject();
@@ -4864,35 +4926,34 @@ function currentNoteAi(session) {
 
 function renderNoteAi() {
   if (currentNoteAi(projectSession)) {
-    const { busy, folder, loading, voicePending } = projectSession;
-    $('project-mic').disabled = busy || !!voicePending;
+    const { busy, folder, loading } = projectSession;
     $('project-intent').readOnly = busy;
     $('project-start').textContent = $('project-agent').value === 'claude' ? 'Claude Code에서 시작' : 'Codex 새 채팅 열기';
     $('project-agent').disabled = $('project-files').disabled = busy;
     $('project-folder').disabled = busy || loading;
     const missing = projectSession.installed === false;
-    $('project-start').disabled = busy || loading || !folder || !!voicePending || missing;
+    $('project-start').disabled = busy || loading || !folder || missing;
     $('project-agent-guide').hidden = !missing;
     setMessage('project-missing-agent', missing ? ($('project-agent').value === 'claude' ? 'Claude Code' : 'Codex 데스크톱') + ' 실행 앱을 찾지 못했습니다. 설치한 뒤 ‘에이전트 설정 열기’를 눌러 다시 찾아보세요.' : '');
     $('project-start-open').disabled = busy || state.dirty || state.saving;
   }
   if (currentNoteAi(noteAi)) {
-    const { busy } = noteAi;
+    const { busy, clarification, polished } = noteAi;
     const provider = aiNames[state.snapshot.aiProvider];
     const draft = $('reply-intent').value.trim();
+    $('reply-intent-label').textContent = polished ? '답장 초안' : '어떻게 답하고 싶으세요?';
+    $('reply-clarification').hidden = !clarification;
     $('reply-demo-hint').hidden = !state.demo;
-    $('reply-mic').disabled = busy || !!noteAi.voicePending;
-    $('reply-generate').hidden = !provider && !state.demo;
-    $('reply-ai-settings').hidden = !!provider || !!state.demo;
+    $('reply-generate').hidden = !!clarification || (!provider && !state.demo);
     $('reply-intent').readOnly = busy;
-    $('reply-generate').disabled = busy || !!state.demo || !provider || !draft;
-    $('reply-generate').textContent = noteAi.polished ? '다시 다듬기' : '다듬기';
-    $('reply-generate').classList.toggle('primary', !noteAi.polished);
+    $('reply-generate').disabled = busy || !!clarification || !!state.demo || !provider || !draft;
+    $('reply-generate').textContent = polished ? '다시 다듬기' : '다듬기';
+    $('reply-generate').classList.toggle('primary', !polished);
     const canOpenMessenger = !!state.messenger.noteAction && !state.demo;
-    $('reply-copy').hidden = !noteAi.polished || canOpenMessenger;
-    $('reply-copy').disabled = busy || !draft;
-    $('reply-open-messenger').hidden = !noteAi.polished || !canOpenMessenger;
-    $('reply-open-messenger').disabled = busy || !draft || messengerBusy();
+    $('reply-copy').hidden = !polished || canOpenMessenger;
+    $('reply-copy').disabled = busy || !polished || !draft;
+    $('reply-open-messenger').hidden = !polished || !canOpenMessenger;
+    $('reply-open-messenger').disabled = busy || !polished || !draft || messengerBusy();
     $('reply-open-messenger').title = state.messenger.noteAction === 'original' ? '문구를 복사하고 GOE 원문을 엽니다. 원문에서 답장을 눌러 붙여넣으세요.' : '답장 문구를 복사하고 메신저를 엽니다';
     $('reply-open-messenger').textContent = state.messenger.noteAction === 'original' ? '복사하고 원문 보기'
       : state.detail.noteActions?.forwarded ? '보낸 사람에게 답장' : '브리티에서 답장';
@@ -4914,7 +4975,7 @@ function openNoteAi(mode) {
   if (!expanded) return;
   if (existing?.taskId === task.id) {
     renderNoteAi();
-    input.focus();
+    (existing.clarification ? $('reply-clarification-question') : input).focus();
     return;
   }
   const session = { taskId: task.id, mode, busy: false };
@@ -4963,32 +5024,19 @@ async function runNoteAi(mode, message, action) {
   }
 }
 
-$('reply-polish-open').addEventListener('click', () => openNoteAi('reply'));
-$('project-start-open').addEventListener('click', () => openNoteAi('project'));
-async function startNoteVoice(mode) {
-  const project = mode === 'project';
-  const session = project ? projectSession : noteAi;
-  const status = project ? 'note-ai-status' : 'reply-inline-status';
-  if (!currentNoteAi(session) || session.busy || session.voicePending) return;
-  $(project ? 'project-intent' : 'reply-intent').focus();
-  session.voicePending = true;
-  renderNoteAi();
-  setMessage(status, '');
-  try { await api.startReplyVoice(session.taskId, mode); }
-  catch (error) { if (currentNoteAi(session)) setMessage(status, error.message, true); }
-  finally {
-    session.voicePending = false;
-    if (currentNoteAi(session)) renderNoteAi();
-  }
+function clearReplyClarification(session) {
+  if (!session.clarification) return;
+  session.clarification = null;
+  $('reply-clarification-question').textContent = '';
+  $('reply-clarification-choices').replaceChildren();
 }
-$('reply-mic').addEventListener('click', () => void startNoteVoice('reply'));
-$('project-mic').addEventListener('click', () => void startNoteVoice('project'));
-$('reply-intent').addEventListener('input', renderNoteAi);
-$('reply-ai-settings').addEventListener('click', () => openSettings('ai'));
-$('reply-generate').addEventListener('click', () => void runNoteAi('reply', '답장 문장을 다듬고 있습니다.', async session => {
-  const result = await api.polishReply(session.taskId, $('reply-intent').value.trim());
-  if (!currentNoteAi(session)) return;
+
+function applyReplyDraft(session, text) {
   const input = $('reply-intent');
+  const history = session.replyHistory ??= new Map();
+  history.set(input.value, !!session.polished);
+  history.set(text, true);
+  clearReplyClarification(session);
   session.polished = true;
   input.removeAttribute('maxlength');
   input.readOnly = false;
@@ -4996,14 +5044,56 @@ $('reply-generate').addEventListener('click', () => void runNoteAi('reply', '답
   if (!$('reply-fields').hidden && !document.querySelector('dialog[open]')) {
     input.focus();
     input.select();
-    if (!document.execCommand('insertText', false, result)) input.value = result;
+    if (!document.execCommand('insertText', false, text)) input.value = text;
   } else {
-    input.value = result;
+    input.value = text;
   }
+  input.setSelectionRange(0, 0);
+  input.scrollTop = 0;
   setMessage('reply-inline-status', '');
+  renderNoteAi();
+}
+
+function showReplyClarification(session, result) {
+  session.polished = false;
+  session.clarification = result;
+  const question = $('reply-clarification-question');
+  question.textContent = result.question;
+  $('reply-clarification-hint').hidden = result.choices.length > 0;
+  $('reply-clarification-choices').replaceChildren(...result.choices.map(choice => {
+    const button = element('button', 'button', choice.label);
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      if (currentNoteAi(session) && !session.busy && session.clarification === result) applyReplyDraft(session, choice.text);
+    });
+    return button;
+  }));
+  setMessage('reply-inline-status', '');
+  renderNoteAi();
+  if (!$('reply-fields').hidden && !document.querySelector('dialog[open]')) question.focus();
+}
+
+$('reply-polish-open').addEventListener('click', () => openNoteAi('reply'));
+$('project-start-open').addEventListener('click', () => openNoteAi('project'));
+$('reply-intent').addEventListener('input', event => {
+  if (noteAi) {
+    clearReplyClarification(noteAi);
+    if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
+      const polished = noteAi.replyHistory?.get(event.target.value);
+      if (polished !== undefined) noteAi.polished = polished;
+    }
+  }
+  renderNoteAi();
+});
+$('reply-generate').addEventListener('click', () => void runNoteAi('reply', '답장 문장을 다듬고 있습니다.', async session => {
+  const result = await api.polishReply(session.taskId, $('reply-intent').value.trim());
+  if (!currentNoteAi(session)) return;
+  if (result.kind === 'clarification') showReplyClarification(session, result);
+  else applyReplyDraft(session, result.text);
 }));
 async function copyPolishedReply(openMessenger) {
   await runNoteAi('reply', '', async session => {
+    if (!session.polished) return;
     const text = $('reply-intent').value.trim();
     if (!text) return;
     await api.copyText(text);
@@ -5352,7 +5442,7 @@ function bindPaneDivider(side) {
 }
 
 // 글자 크기: 화면 전체를 비율로 키운다. 이 PC에만 기억한다.
-const ZOOMS = [0.9, 1, 1.1, 1.2, 1.35, 1.5];
+const zoomLevel = $('zoom-level');
 function fitWidth() {
   const width = window.innerWidth / (Number(document.documentElement.style.zoom) || 1);
   document.documentElement.classList.toggle('narrow', width < 1180);
@@ -5362,22 +5452,19 @@ function fitWidth() {
 for (const side of ['list', 'detail']) bindPaneDivider(side);
 window.addEventListener('resize', fitWidth);
 function applyZoom(step) {
-  const index = Math.min(ZOOMS.length - 1, Math.max(0, step));
-  document.documentElement.style.zoom = String(ZOOMS[index]);
+  const index = Math.min(zoomLevel.options.length - 1, Math.max(0, step));
+  zoomLevel.selectedIndex = index;
+  const zoom = zoomLevel.value;
+  document.documentElement.style.zoom = zoom;
   // 글자를 키우면 vh도 함께 커져 창이 화면 밖으로 넘친다. 창 높이 계산에서 배율을 되돌린다.
-  document.documentElement.style.setProperty('--zoom', String(ZOOMS[index]));
+  document.documentElement.style.setProperty('--zoom', zoom);
   fitWidth();
-  $('zoom-value').textContent = `${Math.round(ZOOMS[index] * 100)}%`;
-  $('zoom-out').disabled = index === 0;
-  $('zoom-in').disabled = index === ZOOMS.length - 1;
   try { localStorage.setItem('calendar-zoom', String(index)); } catch {}
-  return index;
 }
-let zoomStep = 1;
+let zoomStep = zoomLevel.selectedIndex;
 try { const saved = localStorage.getItem('calendar-zoom'); if (saved !== null && Number.isInteger(Number(saved))) zoomStep = Number(saved); } catch {}
-zoomStep = applyZoom(zoomStep);
-$('zoom-in').addEventListener('click', () => { zoomStep = applyZoom(zoomStep + 1); });
-$('zoom-out').addEventListener('click', () => { zoomStep = applyZoom(zoomStep - 1); });
+applyZoom(zoomStep);
+zoomLevel.addEventListener('change', () => applyZoom(zoomLevel.selectedIndex));
 
 // 화면 꾸미기(스킨): 자리는 그대로 두고 색·질감·글꼴·그림만 바꾼다(skins.css). 이 PC에만 기억하고,
 // 첫 화면 전에 skin-boot.js가 먼저 입힌다.

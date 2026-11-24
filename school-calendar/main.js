@@ -1191,30 +1191,6 @@ function bindHandlers() {
   }));
   bind('check-mcp-bridge', () => mcpShare.checkBridge());
   bind('mcp-status', () => mcpShare.status());
-  bind('reply-voice', async (id, mode = 'reply') => {
-    const field = mode === 'project' ? 'project-intent' : 'reply-intent';
-    if (process.platform !== 'win32' || !window?.isFocused()) throw new CalendarError('답장 입력칸을 선택한 뒤 다시 눌러 주세요.');
-    const target = window;
-    const handle = target.getNativeWindowHandle().readUInt32LE(0);
-    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    await new Promise((resolve, reject) => {
-      const fallback = () => reject(new CalendarError('Windows 음성 입력을 열 수 없습니다. 입력칸에서 Windows 키와 H를 함께 눌러 주세요.'));
-      const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
-        path.join(__dirname, 'reply-voice.ps1'), String(handle)], { windowsHide: true, timeout: 10000, stdio: ['pipe', 'pipe', 'ignore'] });
-      child.once('error', fallback);
-      child.stdin.on('error', () => {}); // The helper may already have exited.
-      child.stdout.once('data', async () => {
-        let ready = false;
-        try {
-          const active = await target.webContents.executeJavaScript(
-            `document.activeElement === $('${field}') && !$('${field}').readOnly ? state.selected : null`);
-          ready = target.isFocused() && active === id;
-        } catch {}
-        if (!child.stdin.destroyed) child.stdin.end(ready ? 'start\n' : 'cancel\n');
-      });
-      child.once('close', code => code === 0 ? resolve() : fallback());
-    });
-  });
   bind('polish-reply', async (id, intent) => {
     if (demo) throw new CalendarError('답장 다듬기는 일반 실행기에서 AI를 연결한 뒤 사용할 수 있습니다.');
     const provider = store.aiProvider;

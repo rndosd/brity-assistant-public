@@ -465,7 +465,6 @@
 :root[data-skin="brutal"] .button.primary { background: var(--violet); color: #111; }
 :root[data-skin="brutal"] .button.text-button { border-color: transparent; box-shadow: none; background: transparent; }
 :root[data-skin="brutal"] .zoom { border: 2px solid #111; border-radius: 6px; box-shadow: 3px 3px 0 #111; overflow: hidden; }
-:root[data-skin="brutal"] .zoom .button { box-shadow: none; border: 0; }
 :root[data-skin="brutal"] .todo { background: var(--paper); border-right: 3px solid #111; }
 :root[data-skin="brutal"] .today-line { font-family: var(--disp); font-weight: 800; }
 :root[data-skin="brutal"] .list-tabs { border: 2px solid #111; border-radius: 8px; overflow: hidden; box-shadow: 4px 4px 0 #111; background: #111; gap: 2px; }
@@ -535,17 +534,21 @@
 :root[data-skin="retro"] .day.is-today .day-number { background: #000080; color: #fff; padding: 0 4px; }
 :root[data-skin="retro"] .item, :root[data-skin="retro"] .span-piece { border-radius: 0; }
 :root[data-skin="retro"] .detail-panel { background: var(--face); box-shadow: inset 1px 1px 0 #fff, -2px 0 0 #000; }
-:root[data-skin="retro"] .detail-heading { background: linear-gradient(90deg, #000080, #0a5fa8); margin: -16px -22px 10px; padding: 5px 22px; }
-:root[data-skin="retro"] .detail-heading :is(h2, .button) { color: #fff; }
+:root[data-skin="retro"] .detail-heading {
+  background: linear-gradient(90deg, #000080, #0a5fa8);
+  margin: var(--detail-heading-offset, -16px) calc(-1 * var(--detail-inset, 22px)) 10px;
+  padding: 5px var(--detail-inset, 22px);
+}
+:root[data-skin="retro"] .detail-heading h2 { color: #fff; }
 :root[data-skin="retro"] .paper { background: #fff; border: 0; border-radius: 0; box-shadow: inset 1px 1px 0 #808080, inset 2px 2px 0 #000, inset -1px -1px 0 #fff; }
 :root[data-skin="retro"] .seg { border: 0; border-radius: 0; gap: 2px; }
 :root[data-skin="retro"] .seg button { background: var(--face); box-shadow: inset -1px -1px 0 #000, inset 1px 1px 0 #fff; }
 :root[data-skin="retro"] .seg button[aria-pressed="true"] { box-shadow: inset 1px 1px 0 #000, inset -1px -1px 0 #fff; background: #dcdcdc; font-weight: 700; }
 :root[data-skin="retro"] :is(.field, .title-field, .date-field) :is(input, select, textarea) { border-radius: 0; border: 0; background: #fff; box-shadow: inset 1px 1px 0 #808080, inset 2px 2px 0 #000; }
 :root[data-skin="retro"] dialog { background: var(--face); border: 0; border-radius: 0; box-shadow: inset -1px -1px 0 #000, inset 1px 1px 0 #fff, inset -2px -2px 0 #808080, 4px 4px 0 #00000059; }
-:root[data-skin="retro"] dialog h2 { background: linear-gradient(90deg, #000080, #0a5fa8); color: #fff; margin: -18px -22px 12px; padding: 4px 22px; border: 0; }
+:root[data-skin="retro"] dialog h2 { background: linear-gradient(90deg, #000080, #0a5fa8); color: #fff; margin: -18px calc(-1 * var(--create-heading-inset, 22px)) 12px; padding: 4px var(--create-heading-inset, 22px); border: 0; }
 
-:root[data-skin="retro"] .app-header .zoom button { color: #000; background: var(--face); box-shadow: inset -1px -1px 0 #000, inset 1px 1px 0 #fff; border: 0; }
+:root[data-skin="retro"] .app-header .zoom { color: #000; background: var(--face); box-shadow: inset -1px -1px 0 #000, inset 1px 1px 0 #fff; border: 0; }
 :root[data-skin="retro"] .app-header h1 * { color: #fff; border-color: #ffffffb3; }
 
 /* ═══════ 8. 신문 ═══════ (2차 시안 J) 에디토리얼: 신문지 미색, 굵은 명조 큰 제목, 검정 이중 괘선, 단 나눔. */

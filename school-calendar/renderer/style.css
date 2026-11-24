@@ -100,7 +100,7 @@ button:disabled { cursor: default; opacity: .5; }
 #week-layout label { display:flex; align-items:center; gap:7px; cursor:pointer; }
 #week-layout input { accent-color:var(--ink); }
 .agenda-mode :is(#calendar-view-settings,.calendar-controls,.header-meal) { display:none; }
-.month.week-fit { position:relative; align-content:start; }
+.month.week-fit { position:relative; align-content:stretch; }
 .month.week-fit .day { min-height:48px; }
 .week-divider { position:absolute; grid-column:1 / -1; left:0; right:0; bottom:0; height:6px; z-index:2; cursor:row-resize; touch-action:none; }
 .week-divider:is(:hover,:focus-visible,:active)::after { content:""; position:absolute; inset:auto 0 0; border-bottom:2px solid var(--ink-2); }
@@ -118,9 +118,11 @@ button:disabled { cursor: default; opacity: .5; }
 .agenda-section + .agenda-section { margin-top:20px; }
 .agenda-section h3 { margin:0; padding:0 0 7px; border-bottom:2px solid var(--rule-strong); color:var(--ink); font-size:17px; }
 .agenda-section h3 small { margin-inline-start:10px; color:var(--ink-2); font-size:13px; font-weight:400; }
-.agenda-row { display:flex; gap:14px; align-items:baseline; width:100%; padding:11px 4px; text-align:left; border:0; border-bottom:1px solid var(--rule); background:transparent; color:var(--ink); font:inherit; cursor:pointer; }
-.agenda-row:hover,.agenda-row[aria-pressed="true"] { background:var(--selected); }
-.agenda-caption { flex:0 0 98px; font-size:13px; color:var(--ink-2); }
+.agenda-item { display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--rule); }
+.agenda-row { display:flex; flex:1; min-width:0; gap:14px; align-items:baseline; padding:11px 4px; text-align:left; border:0; background:transparent; color:var(--ink); font:inherit; cursor:pointer; }
+.agenda-item:hover,.agenda-item:has(.agenda-row[aria-pressed="true"]) { background:var(--selected); }
+.agenda-caption { flex:0 0 clamp(65px, 20vw, 98px); font-size:13px; color:var(--ink-2); }
+.agenda-process { flex:none; margin-inline-end:4px; min-height:28px; }
 .agenda-action { min-width:0; overflow-wrap:anywhere; font-size:15px; font-weight:650; }
 .agenda-important { margin-inline-start:auto; font-size:12px; }
 .agenda-side .agenda-section { border:1px solid var(--rule-strong); border-radius:6px; padding:14px; background:var(--sheet); }
@@ -471,10 +473,21 @@ button:disabled { cursor: default; opacity: .5; }
 .note-reply-action:enabled:hover, .note-reply-action[aria-expanded="true"] { color: var(--ink); background: var(--hover); }
 .note-reply-action:disabled { opacity: .5; cursor: default; }
 .note-reply-action:is(:hover, :focus-visible)::after { content: attr(aria-label); position: absolute; z-index: 3; right: 0; bottom: calc(100% + 5px); padding: 4px 8px; border-radius: 4px; white-space: nowrap; background: var(--ink); color: var(--sheet); font: 12px/1.5 var(--ui, sans-serif); pointer-events: none; }
-.reply-input { position: relative; }
-.reply-input textarea:is(#reply-intent, #project-intent) { padding-inline-end: 44px; }
-.reply-input .reply-mic { position: absolute; right: 5px; top: 5px; color: var(--ink-2); }
 #reply-fields, #project-fields { margin-top: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: 5px; background: var(--sheet); }
+#reply-intent {
+  field-sizing: content;
+  width: 100%;
+  min-height: 5.5em;
+  max-height: min(28em, calc(70vh / var(--zoom, 1)));
+  overflow-wrap: anywhere;
+}
+.reply-clarification { display: grid; min-width: 0; gap: 6px; padding-top: 8px; border-top: 1px solid var(--rule); }
+#reply-clarification-question { font-weight: 700; overflow-wrap: anywhere; }
+#reply-clarification-choices:empty { display: none; }
+#reply-clarification-choices .button {
+  max-width: 100%; min-height: 34px; white-space: normal; overflow-wrap: anywhere; text-align: left;
+}
+.reply-actions:not(:has(button:not([hidden]))) { display: none; }
 .note-actions .detail-section-heading { flex-wrap: wrap; gap: 4px 8px; }
 .note-actions .ai-actions { gap: 4px 6px; }
 .codex-work { margin-top: 12px; padding-top: 8px; }
@@ -534,11 +547,8 @@ button:disabled { cursor: default; opacity: .5; }
 .raw-note .original { margin-top: 8px; font-size: 13.5px; color: var(--ink-2); }
 .chat-lines li + li { margin-top: 12px; padding-top: 8px; border-top: 1px dotted var(--rule); }
 /* 글자 크기 조절 */
-.zoom { display: inline-flex; align-items: center; border: 1px solid var(--rule); background: var(--sheet); }
-.zoom button { border: 0; background: none; min-width: 30px; height: 28px; padding: 0 6px; }
-.zoom button:hover:not(:disabled) { background: var(--hover); }
-.zoom .zoom-small { font-size: 11px; } .zoom .zoom-big { font-size: 15px; font-weight: 700; }
-.zoom output { min-width: 42px; text-align: center; font-size: 12px; color: var(--ink-2); border-inline: 1px solid var(--rule); line-height: 28px; }
+.zoom { display: inline-block; min-inline-size: 5.6em; padding-inline: 8px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.zoom option { color: var(--ink); background: var(--sheet); }
 .detail-actions { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--rule); display: grid; justify-items: start; gap: 4px; }
 .work-message { color: var(--ink); }
 
@@ -665,25 +675,51 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 #processing-undo-button { min-height: 28px; padding: 2px 8px; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: inherit; white-space: nowrap; cursor: pointer; }
 #processing-undo-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
-/* 좁은 창: 자세히를 아래로, 더 좁으면 한 줄 */
-/* 좁은 창: 글자 크기를 키운 만큼 좁게 친다(app.js가 html에 narrow·tiny를 붙임) */
-.narrow body { display: block; height: auto; }
-.narrow .workspace { grid-template-columns: var(--list-pane-width) var(--pane-divider-width) minmax(0, 1fr); }
+/* 확대 배율을 반영한 창 너비에 맞춰 자세히를 옆에 띄우거나 화면 전체에 연다. */
 .narrow #detail-divider {
   display: none; position: fixed; z-index: 5; inset: 0 var(--detail-pane-width, 440px) 0 auto;
   width: var(--pane-divider-width);
 }
 .narrow .workspace:has(.detail-panel.open) #detail-divider { display: block; }
 .narrow .detail-panel { position: fixed; z-index: 4; top: 0; right: 0; bottom: 0; width: var(--detail-pane-width, 440px); max-width: 100%; border-left: 2px solid var(--ink); }
-.narrow .todo, .narrow .calendar { overflow: visible; }
+.tiny body { display: block; height: auto; }
+.tiny .app-header { gap: 8px 12px; padding-inline: 12px; }
+.tiny .header-actions { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+.tiny .header-actions .button { padding-inline: 8px; }
+.tiny .connection { flex-basis: 100%; flex-wrap: wrap; gap: 5px 8px; }
+.tiny .connection .small-note { display: none; }
+.tiny .feedback { position: static; }
+.tiny .feedback-pop { inset-inline: 12px; width: auto; }
 .tiny .workspace { grid-template-columns: minmax(0, 1fr); }
 .tiny .workspace .pane-divider, .tiny .workspace:has(.detail-panel.open) #detail-divider { display: none; }
-.tiny .detail-panel { width: 100%; border-left: 0; }
+.tiny .todo, .tiny .calendar { overflow: visible; }
 .tiny .todo { border-right: 0; border-bottom: 1px solid var(--rule); }
+.tiny .calendar-header { position: relative; }
+.tiny .calendar-view-actions { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+.tiny #calendar-view-settings { position: static; }
+.tiny .calendar-view-options { inset-inline-end: 0; max-width: 100%; }
 .tiny .legend { display: none; }
 .tiny .month { grid-auto-rows: minmax(72px, auto); }
 .tiny .item { font-size: 11px; }
-.tiny .connection .small-note { display: none; }
+
+/* 화면을 덮는 동안 뒤에 있는 목록은 자리와 스크롤 위치를 유지한다. */
+.tiny:has(.detail-panel.open, dialog:modal) { overflow: hidden; }
+.tiny:has(.detail-panel.open) :is(.app-header, .todo, .calendar) { visibility: hidden; }
+.tiny .detail-panel {
+  --detail-inset: 14px;
+  --detail-heading-offset: 0px;
+  inset: 0; width: auto; padding: 0 var(--detail-inset) 20px;
+  border-left: 0; overscroll-behavior: contain; scroll-padding-block-start: 52px;
+}
+.tiny .detail-heading {
+  top: 0; flex-wrap: wrap; gap: 4px 8px;
+  margin: 0 calc(-1 * var(--detail-inset)); padding: 8px var(--detail-inset);
+  border-bottom: 1px solid var(--rule);
+}
+.tiny .detail-controls { flex: 1 0 auto; gap: 6px; }
+.tiny .detail-menu { max-width: calc(100vw / var(--zoom, 1) - 2 * var(--detail-inset)); }
+.tiny .note-reading .detail-section-heading { flex-wrap: wrap; gap: 4px 8px; }
+.tiny #reply-fields { padding: 8px; }
 
 /* 1단계(2026-11-12): 큰 달 숫자 옆 "월", 메모·내용 칸, 전담 칸 */
 .month-unit { font-size: 22px; margin-left: 2px; }
@@ -998,11 +1034,20 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 @container (max-width: 540px) {
   .settings-tabs { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+@container (max-width: 380px) {
+  .settings-tabs { margin-inline: 12px; }
+  .settings-tabs button { padding: 4px; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
+  .settings-body { padding-inline: 12px; }
+  .settings-body, .settings-section, .ai-settings, .ai-key-options { grid-template-columns: minmax(0, 1fr); }
+  .ai-settings .field :is(input, select) { width: 100%; min-width: 0; }
+  .ai-connected { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; }
+  .ai-connected .detail { grid-column: 2; }
+}
 .settings-tabs button[hidden] { display: none; }
 .google-points { margin: 6px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
 .google-state { margin: 4px 0 8px; }
 
-#create-dialog { width: min(680px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; }
+#create-dialog { width: min(680px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; container-type: inline-size; }
 #create-dialog form { display: grid; gap: 14px; }
 #create-dialog h2, #create-dialog h3, #create-dialog p { margin: 0; }
 .create-unified-header { padding: 20px 22px 0; }
@@ -1029,6 +1074,12 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .memo-check-note { margin-left: 28px !important; padding: 4px 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
 .memo-excluded { opacity: .6; }
 #create-dialog .dialog-actions { position: sticky; bottom: -1px; margin-top: 0; padding-top: 12px; background: var(--sheet); flex-wrap: wrap; }
+@container (max-width: 410px) {
+  #create-dialog form, .create-unified-header { padding-inline: 14px; }
+  .create-unified-header { --create-heading-inset: 14px; }
+  .create-date-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-date-row .field:first-child { grid-column: 1 / -1; }
+}
 @media (max-width: 520px) {
   .memo-proposal-head { gap: 7px; }
   .memo-date-toggle { max-width: 128px; padding: 5px; }

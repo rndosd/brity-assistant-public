@@ -23,15 +23,16 @@ async function fixture(t) {
   await Promise.all([fs.mkdir(projectDir), fs.mkdir(notes, { recursive: true }), fs.mkdir(files, { recursive: true })]);
   const saved = ['선택한 양식 & 자료.txt', '개인 메모.txt'].map(name => ({ name, path: path.join(files, name) }));
   await Promise.all(saved.map(item => fs.writeFile(item.path, item.name)));
-  const note = { id: noteId, title: '가상 쪽지', sender: '가상 발신자', datetime: '2026-11-10 08:00', verified: true, body: '가상 요청 원문', saved };
+  const missing = { name: '사라진 문서.txt', path: path.join(files, '사라진 문서.txt') };
+  const note = { id: noteId, title: '가상 쪽지', sender: '가상 발신자', datetime: '2026-11-10 08:00', verified: true, body: '가상 요청 원문', saved: [...saved, missing] };
   await fs.writeFile(path.join(notes, noteId + '.json'), JSON.stringify(note));
   const store = new CalendarStore({ dataDir: path.join(root, 'data'), inboxDir, ruleSeed: path.join(__dirname, '..', 'rules-seed.md'), aiDefault: 'none' });
   await store.init();
   const [task] = (await store.refresh()).tasks;
-  return { store, taskId: task.id, projectDir, selection: [{ index: 0, name: saved[0].name }] };
+  return { store, taskId: task.id, projectDir, selection: [{ index: 0, name: saved[0].name }], saved, missing };
 }
 
-test('채팅은 선택한 프로젝트에 열리고 가리키는 업무 사본에는 고른 첨부만 남는다', async t => {
+test('프로젝트 채팅에 고른 첨부는 복사하고 그 밖의 저장 파일 위치를 알려 준다', async t => {
   const input = await fixture(t);
   let url;
   const codex = await openProjectHandoff({ ...input, agent: 'codex', openExternal: address => { url = new URL(address); } });
@@ -42,12 +43,24 @@ test('채팅은 선택한 프로젝트에 열리고 가리키는 업무 사본�
   assert.match(url.search, /%20%2B%20/);
   const relative = path.relative(input.projectDir, codex.card).split(path.sep).join('/');
   assert.ok(url.searchParams.get('prompt').includes(relative));
+  assert.match(url.searchParams.get('prompt'), /목록에 적힌 위치에서 열어 주세요/);
+  assert.match(url.searchParams.get('prompt'), /아직 맡긴 일이 없으면/);
   assert.ok(!url.search.includes(encodeURIComponent('가상 요청 원문')));
-  assert.match(await fs.readFile(codex.card, 'utf8'), /가상 요청 원문/);
+  const card = await fs.readFile(codex.card, 'utf8');
+  assert.match(card, /가상 요청 원문/);
+  assert.match(card, /저장된 첨부 위치/);
+  assert.ok(card.includes(input.saved[1].path));
+  assert.doesNotMatch(card, /사라진 문서/);
+  assert.ok(!card.includes(input.saved[0].path));
+  assert.ok(!url.searchParams.get('prompt').includes(input.saved[1].path));
   assert.deepEqual(await fs.readdir(path.join(codex.folder, '첨부')), [input.selection[0].name]);
 
   let invocation;
-  const claude = await openProjectHandoff({ ...input, agent: 'claude', openClaude: (cwd, prompt) => { invocation = { cwd, prompt }; } });
+  const claude = await openProjectHandoff({ ...input, selection: [], agent: 'claude', openClaude: (cwd, prompt) => { invocation = { cwd, prompt }; } });
+  const noCopies = await fs.readFile(claude.card, 'utf8');
+  assert.ok(input.saved.every(item => noCopies.includes(item.path)));
+  assert.doesNotMatch(noCopies, /사라진 문서/);
+  assert.deepEqual(await fs.readdir(claude.folder), ['업무.md']);
   assert.equal(invocation.cwd, input.projectDir);
   assert.ok(invocation.prompt.includes(path.relative(input.projectDir, claude.card).split(path.sep).join('/')));
   assert.notEqual(codex.folder, claude.folder);
@@ -85,14 +98,18 @@ test('앱에 등록된 프로젝트 이름과 실제 폴더를 연결하고 없�
 
 test('입력한 지시와 줄바꿈이 작업 사본에 남고 Claude 실행 인자에는 사본 위치만 들어간다', async t => {
   const input = await fixture(t);
-  const instruction = '첫 줄 "검토" & 정리\n두 번째 줄';
+  const instruction = '첨부 양식으로 "준비물"을 정리해 줘.\n4학년 담임만 참가해.';
   let draft;
   const first = await openProjectHandoff({ ...input, instruction, agent: 'codex', openExternal: url => { draft = new URL(url); } });
   assert.ok(draft.searchParams.get('prompt').includes(instruction));
+  assert.match(draft.searchParams.get('prompt'), /아래 요청을 진행해 주세요/);
+  assert.doesNotMatch(draft.searchParams.get('prompt'), /아직 맡긴 일이 없으면|사용자가 요청한 작업/);
   assert.ok((await fs.readFile(first.card, 'utf8')).includes(instruction));
   let prompt;
   const second = await openProjectHandoff({ ...input, instruction, agent: 'claude', openClaude: (_, text) => { prompt = text; } });
   assert.ok((await fs.readFile(second.card, 'utf8')).includes(instruction));
   assert.ok(prompt.includes(path.relative(input.projectDir, second.card).split(path.sep).join('/')));
   assert.ok(!prompt.includes(instruction));
+  assert.match(prompt, /같은 파일의 ‘사용자가 요청한 작업’을 진행해 주세요/);
+  assert.doesNotMatch(prompt, /아직 맡긴 일이 없으면/);
 });
