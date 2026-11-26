@@ -157,6 +157,7 @@
             </div>
           </details>
           <button type="button" class="button small lesson-timetable-open" id="lesson-timetable-open" aria-haspopup="dialog" aria-controls="timetable-dialog" hidden>시간표 설정</button>
+          <button type="button" class="button text-button small" id="lesson-tour-restart" aria-controls="lesson-tour" aria-expanded="false" hidden>사용법</button>
           <div class="calendar-controls" role="group" aria-label="달력 이동">
             <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
             <button type="button" class="button" id="today">오늘</button>
@@ -165,6 +166,10 @@
         </div>
       </div>
       <section id="agenda" aria-label="업무 목록" hidden></section>
+      <section class="lesson-tour" id="lesson-tour" aria-label="수업 시작 안내" hidden>
+        <p id="lesson-tour-text" role="status" aria-live="polite"></p>
+        <button type="button" class="button text-button small" id="lesson-tour-skip">건너뛰기</button>
+      </section>
       <p class="lesson-empty" id="lesson-empty" hidden>시간표를 넣으면 달력에 수업이 나와요. <button type="button" class="button small primary" id="lesson-empty-open">시간표 파일 넣기</button></p>
       <div class="weekdays" aria-hidden="true"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="weekday-sat">토</span><span class="weekday-sun">일</span></div>
       <div class="month" id="month" aria-label="날짜별 업무"></div>

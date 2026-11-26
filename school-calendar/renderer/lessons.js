@@ -35,6 +35,140 @@
   // ── 업무·수업 탭 ──
   const workTab = $('main-tab-work');
   const lessonTab = $('main-tab-lesson');
+  const tour = $('lesson-tour');
+  const tourText = $('lesson-tour-text');
+  const tourSkip = $('lesson-tour-skip');
+  const tourRestart = $('lesson-tour-restart');
+  const tourStorageKey = 'calendar-lesson-tour-seen';
+  let tourSeen = false;
+  let tourStep = '';
+  let tourTarget;
+  try { tourSeen = localStorage.getItem(tourStorageKey) === '1'; } catch {}
+
+  function startTour() {
+    tourSeen = true;
+    try { localStorage.setItem(tourStorageKey, '1'); } catch {}
+    tourStep = 'setup';
+    renderTour();
+  }
+
+  function highlightTour(target) {
+    if (tourTarget === target) return;
+    if (tourTarget) {
+      tourTarget.classList.remove('lesson-tour-target');
+      const described = (tourTarget.getAttribute('aria-describedby') || '').split(/\s+/u).filter(id => id && id !== tourText.id);
+      if (described.length) tourTarget.setAttribute('aria-describedby', described.join(' '));
+      else tourTarget.removeAttribute('aria-describedby');
+    }
+    tourTarget = target;
+    if (!target) return;
+    target.classList.add('lesson-tour-target');
+    target.setAttribute('aria-describedby', [target.getAttribute('aria-describedby'), tourText.id].filter(Boolean).join(' '));
+  }
+
+  function tourTargetVisible(target) {
+    const rect = target.getBoundingClientRect();
+    const scroll = target.closest('.week-zoom-days, .calendar');
+    const bounds = scroll?.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    return rect.width > 0 && rect.height > 0 && x > Math.max(0, bounds?.left ?? 0) &&
+      x < Math.min(innerWidth, bounds?.right ?? innerWidth) && y > Math.max(0, bounds?.top ?? 0) &&
+      y < Math.min(innerHeight, bounds?.bottom ?? innerHeight);
+  }
+
+  function tourTargetInView(target) {
+    if (target?.matches('.day-hit, .wz-open') && !tourTargetVisible(target)) {
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
+  }
+
+  function placeTour(inDetail) {
+    const detail = $('lesson-detail');
+    if (inDetail) {
+      if (tour.parentElement !== detail) detail.prepend(tour);
+    } else {
+      const empty = $('lesson-empty');
+      if (tour.nextElementSibling !== empty) empty.before(tour);
+    }
+  }
+
+  function tourDate() {
+    const days = [...$('month').querySelectorAll('.day-hit')].filter(hit =>
+      hit.dataset.focusKey?.startsWith('date-') && hit.closest('.day')?.querySelector('.day-items [data-focus-key^="calendar-lesson:"]'));
+    const today = key(new Date());
+    const visible = days.filter(tourTargetVisible);
+    const options = visible.length ? visible : days;
+    return options.find(hit => hit.dataset.focusKey === 'date-' + today) ||
+      options.find(hit => hit.dataset.focusKey.slice(5) >= today) || options.at(-1);
+  }
+
+  function renderTour() {
+    if (!view.lessons || !tourStep || !state.snapshot.lessons) {
+      tour.hidden = true;
+      placeTour(false);
+      tourRestart.setAttribute('aria-expanded', 'false');
+      highlightTour(undefined);
+      return;
+    }
+    const date = tourDate();
+    if (tourStep === 'setup' && (savedSchedule() || date || zoom.querySelector('.wz-open'))) tourStep = 'week';
+    let target, message;
+    if (tourStep === 'setup') {
+      const dialog = $('timetable-dialog');
+      target = dialog.open ? $('tt-file-pick') : !$('lesson-empty').hidden ? $('lesson-empty-open') : $('lesson-timetable-open');
+      message = '시간표 파일을 넣거나 과목 표를 붙여넣어 보세요.';
+    } else if (tourStep === 'done') {
+      target = !$('lesson-detail').hidden ? $('lesson-detail') : undefined;
+      message = '수업 자세히에서 메모를 남기거나 자료를 연결할 수 있어요.';
+    } else if (!zoom.hidden) {
+      target = zoom.querySelector('.wz-open');
+      if (target) {
+        tourStep = 'lesson';
+        message = '주간 시간표에서 과목을 눌러 수업 자세히를 열어 보세요.';
+      } else {
+        target = zoom.querySelector('[data-focus-key="zoom-edit-done"]');
+        if (target) message = '시간표 고치기를 끝내면 과목을 눌러 열 수 있어요.';
+        else {
+          target = zoom.querySelector('.wz-close');
+          message = '이 주에는 수업이 없어요. 시간표를 닫고 수업이 있는 날짜를 눌러 보세요.';
+        }
+        tourStep = 'week';
+      }
+    } else {
+      target = date;
+      if (target) message = '수업이 있는 날짜의 숫자를 눌러 한 주를 펼쳐 보세요.';
+      else {
+        const term = plan().term;
+        const shown = key(monthOf(state.month)).slice(0, 7);
+        const override = Object.entries(plan().changes || {}).find(([id, cell]) => cell && id.startsWith(mode() + '|'));
+        const nextDate = term && (shown < term.start.slice(0, 7) ? term.start : shown > term.end.slice(0, 7) ? term.end : '')
+          || override?.[0].split('|')[1];
+        if (nextDate && nextDate.slice(0, 7) !== shown) target = $(nextDate.slice(0, 7) > shown ? 'next' : 'previous');
+        message = '이 달에는 수업이 없어요. 달력을 옮겨 수업이 있는 날짜를 눌러 보세요.';
+      }
+      tourStep = 'week';
+    }
+    placeTour(tourStep === 'done' && !!target);
+    tour.dataset.step = tourStep;
+    if (tourText.textContent !== message) tourText.textContent = message;
+    tourSkip.textContent = tourStep === 'done' ? '완료' : '건너뛰기';
+    tour.hidden = false;
+    tourRestart.setAttribute('aria-expanded', 'true');
+    if (tourTarget !== target) {
+      highlightTour(target);
+      tourTargetInView(target);
+    }
+  }
+
+  tourRestart.addEventListener('click', startTour);
+  tourSkip.addEventListener('click', () => {
+    const focus = tourStep === 'done' && !$('lesson-detail').hidden ? $('detail-heading') : tourRestart;
+    tourStep = '';
+    renderTour();
+    focus.focus({ preventScroll: true });
+  });
+
   function selectTab(lessons) {
     if (weekImport?.saving) return;
     if (!lessons) clearWeekImport();
@@ -49,10 +183,12 @@
     workTab.setAttribute('aria-pressed', String(!lessons));
     lessonTab.setAttribute('aria-pressed', String(lessons));
     $('lesson-timetable-open').hidden = !lessons;
+    tourRestart.hidden = !lessons;
     $('add-today').hidden = lessons;
     document.querySelector('.calendar-mode').hidden = lessons;
     $('batch-open').hidden = lessons;
     renderMonth();
+    if (lessons && !tourSeen) startTour();
   }
   workTab.addEventListener('click', () => selectTab(false));
   lessonTab.addEventListener('click', () => selectTab(true));
@@ -70,6 +206,7 @@
     if (!view.lessons) {
       if (view.edit) Object.assign(view.edit, { menu: null, pick: null });
       hideZoom();
+      renderTour();
       return originalMonth();
     }
     // 업무 대신 빈 목록으로 달력 틀(날짜·학사일정·급식)을 그린 뒤 칸마다 수업을 넣는다.
@@ -125,6 +262,7 @@
     view.zoomWeek = null;
     view.edit = null;
     hideZoom();
+    renderTour();
     if (focusBack) $('month').querySelector(`[data-focus-key="date-${monday}"]`)?.focus({ preventScroll: true });
   }
   function stepZoom(days) { goWeek(key(shift(fromKey(view.zoomWeek), days))); }
@@ -155,7 +293,7 @@
     $('month').closest('.calendar')?.classList.remove('zooming');
   }
   function renderZoom() {
-    if (!view.zoomWeek || !view.lessons) { hideZoom(); return; }
+    if (!view.zoomWeek || !view.lessons) { hideZoom(); renderTour(); return; }
     // 요일 줄까지 덮는다: 왼쪽 시간 열 때문에 요일 칸이 달력과 어긋나므로 층이 제 요일을 단다.
     const month = $('month');
     const weekdays = document.querySelector('.calendar .weekdays');
@@ -260,6 +398,7 @@
     const focused = document.activeElement?.dataset?.focusKey;
     const empty = !editing && !table && periods === 0;
     zoom.replaceChildren(head, ...(editing ? [editTools(week)] : []), empty ? emptyWeek() : days);
+    renderTour();
     if (editing?.menu) editMenu();
     if (focused?.startsWith('zoom-')) zoom.querySelector(`[data-focus-key="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   }
@@ -824,17 +963,21 @@
     if (state.selected === id) return;
     if (!openDetail(id, null, focusKey)) return;
     renderLesson();
+    if (tourStep === 'lesson' && focusKey?.startsWith('zoom-') && !panel.hidden) {
+      tourStep = 'done';
+      renderTour();
+    }
   }
   const originalRefresh = refreshDetail;
   refreshDetail = async function refreshWorkOrLesson(reset) {
-    if (isLesson(state.selected)) { renderLesson(); return; }
+    if (isLesson(state.selected)) { renderLesson(); renderTour(); return; }
     panel.hidden = true;
     shown = null;
     return originalRefresh(reset);
   };
   // 닫기 단추는 원래 closeDetail을 물고 있어서, 패널이 닫히는 것을 보고 수업 칸을 감춘다.
   new MutationObserver(() => {
-    if (!$('detail-panel').classList.contains('open')) { panel.hidden = true; shown = null; }
+    if (!$('detail-panel').classList.contains('open')) { panel.hidden = true; shown = null; renderTour(); }
   }).observe($('detail-panel'), { attributes: true, attributeFilter: ['class'] });
 
   let renderedFiles;
@@ -1107,6 +1250,8 @@
   });
   $('lesson-view-change').addEventListener('click', () => { if (!timetableSaving) { dialog.close(); openSettings('role'); renderChips(); } });
 
+  dialog.addEventListener('close', renderTour);
+
   function openTimetable() {
     if (dialog.open) return;
     resetTimetableInput();
@@ -1117,6 +1262,7 @@
     $('term-end').value = term?.end || '';
     setMessage('term-status', '');
     dialog.showModal();
+    renderTour();
     $('timetable-heading').focus();
   }
 
