@@ -1147,14 +1147,47 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
    점을 여러 개 모아 두면 거북할 수 있어(11/25 사용자) 점 대신 이어지는 막대를 쓴다. */
 .main-tabs { display: flex; gap: 4px; }
 .app-header .main-tabs .button[aria-pressed="true"] { background: var(--selected); border-color: var(--ink-3); color: var(--ink); font-weight: 700; }
-.lesson-tour { flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; justify-content: space-between; margin-bottom: 6px; padding: 6px 10px; border-inline-start: 3px solid var(--blue); color: var(--ink); background: color-mix(in srgb, var(--blue) 9%, var(--sheet)); }
-.lesson-tour { position: sticky; top: 0; z-index: 4; }
-#lesson-detail .lesson-tour { position: relative; z-index: auto; margin: 0; }
-.lesson-tour p { flex: 1 1 220px; min-width: 0; margin: 0; line-height: 1.45; }
-.lesson-tour button { white-space: nowrap; }
-.lesson-tour-target { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
-.day-hit.lesson-tour-target { z-index: 1; outline-offset: -2px; background: color-mix(in srgb, var(--blue) 12%, transparent); }
+/* 공개 체험 화면의 다홍 강조와 말풍선을 수업의 실제 단추에 적용한다. */
+.lesson-tour {
+  --tour-fill: #a7382a;
+  position: relative; flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 5px 12px;
+  align-self: flex-start; width: max-content; max-width: min(296px, 100%); box-sizing: border-box;
+  margin: 3px 0 10px; padding: 8px 11px; border-radius: 10px; color: #fff; background: var(--tour-fill);
+  box-shadow: 0 6px 16px #5c201e40; pointer-events: none;
+}
+.lesson-tour:not([data-placement="inline"]) {
+  position: fixed; z-index: 12; max-width: min(296px, calc((100vw - 24px) / var(--zoom, 1))); margin: 0;
+}
+.lesson-tour::before {
+  content: ""; position: absolute; width: 10px; height: 10px; background: inherit; border-radius: 1px;
+  transform: rotate(45deg); pointer-events: none;
+}
+.lesson-tour[data-placement="bottom"]::before { left: var(--tour-tail, 18px); top: -5px; margin-left: -5px; }
+.lesson-tour[data-placement="inline"]::before { left: 18px; bottom: -5px; }
+.lesson-tour[data-placement="top"]::before { left: var(--tour-tail, 18px); bottom: -5px; margin-left: -5px; }
+.lesson-tour[data-placement="right"]::before { top: var(--tour-tail, 18px); left: -5px; margin-top: -5px; }
+.lesson-tour[data-placement="left"]::before { top: var(--tour-tail, 18px); right: -5px; margin-top: -5px; }
+#lesson-detail .lesson-tour { margin-bottom: 2px; }
+.lesson-tour p { flex: 1 1 135px; min-width: 0; margin: 0; font-size: 13px; font-weight: 700; line-height: 1.45; }
+.lesson-tour .button { pointer-events: auto; color: #fff; border-color: #fffb; white-space: nowrap; text-decoration: none; }
+.lesson-tour .button:hover:not(:disabled) { color: #fff; background: #ffffff24; border-color: #fff; }
+.lesson-tour .button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+:root { --lesson-tour-outline: #c1483b; }
+:root[data-skin="evening"] { --lesson-tour-outline: #ff9a85; }
+.lesson-tour-target {
+  outline: 2px solid var(--lesson-tour-outline); outline-offset: 2px; border-radius: 4px;
+  animation: lesson-tour-pulse 1.4s ease-in-out 4;
+}
+.lesson-tour-target:focus-visible { outline: 3px double var(--lesson-tour-outline); }
+.day-hit.lesson-tour-target { z-index: 1; outline-offset: -2px; background: color-mix(in srgb, var(--lesson-tour-outline) 11%, transparent); }
 #lesson-detail.lesson-tour-target { outline-offset: -2px; }
+@keyframes lesson-tour-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--lesson-tour-outline) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lesson-tour-target { animation: none; }
+}
 .lesson-empty { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; padding: 8px 10px; border: 1px dashed var(--ink-3); border-radius: 6px; color: var(--ink-2, var(--ink)); }
 .lesson-month .day-plus { display: none; }
 .lesson-month .day-items { gap: 0; }

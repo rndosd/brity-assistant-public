@@ -43,6 +43,7 @@
   let tourSeen = false;
   let tourStep = '';
   let tourTarget;
+  let tourFloating = false;
   try { tourSeen = localStorage.getItem(tourStorageKey) === '1'; } catch {}
 
   function startTour() {
@@ -83,15 +84,67 @@
     }
   }
 
-  function placeTour(inDetail) {
-    const detail = $('lesson-detail');
-    if (inDetail) {
-      if (tour.parentElement !== detail) detail.prepend(tour);
+  function placeTour(destination) {
+    tour.dataset.placement = 'inline';
+    tour.style.removeProperty('top');
+    tour.style.removeProperty('left');
+    if (destination) {
+      if (tour.parentElement !== destination) destination.prepend(tour);
     } else {
       const empty = $('lesson-empty');
       if (tour.nextElementSibling !== empty) empty.before(tour);
     }
   }
+
+  function positionTour() {
+    if (!tourFloating || tour.hidden) return;
+    if (!tourTarget?.isConnected || !tourTargetVisible(tourTarget)) {
+      placeTour(null);
+      return;
+    }
+
+    if (tour.parentElement !== document.body) document.body.append(tour);
+    tour.dataset.placement = 'bottom';
+    const target = tourTarget.getBoundingClientRect();
+    const scale = tour.currentCSSZoom || 1;
+    const width = tour.offsetWidth * scale;
+    const height = tour.offsetHeight * scale;
+    const edge = 12, gap = 13;
+    const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+    const centerX = target.left + target.width / 2;
+    const centerY = target.top + target.height / 2;
+    const x = clamp(centerX - width / 2, edge, innerWidth - width - edge);
+    const y = clamp(centerY - height / 2, edge, innerHeight - height - edge);
+    const candidates = [
+      ['bottom', x, target.bottom + gap],
+      ['top', x, target.top - height - gap],
+      ['right', target.right + gap, y],
+      ['left', target.left - width - gap, y]
+    ];
+    const placement = candidates.find(([, left, top]) =>
+      left >= edge && top >= edge && left + width <= innerWidth - edge && top + height <= innerHeight - edge);
+    if (!placement) { placeTour(null); return; }
+    const [side, left, top] = placement;
+    tour.dataset.placement = side;
+    tour.style.left = (left / scale) + 'px';
+    tour.style.top = (top / scale) + 'px';
+    const horizontal = side === 'bottom' || side === 'top';
+    const arrow = horizontal ? clamp(centerX - left, 14, width - 14) : clamp(centerY - top, 14, height - 14);
+    tour.style.setProperty('--tour-tail', (arrow / scale) + 'px');
+  }
+
+  let tourFrame;
+  function scheduleTourPosition() {
+    if (!tourFloating || tour.hidden || tourFrame) return;
+    tourFrame = requestAnimationFrame(() => {
+      tourFrame = undefined;
+      positionTour();
+    });
+  }
+  addEventListener('resize', scheduleTourPosition);
+  addEventListener('scroll', scheduleTourPosition, { capture: true, passive: true });
+  new MutationObserver(() => { if (tourStep) renderTour(); }).observe(document.documentElement,
+    { attributes: true, attributeFilter: ['style'] });
 
   function tourDate() {
     const days = [...$('month').querySelectorAll('.day-hit')].filter(hit =>
@@ -106,18 +159,22 @@
   function renderTour() {
     if (!view.lessons || !tourStep || !state.snapshot.lessons) {
       tour.hidden = true;
-      placeTour(false);
+      tourFloating = false;
+      placeTour(null);
       tourRestart.setAttribute('aria-expanded', 'false');
       highlightTour(undefined);
       return;
     }
     const date = tourDate();
     if (tourStep === 'setup' && (savedSchedule() || date || zoom.querySelector('.wz-open'))) tourStep = 'week';
+    const dialog = $('timetable-dialog');
     let target, message;
     if (tourStep === 'setup') {
-      const dialog = $('timetable-dialog');
       target = dialog.open ? $('tt-file-pick') : !$('lesson-empty').hidden ? $('lesson-empty-open') : $('lesson-timetable-open');
       message = '시간표 파일을 넣거나 과목 표를 붙여넣어 보세요.';
+    } else if (dialog.open && tourStep === 'week') {
+      target = $('timetable-close');
+      message = '시간표를 넣었어요. 설정을 닫고 수업이 있는 날짜를 눌러 보세요.';
     } else if (tourStep === 'done') {
       target = !$('lesson-detail').hidden ? $('lesson-detail') : undefined;
       message = '수업 자세히에서 메모를 남기거나 자료를 연결할 수 있어요.';
@@ -149,7 +206,10 @@
       }
       tourStep = 'week';
     }
-    placeTour(tourStep === 'done' && !!target);
+    const guideHome = tourStep === 'done' && target ? $('lesson-detail') :
+      dialog.open && (tourStep === 'setup' || tourStep === 'week') ? dialog.querySelector('.lesson-settings') : null;
+    tourFloating = !guideHome && !!target;
+    if (!tourFloating) placeTour(guideHome);
     tour.dataset.step = tourStep;
     if (tourText.textContent !== message) tourText.textContent = message;
     tourSkip.textContent = tourStep === 'done' ? '완료' : '건너뛰기';
@@ -159,11 +219,13 @@
       highlightTour(target);
       tourTargetInView(target);
     }
+    positionTour();
   }
 
   tourRestart.addEventListener('click', startTour);
   tourSkip.addEventListener('click', () => {
-    const focus = tourStep === 'done' && !$('lesson-detail').hidden ? $('detail-heading') : tourRestart;
+    const focus = tourStep === 'done' && !$('lesson-detail').hidden ? $('detail-heading') :
+      $('timetable-dialog').open ? $('timetable-heading') : tourRestart;
     tourStep = '';
     renderTour();
     focus.focus({ preventScroll: true });
@@ -1250,7 +1312,7 @@
   });
   $('lesson-view-change').addEventListener('click', () => { if (!timetableSaving) { dialog.close(); openSettings('role'); renderChips(); } });
 
-  dialog.addEventListener('close', renderTour);
+  new MutationObserver(renderTour).observe(dialog, { attributes: true, attributeFilter: ['open'] });
 
   function openTimetable() {
     if (dialog.open) return;
