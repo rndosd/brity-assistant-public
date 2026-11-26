@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { buildNoteInput, noteActions, restoreNoteAnswer, withMaskingContext } = require('../note-text');
+const { buildNoteInput, noteActions, restoreNoteAnswer, withMaskingContext, resolveNoteEvidence, noteEvidenceView } = require('../note-text');
 const { buildWorkPrompt } = require('../work-prompt');
 
 function note(fields) {
@@ -12,6 +12,35 @@ function note(fields) {
     body: '', ...fields
   };
 }
+
+test('가린 구절과 중복, 틀린 인용 위치는 건너뛰고 원문 그대로 확인한 조건만 남긴다', () => {
+  const repeated = '금요일까지 회신해 주세요.';
+  const contact = '담당자 이메일: teacher@example.test';
+  const condition = '오후 3시 이후에만 접수합니다.';
+  const body = [repeated, contact, repeated, condition].join('\n');
+  const source = note({ body });
+  assert.equal(resolveNoteEvidence(source, [
+    { part: 0, quote: repeated },
+    { part: 0, quote: '담당자 이메일: [이메일]' },
+    { part: 1, quote: condition }
+  ]), null);
+  const stored = resolveNoteEvidence(source, [
+    { part: 0, quote: '<b>금요일에 회신</b>' },
+    { part: 0, quote: condition },
+    { part: 0, quote: '이후에만 접수합니다.' }
+  ]);
+  assert.deepEqual(noteEvidenceView(source, stored), {
+    original: [{ start: body.indexOf(condition), end: body.length }]
+  });
+});
+
+test('원문 줄바꿈이 CRLF여도 두 줄에 걸친 근거를 화면 범위로 찾아낸다', () => {
+  const start = '업무 안내\r\n'.length;
+  const evidence = '금요일 오후 3시 이후에만 접수합니다.\r\n그 전에는 제출하지 마세요.';
+  const source = note({ body: '업무 안내\r\n' + evidence + '\n감사합니다.' });
+  const stored = resolveNoteEvidence(source, [{ part: 0, quote: evidence.replaceAll('\r\n', '\n') }]);
+  assert.deepEqual(noteEvidenceView(source, stored), { original: [{ start, end: start + evidence.length }] });
+});
 
 test('AI에는 참가자·학생·연락처만 가리고 요청, 날짜, 시각, 수신 역할을 전달한다', () => {
   const body = [

@@ -13,7 +13,9 @@
   <script defer src="periods.js"></script>
   <script defer src="task-model.js"></script>
   <script defer src="note-view.js"></script>
+  <script defer src="lesson-model.js"></script>
   <script defer src="app.js"></script>
+  <script defer src="lessons.js"></script>
   <script defer src="memo-ui.js"></script>
   <script defer src="batch-edit.js"></script>
 </head>
@@ -27,10 +29,16 @@
     <symbol id="i-polish" viewBox="0 0 24 24"><path d="m6 16 10-10a2.1 2.1 0 0 1 3 3L9 19l-4 1 1-4Zm8-8 3 3M6 2l1.1 3L10 6l-2.9 1L6 10 5 7 2 6l3-1Z"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="1.5"/><path d="M15.5 8.5V5.5A1.5 1.5 0 0 0 14 4H5.5A1.5 1.5 0 0 0 4 5.5V14a1.5 1.5 0 0 0 1.5 1.5h3"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h4.5l2 2.5H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
+    <symbol id="i-ai-inbox" viewBox="0 0 24 24"><path d="M3 14l3-7h3m6 0h3l3 7v5H3zm0 0h5l1 2h6l1-2h5M12 3v8m-3-3 3 3 3-3"/></symbol>
     <symbol id="i-view-settings" viewBox="0 0 24 24"><path d="M4 6h5m4 0h7M9 3v6M4 12h10m4 0h2m-6-3v6M4 18h3m4 0h9M7 15v6"/></symbol>
   </svg>
   <header class="app-header">
     <h1><span id="app-name">브리티 메신저 캘린더</span> <span class="badge" id="demo-badge" hidden>샘플</span></h1>
+    <!-- 업무·수업 탭(2026-11-25): 같은 달력 틀에서 가운데만 수업으로 바꾼다. -->
+    <nav class="main-tabs" aria-label="캘린더 전환">
+      <button type="button" class="button" id="main-tab-work" aria-pressed="true">업무</button>
+      <button type="button" class="button" id="main-tab-lesson" aria-pressed="false">수업</button>
+    </nav>
     <!-- 첫 자료를 받기 전에도 비어 보이지 않게 '준비 중'으로 시작한다(2026-11-16 “아예 비어 있었어”). 샘플은 첫 자료를 받으면 숨긴다. -->
     <section class="connection" id="collector-bar" aria-label="연결">
       <strong id="collector-title">준비하고 있습니다…</strong>
@@ -55,6 +63,7 @@
         <option value="1.35">135%</option>
         <option value="1.5">150%</option>
       </select>
+      <button type="button" class="button" id="manual-open" title="사용 설명서 열기">설명서</button>
       <!-- 의견 보내기: 누르면 바로 아래에 작은 입력 칸. 구글 화면 없이 앱이 제출한다(feedback.js). -->
       <div class="feedback" id="feedback" hidden>
         <button type="button" class="button" id="feedback-open" aria-expanded="false" aria-controls="feedback-pop">의견</button>
@@ -67,6 +76,9 @@
           <div class="feedback-actions"><button type="button" class="button" id="feedback-cancel">닫기</button><button type="submit" class="button primary" id="feedback-send">보내기</button></div>
         </form>
       </div>
+      <button type="button" class="button ai-inbox-button" id="ai-inbox-open" aria-haspopup="dialog" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ai-inbox"></use></svg><span>AI 박스</span><span class="badge" id="ai-inbox-count" hidden></span>
+      </button>
       <button type="button" class="button" id="settings-open" aria-haspopup="dialog">설정</button>
       <button type="button" class="button primary" id="add-today">업무 추가</button>
     </div>
@@ -144,6 +156,7 @@
               </fieldset>
             </div>
           </details>
+          <button type="button" class="button small lesson-timetable-open" id="lesson-timetable-open" aria-haspopup="dialog" aria-controls="timetable-dialog" hidden>시간표 설정</button>
           <div class="calendar-controls" role="group" aria-label="달력 이동">
             <button type="button" class="button" id="previous" aria-label="이전 달">‹</button>
             <button type="button" class="button" id="today">오늘</button>
@@ -152,6 +165,7 @@
         </div>
       </div>
       <section id="agenda" aria-label="업무 목록" hidden></section>
+      <p class="lesson-empty" id="lesson-empty" hidden>시간표를 넣으면 달력에 수업이 나와요. <button type="button" class="button small primary" id="lesson-empty-open">시간표 파일 넣기</button></p>
       <div class="weekdays" aria-hidden="true"><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="weekday-sat">토</span><span class="weekday-sun">일</span></div>
       <div class="month" id="month" aria-label="날짜별 업무"></div>
       <ul class="legend" aria-label="표시 기호">
@@ -192,6 +206,7 @@
         <button type="button" class="button icon-button close" id="detail-close" aria-label="자세히 닫기" title="닫기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button>
       </div>
       <p class="detail-message" id="detail-message" role="status" hidden></p>
+      <section class="lesson-detail" id="lesson-detail" aria-label="수업 자세히" hidden></section>
       <div class="same-work" id="same-work" hidden></div>
       <section class="detail-section note-reading" id="chat-original" aria-labelledby="chat-original-heading" hidden>
         <h3 id="chat-original-heading">대화 원문</h3>
@@ -314,12 +329,18 @@
             <div class="detail-section-heading">
               <h3 id="attachments-heading">첨부 <span id="attachment-count">0</span></h3>
               <div class="ai-actions">
+                <button type="button" class="button text-button small" id="attachment-summary-toggle" aria-expanded="false" aria-controls="attachment-summaries" aria-describedby="attachment-summary-privacy" title="쪽지와 첨부의 글을 연결된 AI로 요약합니다" hidden>요약</button>
+                <span class="sr-only" id="attachment-summary-privacy">저장된 요약이 없는 문서는 쪽지 본문과 첨부의 글·표를 연결된 AI로 보냅니다.</span>
                 <button type="button" class="button text-button small" id="goe-attachment-retry" hidden>첨부만 다시 받기</button>
-                <button type="button" class="button icon-button" id="attachment-folder" aria-label="첨부 폴더 열기" title="폴더 열기" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-folder"></use></svg></button>
+                <template id="attachment-folder-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-folder"></use></svg></template>
               </div>
             </div>
             <ul class="attachment-list" id="attachments"></ul>
             <p class="small-note" id="attachment-status" role="status" hidden></p>
+            <div id="attachment-summaries" hidden>
+              <p class="small-note">그림과 스캔에 담긴 글은 요약에서 빠집니다.</p>
+              <ul id="attachment-summary-list" aria-label="파일별 첨부 요약"></ul>
+            </div>
           </section>
 
           <section class="detail-section note-actions" id="note-actions" aria-label="쪽지에서 찾은 대상·연락처" hidden>
@@ -383,10 +404,37 @@
     </aside>
   </main>
 
+  <dialog id="ai-inbox-dialog" aria-labelledby="ai-inbox-heading">
+    <div class="dialog-body">
+      <h2 id="ai-inbox-heading">AI 박스</h2>
+      <p id="ai-inbox-status" class="form-message" role="status" hidden></p>
+      <ol id="ai-inbox-batches" aria-label="받은 업무" hidden></ol>
+      <div class="dialog-actions"><button type="button" class="button" id="ai-inbox-close">닫기</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="attachment-summary-dialog" aria-labelledby="attachment-summary-dialog-heading" aria-describedby="attachment-summary-dialog-file">
+    <header class="attachment-summary-dialog-head">
+      <div>
+        <h2 id="attachment-summary-dialog-heading">첨부 요약</h2>
+        <p id="attachment-summary-dialog-file"></p>
+      </div>
+      <button type="button" class="button icon-button" id="attachment-summary-dialog-close" aria-label="첨부 요약 닫기" title="닫기" autofocus><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button>
+    </header>
+    <div class="dialog-body" id="attachment-summary-dialog-body">
+      <p class="small-note" id="attachment-summary-dialog-stale" hidden>원문이 바뀌었거나 파일을 찾을 수 없어 저장된 이전 요약을 보여 드려요.</p>
+      <p class="formatted attachment-summary-text" id="attachment-summary-dialog-overview" hidden></p>
+      <section aria-labelledby="attachment-summary-dialog-requests">
+        <h3 id="attachment-summary-dialog-requests">문서에 나온 요청과 일정</h3>
+        <ul class="attachment-summary-items" id="attachment-summary-dialog-items"></ul>
+      </section>
+    </div>
+  </dialog>
+
   <dialog id="create-dialog" aria-labelledby="create-heading">
     <div class="create-unified-header">
-      <h2 id="create-heading">업무 추가</h2>
-      <div class="create-mode-tabs" role="tablist" aria-label="업무 추가 방법">
+      <h2 id="create-heading" tabindex="-1">업무 추가</h2>
+      <div class="create-mode-tabs" id="create-mode-tabs" role="tablist" aria-label="업무 추가 방법">
         <button type="button" role="tab" id="create-mode-memo" aria-controls="memo-form" aria-selected="true">메모로 적기</button>
         <button type="button" role="tab" id="create-mode-direct" aria-controls="create-form" aria-selected="false" tabindex="-1">직접 입력</button>
       </div>
@@ -400,6 +448,10 @@
         <p class="field-hint" id="memo-reference"></p>
       </div>
       <div class="memo-review-header"><h3 id="memo-result-heading" hidden>업무 후보</h3><button type="button" class="button text-button small" id="memo-edit-source" aria-controls="memo-source" aria-expanded="false" hidden>원문 고치기</button></div>
+      <div class="memo-inbox-meta" id="memo-inbox-meta" hidden>
+        <p class="field-hint" id="memo-inbox-source"></p>
+        <button type="button" class="button text-button small" id="memo-dismiss-inbox">이 묶음 제외</button>
+      </div>
       <div id="memo-preview" hidden></div>
       <p id="memo-status" class="form-message" role="status" hidden></p>
       <div class="dialog-actions"><button type="button" class="button" id="memo-close">닫기</button><button type="button" class="button primary" id="memo-polish">AI로 다듬기</button><button type="button" class="button primary" id="memo-register" hidden>달력에 넣기</button></div>
@@ -410,7 +462,7 @@
       <div class="create-date-row">
         <label class="field">날짜<input id="create-due" type="date" required min="0001-01-01" max="9999-12-31"></label>
         <label class="field">시간·교시<input id="create-time" maxlength="12" autocomplete="off" list="time-presets" placeholder="선택 · 6교시"></label>
-        <label class="field">날짜 지정<select id="create-kind"><option value="까지">마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
+        <label class="field">날짜 지정<select id="create-kind" required><option value="" disabled hidden>선택</option><option value="까지" selected>마감</option><option value="그날">일정</option><option value="기간">기간</option><option value="기한 없음" id="create-loose-option">기한 없음</option></select></label>
         <label class="field" id="create-end-field" hidden>끝 날짜<input id="create-end" type="date" required max="9999-12-31" disabled></label>
       </div>
       <!-- 더 넣는 날짜(2026-11-19): 제출일과 행사일처럼 날짜가 둘 이상인 업무. 모두 합쳐 셋까지, 마감·일정만. -->
@@ -450,6 +502,7 @@
     <!-- 설정 묶음 탭(2026-11-15): 처음엔 AI만 보면 된다. 각 구역은 data-settings-tab으로 묶음을 정한다. -->
     <div class="settings-tabs" role="tablist" aria-label="설정 묶음">
       <button type="button" role="tab" id="settings-tab-ai" data-tab-target="ai" aria-controls="settings-body">AI 연결<span class="tab-dot" id="settings-ai-dot" title="아직 AI 연결 전" hidden></span></button>
+      <button type="button" role="tab" id="settings-tab-role" data-tab-target="role" aria-controls="settings-body">내 역할</button>
       <button type="button" role="tab" id="settings-tab-agents" data-tab-target="agents" aria-controls="settings-body">에이전트</button>
       <button type="button" role="tab" id="settings-tab-fetch" data-tab-target="fetch" aria-controls="settings-body">가져오기</button>
       <button type="button" role="tab" id="settings-tab-look" data-tab-target="look" aria-controls="settings-body">화면·알림</button>
@@ -517,22 +570,24 @@
         <div><button type="button" class="button small" id="agent-refresh">설치된 앱 다시 찾기</button></div>
         <p class="small-note" id="agent-guide-status" role="status" hidden></p>
         <div class="setting-check">
-          <label class="check-field"><input type="checkbox" id="show-external-ai-work" checked>쪽지에 AI 앱 작업 메뉴와 결과 보이기</label>
+          <label class="check-field"><input type="checkbox" id="show-external-ai-work" checked>AI 작업 메뉴·결과와 AI 박스 보이기</label>
         </div>
       </section>
       <section class="settings-section" data-settings-tab="agents" aria-labelledby="agent-mcp-heading" id="mcp-settings-actions">
-        <h3 id="agent-mcp-heading">쓰던 AI 채팅에 쪽지 공유하기</h3>
-        <p class="small-note">쓰던 채팅에 쪽지와 첨부를 공유하려면 처음 한 번 연결하세요. 새 프로젝트 채팅을 열 때는 이 단계를 건너뛰세요.</p>
-        <p class="small-note">아래 요청을 복사해 이 PC의 Codex나 Claude Code 채팅에 붙여넣고 보내세요.</p>
-        <div class="ai-actions"><button type="button" class="button primary" id="mcp-copy-connect">MCP 연결 요청 복사</button></div>
+        <h3 id="agent-mcp-heading">캘린더를 AI 채팅에 연결</h3>
+        <p class="small-note">연결 요청을 복사해 Codex나 Claude Code 채팅에 붙여넣고 보내세요.</p>
+        <div class="ai-actions">
+          <button type="button" class="button primary" id="mcp-copy-connect">MCP 연결 요청 복사</button>
+          <button type="button" class="button text-button small" id="guide-agent-video" hidden>안내 영상 ↗</button>
+        </div>
         <p class="small-note" id="mcp-copy-connect-status" role="status" hidden></p>
         <div class="ai-actions"><button type="button" class="button small" id="mcp-settings-open" aria-haspopup="dialog">직접 설정</button><button type="button" class="button small" id="mcp-check">연결 프로그램 확인</button></div>
         <p class="small-note" id="mcp-check-status" role="status" hidden></p>
       </section>
 
-      <fieldset class="settings-section" id="profile-settings" data-settings-tab="ai">
+      <fieldset class="settings-section" id="profile-settings" data-settings-tab="role">
         <legend>내 역할</legend>
-        <p class="small-note section-note">맡은 학년과 업무를 알려 주면 AI가 나에게 해당하는 쪽지를 구분합니다.</p>
+        <p class="small-note section-note">쪽지가 나에게 해당하는지 가리고, 수업 탭을 어떻게 보여 줄지 정할 때 씁니다.</p>
         <div class="form-grid">
           <label class="field span-2">근무처
             <select id="profile-workplace">
@@ -553,9 +608,12 @@
           <label class="field">반<input id="profile-classroom" type="number" min="1" max="30" inputmode="numeric"></label>
           <label class="field">역할<select id="profile-role"></select></label>
           <div class="form-grid span-4 nested" id="profile-specialist" hidden>
-            <label class="field span-3"><span id="profile-subjects-label">전담 과목</span><input id="profile-subjects" maxlength="200" autocomplete="off" placeholder="예: 영어, 체육"></label>
+            <div class="field span-4"><span id="profile-subjects-label">전담 과목</span><input id="profile-subjects" type="hidden">
+              <div class="subject-chips" id="profile-subject-chips" role="group" aria-labelledby="profile-subjects-label"></div>
+              <input class="subject-extra" id="profile-subject-extra" maxlength="40" autocomplete="off" placeholder="목록에 없으면 적고 Enter" aria-label="과목 더하기"></div>
             <label class="field">맡은 학년<input id="profile-subject-grades" maxlength="40" autocomplete="off" placeholder="예: 3, 4"></label>
           </div>
+          <p class="small-note span-4 lesson-mode-note" id="profile-lesson-mode"></p>
           <p class="small-note span-4" id="profile-school-note"></p>
         </div>
         <div id="profile-office" class="form-grid" hidden>
@@ -850,7 +908,7 @@
           <legend>함께 보낼 첨부</legend>
           <div id="mcp-attachments"></div>
         </fieldset>
-        <p class="small-note" id="mcp-replace-note">한 번에 한 쪽지를 공유합니다. 새 쪽지를 보내면 먼저 공유한 쪽지의 공유가 끝납니다.</p>
+        <p class="small-note" id="mcp-replace-note">브리티와 GOE를 합쳐 한 번에 한 쪽지를 공유합니다. 새 쪽지를 보내면 앞선 공유가 끝납니다.</p>
       </section>
       <section class="mcp-section mcp-current" id="mcp-current" aria-labelledby="mcp-current-heading" hidden>
         <h3 id="mcp-current-heading">현재 공유 중</h3>
@@ -867,7 +925,7 @@
         <summary>처음 쓰는 AI 앱에 연결</summary>
         <div class="mcp-section">
           <div class="ai-actions"><button type="button" class="button primary" id="mcp-copy-connect-dialog">MCP 연결 요청 복사</button></div>
-          <p class="small-note">Codex나 Claude Code 채팅에 붙여넣고 보내세요.</p>
+          <p class="small-note" id="mcp-connect-help"></p>
           <details id="mcp-manual"><summary>직접 설정</summary><div class="mcp-section">
           <label class="field">AI 앱
             <select id="mcp-client">
@@ -938,5 +996,36 @@
     <button id="processing-undo-button" type="button">되돌리기</button>
   </div>
   <div id="notice" class="notice" role="status" hidden></div>
+  <!-- 수업 탭의 달력 머리에서 여는 시간표 설정. -->
+  <dialog id="timetable-dialog" class="settings-dialog timetable-dialog" aria-labelledby="timetable-heading">
+    <div class="settings-head"><h2 id="timetable-heading" tabindex="-1">시간표 설정</h2>
+      <button type="button" class="button icon-button" id="timetable-close" aria-label="시간표 설정 닫기" title="닫기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close"></use></svg></button></div>
+    <div class="settings-body lesson-settings">
+      <div class="tt-paste" id="tt-import">
+        <div class="tt-import-field">
+          <textarea id="tt-import-input" rows="1" spellcheck="false" aria-label="시정표나 기초 시간표의 파일 또는 표 붙여넣기" placeholder="파일 붙여넣기"></textarea>
+          <button type="button" id="tt-file-pick" class="tt-import-file" aria-label="시간표 파일 고르기" title="시간표 파일 고르기"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-folder"></use></svg></button>
+        </div>
+        <div class="tt-paste-actions">
+          <span class="small-note" id="tt-import-status" role="status" hidden></span>
+          <button type="button" class="button text-button small" id="tt-import-undo" hidden>되돌리기</button>
+        </div>
+      </div>
+      <div class="tt-head"><h3 class="fetch-title">교시 시각</h3></div>
+      <div class="period-times" id="period-times"></div>
+      <div class="tt-head"><h3 class="fetch-title">기초 시간표</h3></div>
+      <div class="lesson-grid-wrap"><table class="lesson-grid" id="lesson-grid"></table></div>
+      <button type="button" class="button text-button small" id="lesson-add-period">+ 교시 더하기</button>
+      <details class="tt-extra" id="tt-extra-settings">
+        <summary>추가 설정</summary>
+        <div class="tt-extra-content">
+          <h3 class="fetch-title">적용 기간</h3>
+          <div class="term-row"><input type="date" id="term-start" aria-label="적용 시작일"><span aria-hidden="true">~</span><input type="date" id="term-end" aria-label="적용 끝날"></div>
+          <p class="small-note" id="term-status" role="status"></p>
+          <p class="lesson-view-line"><span id="lesson-view-text"></span> <button type="button" class="button text-button small" id="lesson-view-change">내 역할에서 바꾸기</button></p>
+        </div>
+      </details>
+    </div>
+  </dialog>
 </body>
 </html>

@@ -74,6 +74,52 @@ test('목록 제목과 달력의 짧은 행동을 재열고 직접 고친 날짜
   assert.equal(reopened.snapshot().tasks[0].dates[1].label, dates[1].label);
 });
 
+test('AI로 분류한 원문 근거만 저장해 다시 표시하고 본문이나 일정이 달라지면 숨긴다', async t => {
+  const { notes, makeStore, dataDir } = await setup(t);
+  const latest = '목요일 오후 3시 이후에만 수량을 보내 주세요.';
+  const prior = '무대 사용 반만 수량을 알려 주세요.';
+  const source = note(noteId, { body: ['시간을 바꿉니다.', latest, '', 'Original Message', 'Sender: 가상 발신자',
+    'Title: 앞 안내', '', '대상은 그대로입니다.', prior].join('\n') });
+  await writeNote(notes, source);
+  const store = await makeStore();
+  await store.refresh();
+  const { id } = store.snapshot().tasks[0];
+  assert.equal((await store.detail(id)).note.evidence, null);
+
+  const answer = { type: '할 일', title: '무대 수량 회신', dates: [{ date: '2030-05-09', time: '15:00', kind: '그날', label: '수량 회신' }],
+    evidence: [{ part: 1, quote: prior }, { part: 0, quote: latest }, { part: 0, quote: '목요일 3시 이후 수량 회신' }] };
+  await store.refine(id, async () => answer);
+  const expected = { reply: [{ start: 10, end: 10 + latest.length }], previous: [{ start: 12, end: 12 + prior.length }] };
+  assert.deepEqual((await store.detail(id)).note.evidence, expected);
+  assert.equal((await store.detail(id)).task.noteEvidence, undefined);
+  assert.equal(store.snapshot().tasks[0].noteEvidence, undefined);
+  const saved = await fs.readFile(path.join(dataDir, 'tasks.json'), 'utf8');
+  assert.ok(saved.includes('bodyHash'));
+  assert.ok(!saved.includes(latest) && !saved.includes(prior));
+
+  const reopened = await makeStore();
+  await reopened.refresh();
+  assert.deepEqual((await reopened.detail(id)).note.evidence, expected);
+  await reopened.update(id, { memo: '메모만 추가' });
+  assert.deepEqual((await reopened.detail(id)).note.evidence, expected);
+  await writeNote(notes, { ...source, verified: false });
+  await reopened.refresh();
+  assert.equal((await reopened.detail(id)).note.evidence, null);
+  await writeNote(notes, { ...source, body: source.body.replace('이후에만', '이후에는') });
+  await reopened.refresh();
+  assert.equal((await reopened.detail(id)).note.evidence, null);
+
+  await writeNote(notes, source);
+  await reopened.refresh();
+  const before = await reopened.detail(id);
+  await reopened.update(id, { dates: [{ ...before.task.dates[0], time: '16:00' }] });
+  assert.equal((await reopened.detail(id)).note.evidence, null);
+  await reopened.refine(id, async () => answer);
+  assert.deepEqual((await reopened.detail(id)).note.evidence, expected);
+  await reopened.refine(id, async () => ({ ...answer, evidence: [] }));
+  assert.equal((await reopened.detail(id)).note.evidence, null);
+});
+
 test('검색을 시작한 뒤 새 쪽지, 제목 수정, 본문 교체와 삭제가 검색에 반영된다', async t => {
   const { makeStore, notes } = await setup(t);
   const store = await makeStore();
@@ -608,6 +654,95 @@ test('MCP 공유는 고른 쪽지와 첨부 사본만 열고 공유 교체와 �
   assert.equal(await fs.readFile(saved[1].path, 'utf8'), saved[1].name);
 });
 
+test('MCP의 판별 이름은 설정과 공유 화면에 같은 판을 가리키고 이전 연결도 쓸 수 있다', async t => {
+  const { root, notes, makeStore } = await setup(t);
+  const shareFolder = path.join(root, "AI 연결 '시험'");
+  const brity = new McpShare(shareFolder, '브리티 메신저 캘린더', 'brity');
+  const goe = new McpShare(shareFolder, 'GOE 메신저 캘린더', 'goe');
+  const legacy = new McpShare(shareFolder, '이전 메신저 캘린더');
+  assert.equal(brity.command, goe.command);
+  assert.notEqual(brity.command, legacy.command);
+
+  for (const [bridge, name, arg] of [[brity, 'brity_calendar', '--edition=brity'], [goe, 'goe_calendar', '--edition=goe']]) {
+    const check = t.mock.method(bridge, 'checkBridge', async () => true);
+    const command = bridge.command;
+    assert.deepEqual(JSON.parse(await bridge.setup('json')), { mcpServers: { [name]: { command, args: [arg] } } });
+    assert.deepEqual(JSON.parse(await bridge.setup('vscode')), { servers: { [name]: { type: 'stdio', command, args: [arg] } } });
+    assert.match(await bridge.setup('codex'), new RegExp(`^\\[mcp_servers\\.${name}\\]`));
+    const copy = await bridge.setup('ai-request');
+    const invocation = "'" + command.replaceAll("'", "''") + "' '" + arg + "'";
+    assert.ok(copy.includes(`codex mcp add ${name} -- ${invocation}`));
+    assert.ok(copy.includes(`claude mcp add --scope local --transport stdio ${name} -- ${invocation}`));
+    assert.ok(copy.includes(bridge.calendarName));
+    assert.equal(check.mock.callCount(), 4);
+  }
+
+  await writeNote(notes, note(noteId, { title: '브리티에서 공유한 업무' }));
+  await writeNote(notes, note(otherId, { title: 'GOE에서 공유한 업무' }));
+  const store = await makeStore();
+  const tasks = (await store.refresh()).tasks;
+  const first = await brity.publish(store, tasks.find(item => item.noteId === noteId).id, []);
+  const firstFolder = await brity.bundle(first.id);
+  assert.equal((await legacy.status()).share.id, first.id);
+  assert.deepEqual(await goe.status(), { share: null });
+  await assert.rejects(goe.revoke(first.id), /공유한 업무가 바뀌었습니다/);
+  const second = await goe.publish(store, tasks.find(item => item.noteId === otherId).id, []);
+  assert.deepEqual(await brity.status(), { share: null });
+  assert.equal((await legacy.status()).share.id, second.id);
+  assert.equal((await goe.status()).share.id, second.id);
+  await assert.rejects(fs.stat(firstFolder), { code: 'ENOENT' });
+});
+
+test('AI 받은함은 도착한 순서를 지키며 등록 직후 저장이 끊겨도 고른 업무를 중복 등록하지 않는다', async t => {
+  const { root, makeStore } = await setup(t);
+  const shareFolder = path.join(root, 'mcp');
+  const brity = new McpShare(shareFolder, '브리티 메신저 캘린더', 'brity');
+  const goe = new McpShare(shareFolder, 'GOE 메신저 캘린더', 'goe');
+  assert.deepEqual(await brity.listInbox(), []);
+  const first = randomUUID();
+  const second = randomUUID();
+  const report = { title: '회의 자료 보내기', kind: '까지', date: '2026-12-03', end: null, time: '14:30', note: '회의 이후에만 제출' };
+  const call = { title: '협력기관에 연락', kind: '기한 없음', date: null, end: null, time: '', note: '' };
+  async function queue(bridge, id, receivedAt, items) {
+    await fs.mkdir(bridge.inboxRoot, { recursive: true });
+    await fs.writeFile(path.join(bridge.inboxRoot, id + '.json'), JSON.stringify({
+      id, fingerprint: 'a'.repeat(64), status: 'queued', receivedAt, items, source: '받은 회의 자료',
+    }));
+  }
+  await queue(brity, second, '2026-11-25T17:20:00.0000000Z', [call]);
+  await queue(brity, first, '2026-11-25T17:10:00.0000000Z', [report, call]);
+  await queue(goe, second, '2026-11-25T17:20:00.0000000Z', [call]);
+  assert.deepEqual((await brity.listInbox()).map(item => item.id), [first, second]);
+  assert.deepEqual((await goe.listInbox()).map(item => item.id), [second]);
+  await assert.rejects(brity.getInbox('../' + first), /묶음을 다시 골라/);
+
+  const store = await makeStore();
+  assert.equal(store.snapshot().tasks.length, 0);
+  assert.deepEqual((await brity.getInbox(first)).items, [report, call]);
+  const finish = t.mock.method(brity, 'finishInboxEntry', async () => { throw new Error('결과 표식 쓰기 실패'); });
+  const [saved] = await brity.registerInbox(store, first, [report]);
+
+  const reopened = await makeStore();
+  const [task] = reopened.snapshot().tasks;
+  assert.equal(task.id, saved.id);
+  assert.equal(task.title, report.title);
+  assert.match(task.memo, /회의 이후에만 제출/);
+  assert.equal(task.dates[0].date, report.date);
+  assert.equal(task.dates[0].time, report.time);
+  assert.deepEqual((await brity.listInbox(reopened)).map(item => item.id), [second]);
+  await assert.rejects(brity.getInbox(first, reopened), /이미 처리한 업무 묶음/);
+  await assert.rejects(brity.registerInbox(reopened, first, [call]), /이미 달력에 넣은 업무 묶음/);
+  assert.equal(reopened.snapshot().tasks.length, 1);
+  finish.mock.restore();
+  assert.deepEqual((await brity.listInbox(reopened)).map(item => item.id), [second]);
+  const receipt = JSON.parse(await fs.readFile(path.join(brity.inboxRoot, first + '.json'), 'utf8'));
+  assert.deepEqual(receipt, { id: first, fingerprint: 'a'.repeat(64), status: 'registered', count: 1 });
+
+  assert.equal(await brity.dismissInbox(reopened, second), true);
+  assert.deepEqual(await brity.listInbox(), []);
+  assert.deepEqual((await goe.listInbox()).map(item => item.id), [second]);
+});
+
 test('외부 AI가 반환한 결과와 캘린더에서 맡긴 결과를 같은 쪽지에서만 다시 읽는다', async t => {
   const { root, makeStore, notes } = await setup(t);
   await writeNote(notes, note(noteId));
@@ -684,7 +819,9 @@ test('새 쪽지 첨부는 다운로드 폴더에 바로 복사하고 기존 파
   await fs.unlink(copied);
   await restarted.refresh();
   assert.deepEqual(await fs.readdir(downloadsDir), ['안내.pdf']);
-  assert.equal((await restarted.attachment(newTask.id, 0)).path, originals[1]);
+  await assert.rejects(restarted.attachment(newTask.id, 0), /첨부 파일을 찾을 수 없습니다/);
+  assert.deepEqual(await restarted.attachment(newTask.id, 0, { recovery: true }), { missing: true, archiveAvailable: true });
+  assert.equal((await restarted.attachment(newTask.id, 0, { archive: true })).path, originals[1]);
 
   const legacyFolder = path.join(downloadsDir, '브리티 첨부', noteId);
   await fs.mkdir(legacyFolder, { recursive: true });
@@ -1164,8 +1301,9 @@ test('첨부 저장 폴더를 고르면 거기에 복사하고, 쓸 수 없으�
   assert.deepEqual(await fs.readdir(downloadsDir), [path.basename(sources[1])]);
   assert.match(store.snapshot().downloads.warning, /쓸 수 없어 기본 다운로드 폴더/);
   assert.equal((await store.attachment(second.id, 0)).path, path.join(await fs.realpath(downloadsDir), path.basename(sources[1])));
-  // 예전 폴더의 사본이 사라지면 수집기 원본을 연다.
-  assert.equal((await store.attachment(first.id, 0)).path, sources[0]);
+  // 보관본을 선택한 경우에만 예전 사본 대신 연다.
+  await assert.rejects(store.attachment(first.id, 0), /첨부 파일을 찾을 수 없습니다/);
+  assert.equal((await store.attachment(first.id, 0, { archive: true })).path, sources[0]);
 
   await store.setDownloadsDir(null);
   assert.deepEqual(store.snapshot().downloads, { folder: downloadsDir, custom: false, enabled: true, warning: null });

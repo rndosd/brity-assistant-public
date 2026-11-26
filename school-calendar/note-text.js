@@ -2,6 +2,7 @@
 
 // AI로 보내는 쪽지 자료. 시험(.qa/model-trial/prepare-evaluation.mjs)과 같은 형식으로 만든다.
 // 머리말(수신자 목록·메일 주소)은 빼고, 이번 글(latestBody)과 인용된 이전 쪽지(quotedNotes)를 나눈다.
+const { createHash } = require('node:crypto');
 const { splitReply, normalizeHeaders } = require('./renderer/note-view');
 const { recipientCount } = require('./renderer/task-model');
 const { notePeople, studentClasses, explicitStudentNames, scheduledStudentNames, noteContacts, noteLinks, makeNoteMask } = require('./privacy');
@@ -259,6 +260,81 @@ function buildNoteInput(note, profile) {
   };
 }
 
+const MASKED_EVIDENCE_TEXT = /\[(?:나|동명이인|(?:상대|학생|대상) \d+|링크|주민등록번호|학생 번호|계좌번호|상세 주소|비밀번호|전화번호|이메일|인용 머리말 확인 필요)\]/g;
+
+function evidencePanes(body) {
+  const parts = splitReply(body);
+  return parts ? { reply: parts.reply, previous: parts.message } : { original: body };
+}
+
+function evidenceBodyHash(body) {
+  return createHash('sha256').update(body).digest('hex');
+}
+
+function uniqueQuoteStart(text, quote) {
+  if (typeof text !== 'string') return -1;
+  const start = text.indexOf(quote);
+  return start >= 0 && text.indexOf(quote, start + 1) === -1 ? start : -1;
+}
+
+function uniquePaneRange(text, quote) {
+  if (typeof text !== 'string') return null;
+  const normalized = quote.includes('\n') ? text.replace(/\r\n?/g, '\n') : text;
+  const start = uniqueQuoteStart(normalized, quote);
+  if (start < 0) return null;
+  const end = start + quote.length;
+  if (normalized === text) return { start, end };
+
+  let crlfBeforeStart = 0;
+  let crlfBeforeEnd = 0;
+  for (const lineBreak of text.matchAll(/\r\n/g)) {
+    const normalizedBreakOffset = lineBreak.index - crlfBeforeEnd;
+    if (normalizedBreakOffset >= end) break;
+    if (normalizedBreakOffset < start) crlfBeforeStart++;
+    crlfBeforeEnd++;
+  }
+  return { start: start + crlfBeforeStart, end: end + crlfBeforeEnd };
+}
+
+function resolveNoteEvidence(note, references) {
+  if (note?.verified !== true || typeof note.body !== 'string' || !Array.isArray(references) || !references.length) return null;
+  const raw = quotes(note.body);
+  const masked = buildNoteInput(note);
+  const panes = evidencePanes(note.body);
+  const spans = [];
+  for (const reference of references.slice(0, 3)) {
+    const { part, quote } = reference || {};
+    if (!Number.isSafeInteger(part) || part < 0 || typeof quote !== 'string' || !quote.length || quote !== quote.trim() || quote.length > 240) continue;
+    const maskedSection = part === 0 ? masked.latestBody : masked.quotedNotes[part - 1]?.body;
+    const rawSection = part === 0 ? raw.latestBody : raw.quotedNotes[part - 1]?.body;
+    const maskedStart = uniqueQuoteStart(maskedSection, quote);
+    if (maskedStart < 0 || uniqueQuoteStart(rawSection, quote) < 0) continue;
+    const maskedEnd = maskedStart + quote.length;
+    if ([...maskedSection.matchAll(MASKED_EVIDENCE_TEXT)].some(match => match.index < maskedEnd && match.index + match[0].length > maskedStart)) continue;
+    const pane = part > 0 ? 'previous' : panes.reply === undefined ? 'original' : 'reply';
+    const range = uniquePaneRange(panes[pane], quote);
+    if (!range || spans.some(span => span.pane === pane && span.start < range.end && span.end > range.start)) continue;
+    spans.push({ pane, ...range });
+  }
+  return spans.length ? { bodyHash: evidenceBodyHash(note.body), spans } : null;
+}
+
+function noteEvidenceView(note, evidence) {
+  if (note?.verified !== true || typeof note.body !== 'string' || !Array.isArray(evidence?.spans) ||
+    evidence.bodyHash !== evidenceBodyHash(note.body)) return null;
+  const panes = evidencePanes(note.body);
+  const view = {};
+  for (const span of evidence.spans.slice(0, 3)) {
+    const { pane, start, end } = span || {};
+    if (!Object.hasOwn(panes, pane) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+      start < 0 || end <= start || end > panes[pane].length) continue;
+    const ranges = view[pane] ??= [];
+    if (!ranges.some(range => range.start < end && range.end > start)) ranges.push({ start, end });
+  }
+  for (const ranges of Object.values(view)) ranges.sort((left, right) => left.start - right.start);
+  return Object.keys(view).length ? view : null;
+}
+
 // 보내기 전 확인 창에 보여 줄 글.
 function cleanReplyBody(body) {
   const { latestBody, quotedNotes } = quotes(body);
@@ -267,4 +343,4 @@ function cleanReplyBody(body) {
   ])].filter(Boolean).join('\n');
 }
 
-module.exports = { buildNoteInput, cleanReplyBody, profileValue, trialDatetime, noteActions, noteMask, restoreNoteAnswer, withMaskingContext };
+module.exports = { buildNoteInput, cleanReplyBody, profileValue, trialDatetime, noteActions, noteMask, restoreNoteAnswer, withMaskingContext, resolveNoteEvidence, noteEvidenceView };

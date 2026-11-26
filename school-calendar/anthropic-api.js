@@ -34,7 +34,8 @@ function capDates(value) {
 async function callClaude(provider, input, effort, schema, { apiKey, signal, fetchImpl, timeoutMs }) {
   const deadline = AbortSignal.timeout(timeoutMs);
   const execution = signal ? AbortSignal.any([signal, deadline]) : deadline;
-  const [rules, note] = splitInput(input);
+  // input이 내용 블록 배열이면(시간표 그림 읽기) 그대로 user 내용으로 보낸다.
+  const [rules, note] = Array.isArray(input) ? ['', input] : splitInput(input);
   try {
     const response = await fetchImpl(provider.url, {
       method: 'POST',

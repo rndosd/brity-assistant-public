@@ -1,6 +1,6 @@
 'use strict';
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 async function invoke(channel, ...values) {
   const result = await ipcRenderer.invoke(channel, ...values);
@@ -88,9 +88,25 @@ contextBridge.exposeInMainWorld('calendar', {
   dismissWhatsNew: () => invoke('calendar:whats-new-dismiss'),
   changes: () => invoke('calendar:changes'),
   setShowPeriods: enabled => invoke('calendar:periods', enabled),
+  saveLessons: input => invoke('calendar:lessons-save', input),
+  saveLessonRecord: (id, input) => invoke('calendar:lesson-record', id, input),
+  pickLessonFiles: () => invoke('calendar:lesson-files-pick'),
+  pickTimetableFile: () => invoke('calendar:lesson-timetable-pick'),
+  // source: { filePath } 또는 { image: { bytes, type } }(붙여넣은 그림)
+  readTimetableSource: source => invoke('calendar:lesson-timetable-read', source),
+  addLessonFiles: (id, paths) => invoke('calendar:lesson-files-add', id, paths),
+  refreshLessonFiles: id => invoke('calendar:lesson-files-refresh', id),
+  openLessonFile: (id, index, path, reveal, track) => invoke('calendar:lesson-file-open', id, index, path, reveal === true, track),
+  relinkLessonFile: (id, index, path) => invoke('calendar:lesson-file-relink', id, index, path),
+  removeLessonFile: (id, index, path) => invoke('calendar:lesson-file-remove', id, index, path),
+  // 끌어다 놓은 파일의 경로(Electron 32부터 File.path가 없어서 webUtils로 읽는다).
+  filePath: file => { try { return webUtils.getPathForFile(file) || ''; } catch { return ''; } },
   setShowExternalAiWork: enabled => invoke('calendar:external-ai-work-visibility', enabled),
   openRules: () => invoke('calendar:rules'),
-  openAttachment: (id, index, reveal) => invoke('calendar:attachment', id, index, reveal),
+  attachmentSummary: (id, index, expectedName) => invoke('calendar:attachment-summary', id, index, expectedName),
+  summarizeAttachment: (id, index, expectedName) => invoke('calendar:summarize-attachment', id, index, expectedName),
+  openAttachment: (id, index, reveal, archive) => invoke('calendar:attachment', id, index, reveal, archive),
+  relinkAttachment: (id, index) => invoke('calendar:attachment-relink', id, index),
   projectAgentStatus: () => invoke('calendar:project-agent-status'),
   checkMcpBridge: () => invoke('calendar:check-mcp-bridge'),
   mcpStatus: () => invoke('calendar:mcp-status'),
@@ -102,6 +118,10 @@ contextBridge.exposeInMainWorld('calendar', {
   mcpRevoke: id => invoke('calendar:mcp-revoke', id),
   mcpOpen: id => invoke('calendar:mcp-open', id),
   mcpCopySetup: format => invoke('calendar:mcp-copy-setup', format),
+  aiInboxList: () => invoke('calendar:ai-inbox-list'),
+  aiInboxRead: id => invoke('calendar:ai-inbox-read', id),
+  aiInboxRegister: (id, items) => invoke('calendar:ai-inbox-register', id, items),
+  aiInboxDismiss: id => invoke('calendar:ai-inbox-dismiss', id),
   delegateAgentWork: (id, input) => invoke('calendar:agent-work-start', id, input),
   noteAgentWork: id => invoke('calendar:agent-work-state', id),
   onAgentWorkChanged: callback => {

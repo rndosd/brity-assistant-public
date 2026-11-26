@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "items"],
+  "properties": {
+    "summary": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "detail", "dateText", "evidence", "source"],
+        "properties": {
+          "title": { "type": "string" },
+          "detail": { "type": "string" },
+          "dateText": { "type": "string" },
+          "evidence": { "type": "string" },
+          "source": { "type": "string", "enum": ["note", "attachment"] }
+        }
+      }
+    }
+  }
+}

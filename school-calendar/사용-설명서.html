@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사용 설명서 · 메신저 캘린더</title>
+<meta name="description" content="메신저 캘린더 사용 설명서: 설치, 연결, 쪽지 확인과 답장, 일정 정리, 업무 추가, AI에게 맡기기">
+<link rel="icon" href="사용-설명서-파일/img/app.svg">
+<link rel="stylesheet" href="사용-설명서-파일/style.css">
+<link rel="stylesheet" href="사용-설명서-파일/guide.css">
+</head>
+<body>
+
+<header class="g-top"><div class="in">
+  <a class="logo" href="https://rndosd.github.io/calendar/"><img src="사용-설명서-파일/img/app.svg" alt="">메신저 캘린더<span>사용 설명서</span></a>
+  <nav>
+    <a href="https://rndosd.github.io/calendar/#features">기능</a>
+    <a href="https://rndosd.github.io/calendar/#start">시작하기</a>
+    <a href="https://rndosd.github.io/calendar/#faq">도움말</a>
+    <a class="get" href="https://rndosd.github.io/calendar/">사이트</a>
+  </nav>
+</div></header>
+
+<section class="g-head">
+  <div></div>
+  <div>
+    <div class="eyebrow">사용 설명서</div>
+    <h1>메신저 캘린더<br><b>사용 설명서</b></h1>
+    <p>처음 쓰신다면 AI와 메신저 연결부터 시작하세요. 이미 연결했다면 목차에서 필요한 기능을 바로 찾을 수 있어요.</p>
+    <div class="meta"><span>0.6.5 기준</span><span>브리티판·GOE판 공통</span><span>읽는 데 10분</span></div>
+  </div>
+</section>
+
+<div class="g-body">
+  <aside class="toc">
+    <ol>
+      <li><a href="#setup">처음 시작</a></li>
+      <li><a href="#screen">화면 읽는 법</a></li>
+      <li><a href="#note">쪽지 확인과 답장</a></li>
+      <li><a href="#batch">일정 고치기</a></li>
+      <li><a href="#add">업무 추가</a></li>
+      <li><a href="#school">시간표·학교 일정·휴대폰</a></li>
+      <li><a href="#ai">AI에게 맡기기</a></li>
+      <li><a href="#look">보기와 꾸미기</a></li>
+      <li><a href="#keep">업데이트와 옮기기</a></li>
+    </ol>
+  </aside>
+
+  <article class="doc">
+    <div class="whatsnew">
+      <h2>이번 판에서 달라진 것 <span>0.6.5</span></h2>
+      <ul>
+        <li><span><a href="#note">쪽지 자세히</a>에서 AI가 찾은 근거를 원문의 형광펜 표시로 확인하고, 검색 결과 안에서 다음 쪽지로 이동합니다.</span></li>
+        <li><span><a href="#ai">AI 채팅에서 찾은 업무</a>는 AI 박스에서 날짜를 고치고 골라서 한 번에 달력에 넣을 수 있습니다.</span></li>
+        <li><span>쪽지의 <a href="#note">첨부 요약</a>에서 파일별 요지와 원문 근거를 확인합니다.</span></li>
+        <li><span><a href="#school">수업 달력</a>에 시간표를 가져오고 한 주의 과목만 따로 고칠 수 있습니다.</span></li>
+      </ul>
+    </div>
+
+    <section class="chap" id="setup">
+      <div class="num">01</div>
+      <h2>처음 시작</h2>
+      <p>받은 ZIP을 풀어 앱을 열고, AI와 메신저를 차례로 연결하세요.</p>
+      <h3>열기</h3>
+      <ol class="steps">
+        <li><span>받은 ZIP을 마우스 오른쪽 버튼으로 누르고 <span class="ui">모두 압축 풀기</span>를 선택하세요.</span></li>
+        <li><span>푼 폴더에서 <span class="ui">브리티 메신저 캘린더</span>(GOE판은 <span class="ui">GOE 메신저 캘린더</span>)를 두 번 누릅니다.</span></li>
+        <li><span><b>Windows의 PC 보호</b> 창이 뜨면 <span class="ui">추가 정보</span>를 누른 뒤 <span class="ui">실행</span>을 선택하세요.</span></li>
+      </ol>
+      <h3>AI 연결</h3>
+      <p>AI를 먼저 연결하세요. AI 없이 메신저부터 연결하면 쪽지가 날짜 없이 제목 그대로 할 일에 쌓입니다. 위쪽 <span class="ui">AI 연결</span>을 누르고 아래에서 하나를 고릅니다.</p>
+      <table class="opts">
+        <thead><tr><th>연결 방식</th><th>이런 분께</th></tr></thead>
+        <tbody>
+          <tr class="pick"><th>개인 OpenAI API 키</th><td>처음이라 무엇을 고를지 모르겠다면. 쓴 만큼 OpenAI 계정에 청구됩니다.</td></tr>
+          <tr><th>개인 Claude API 키</th><td>Anthropic(Claude) 개발자 계정을 쓰고 싶을 때. 쓴 만큼 그 계정에 청구됩니다.</td></tr>
+          <tr><th>Claude Code</th><td>이미 Claude 구독(Pro 이상)을 쓰고 있을 때. 따로 청구되지 않습니다.</td></tr>
+          <tr><th>Codex</th><td>이미 ChatGPT 구독을 쓰고 있을 때. 따로 청구되지 않습니다.</td></tr>
+        </tbody>
+      </table>
+      <p>학교에서 따로 안내한 연결 방식이 있으면 학교 안내를 따르세요.</p>
+      <ol class="steps">
+        <li><span>키 방식이면 <span class="ui">처음 설정 안내 ↗</span>를 따라 키를 만듭니다.</span></li>
+        <li><span>키를 붙여 넣고 <span class="ui">연결 시험 및 저장</span>을 누르세요. 연결 시험에는 예시 쪽지를 사용해요.</span></li>
+        <li><span><b>연결 시험을 통과했습니다</b>가 나오면 새 쪽지 자동 분류도 함께 켜져요.</span></li>
+      </ol>
+      <h3>메신저 연결</h3>
+      <ol class="steps">
+        <li><span>메신저에 로그인하고 창을 띄워 둡니다. <span class="ed brity">브리티판</span>브리티는 <b>원 뷰</b>로 써 주세요(환경설정 › 일반 › 뷰 모드).</span></li>
+        <li><span>캘린더 위쪽 <span class="ui">브리티 연결</span>(GOE판은 <span class="ui">GOE 메신저 연결</span>)을 누릅니다.</span></li>
+        <li><span>지난 쪽지를 불러올 기간을 고르고 <span class="ui">불러오기</span>. 끝날 때까지 메신저 창은 그대로 두세요.</span></li>
+      </ol>
+      <div class="tip"><b>그다음부터는</b> 메신저를 켜 두기만 하면 한 시간마다 새 쪽지를 가져옵니다. 창을 닫아도 작업 표시줄 오른쪽에서 계속 가져와요.</div>
+    </section>
+
+    <section class="chap" id="screen">
+      <div class="num">02</div>
+      <h2>화면 읽는 법</h2>
+      <p>오늘 무엇부터 해야 할지 보려면 왼쪽 목록을, 날짜별 일정을 보려면 오른쪽 달력을 확인하세요. 기한이 지난 일은 끝낼 때까지 목록 맨 위에 남아요.</p>
+      <div class="fig"><img src="사용-설명서-파일/img/hero-tight.webp" alt="메신저 캘린더 전체 화면" loading="lazy"></div>
+      <h3>왼쪽의 쪽지 목록</h3>
+      <ul class="legend">
+        <li><b>할 일</b>해야 하는 일. 빨간 점은 안 읽은 쪽지 수예요.</li>
+        <li><b>분류할 것</b>AI가 애매하다고 본 쪽지.</li>
+        <li><b>확인할 것</b>할 일은 아니지만 알아 둘 공지.</li>
+        <li><b>처리한 것</b>끝냈거나 날짜가 지난 일정.</li>
+        <li><b>다른 메시지</b>업무로 분류하지 않은 감사나 확인 답장.</li>
+      </ul>
+      <h3>달력의 표시</h3>
+      <ul class="legend">
+        <li><b>□ 마감</b>그날까지 끝낼 일. 지나도 끝낼 때까지 남아요.</li>
+        <li><b>● 일정</b>그날 있는 일이에요. 날짜가 지나면 ‘처리한 것’에 보여요.</li>
+        <li><b>○ 기한 없음</b>마감 날짜가 없는 일이에요. 완료할 때까지 오늘 칸에 보여요.</li>
+        <li><b>색 띠</b>여러 날에 걸친 기간(주간 행사 등).</li>
+        <li><b>점선</b>AI가 찾은 후보. 확인하면 확정돼요.</li>
+        <li><b>파랑·빨강</b>중요한 업무, 매우 중요한 업무.</li>
+      </ul>
+    </section>
+
+    <section class="chap" id="note">
+      <div class="num">03</div>
+      <h2>쪽지 확인과 답장</h2>
+      <p>목록이나 달력에서 업무를 누르면 오른쪽에 쪽지가 열립니다.</p>
+      <div class="fig tall"><img src="사용-설명서-파일/img/detail.webp" alt="쪽지 자세히 화면" loading="lazy"></div>
+      <ol class="steps">
+        <li><span><b>쪽지 원문</b>과 첨부를 확인합니다. AI가 정리한 쪽지에서는 마감이나 요청의 근거가 형광펜으로 표시됩니다. 이전에 정리한 쪽지는 <span class="ui">다시 다듬기</span>를 누르세요.</span></li>
+        <li><span>검색으로 찾은 쪽지를 보고 있다면 <span class="ui">다음으로</span>를 눌러 같은 검색 결과 안에서 이동할 수 있습니다.</span></li>
+        <li><span>끝냈으면 <span class="ui">완료</span>. 남은 할 일을 모두 끝내면 다음 쪽지가 열리고, 방금 한 처리는 되돌릴 수 있습니다.</span></li>
+        <li><span>답장하려면 연필 단추를 누르고 전할 말을 적으세요. <span class="ui">다듬기</span>를 누르면 답장 문장이 나와요.</span></li>
+      </ol>
+      <h3>첨부 요약</h3>
+      <p>첨부 이름을 누르면 파일이 열립니다. <b>첨부</b> 제목 옆의 <span class="ui">요약</span>을 누르면 한글(.hwpx), 엑셀(.xlsx), 파워포인트(.pptx), 글을 선택할 수 있는 PDF의 파일별 요지를 볼 수 있습니다. 각 파일의 <span class="ui">자세히</span>에서 문서에 적힌 대상·요청·기한과 원문 근거를 확인하세요. 그림과 스캔에 담긴 글은 빠집니다.</p>
+      <p>저장된 요약은 다시 볼 수 있습니다. 새로 요약할 때는 쪽지 본문과 첨부에서 읽은 글·표가 연결된 AI로 전달됩니다.</p>
+      <div class="tip"><span class="ed goe">GOE판</span>쪽지 옆 아이콘을 누르면 메신저 원문이 열립니다. 다듬은 답장은 복사한 뒤 GOE에서 붙여 넣어 보내세요.</div>
+    </section>
+
+    <section class="chap" id="batch">
+      <div class="num">04</div>
+      <h2>일정 고치기와 묶어서 편집</h2>
+      <p>날짜가 틀렸으면 쪽지에서 <span class="ui">날짜 고치기</span>로 바꿉니다. 같은 날 마감이 여러 개면 각각 이름과 시간을 따로 저장할 수 있어요. 바쁜 주에는 한꺼번에 고치세요.</p>
+      <div class="fig"><img src="사용-설명서-파일/img/batch.webp" alt="업무 묶어서 편집 창" loading="lazy"></div>
+      <ol class="steps">
+        <li><span>달력 위 <span class="ui">묶어서 편집</span>을 누릅니다.</span></li>
+        <li><span><span class="ui">하루</span> 또는 <span class="ui">일주일</span>을 고르고 날짜를 정합니다.</span></li>
+        <li><span>업무마다 날짜·시간·종류를 고치거나, 여러 개를 골라 <span class="ui">선택 완료·확인</span>. 마지막에 <span class="ui">저장</span>.</span></li>
+      </ol>
+    </section>
+
+    <section class="chap" id="add">
+      <div class="num">05</div>
+      <h2>업무 추가</h2>
+      <p>쪽지로 오지 않은 일도 달력에 올릴 수 있습니다. 오른쪽 위 <span class="ui">업무 추가</span>를 누르세요.</p>
+      <div class="fig"><img src="사용-설명서-파일/img/add.webp" alt="업무 추가 창의 메모로 적기" loading="lazy"></div>
+      <h3>메모로 적기</h3>
+      <p>생각나는 대로 여러 줄 적고 <span class="ui">AI로 다듬기</span>를 누르면 업무 후보로 나눠 줍니다. 후보를 고쳐 필요한 것만 등록하세요. 닫아 둔 메모는 이 PC에 잠시 남습니다.</p>
+      <h3>직접 입력</h3>
+      <p>이름과 날짜를 직접 넣습니다. 날짜 없이 두면 기한 없는 할 일(○)이 되고, <b>반복</b>을 고르면 매주·격주·매월 일정이 됩니다. 반복 일정은 이번 회차만 완료하거나 다음 회차를 건너뛸 수 있어요.</p>
+    </section>
+
+    <section class="chap" id="school">
+      <div class="num">06</div>
+      <h2>시간표와 학교 일정</h2>
+      <h3>시간표 가져오기</h3>
+      <p>앱 위쪽에서 <span class="ui">수업</span>을 고른 뒤 달력 위 <span class="ui">시간표 설정</span>을 엽니다. <span class="ui">파일 붙여넣기</span>에 엑셀(.xlsx)·한글(.hwpx) 파일이나 복사한 표를 넣으면 교시 시각과 요일별 과목 중 읽은 내용이 바로 저장됩니다. 그림과 PDF를 읽으려면 AI 연결이 필요합니다.</p>
+      <p>수업 달력의 날짜 칸을 누르면 해당 주를 크게 볼 수 있습니다. <span class="ui">시간표 고치기</span>에서 파일이나 표를 넣거나 과목 칸을 직접 고치세요. 빈 교시에 마우스를 올리면 <b>+</b>가 나옵니다. <b>+</b>를 눌러 그날만 수업을 넣을 수 있어요. 이 주를 평소 시간표로 되돌리려면 <span class="ui">기초 시간표</span>를 누릅니다. 파일이나 표를 잘못 가져왔다면 <span class="ui">되돌리기</span>를 누르세요.</p>
+      <h3>수업 메모와 자료</h3>
+      <p>과목 칸을 누르면 그 수업에 메모를 남기고 자료를 연결할 수 있습니다. 그날만 바뀐 과목은 주간 시간표에서 <b>바꿈</b>으로 표시되며, 수업을 누르면 평소 과목을 확인할 수 있습니다. 같은 과목의 바로 지난 수업 자료도 열 수 있어요. 캘린더를 켜 둔 상태에서 같은 드라이브 안의 연결한 수업 자료나 저장된 쪽지 첨부를 옮기거나 이름을 바꿔도 바뀐 위치에서 열립니다.</p>
+      <h3>학사일정과 급식</h3>
+      <p><span class="ui">설정</span> → <span class="ui">달력 연동</span>의 <b>우리 학교 학사일정·급식</b>에서 학교를 고르면 학사일정과 오늘 급식이 달력에 보입니다. 반복 일정을 만들 때 학교가 쉬는 날을 뺄 수도 있어요.</p>
+      <h3>구글 캘린더</h3>
+      <p><span class="ui">설정</span> → <span class="ui">달력 연동</span>에서 <span class="ui">구글 계정 연결</span>을 누르면 할 일과 알아 둘 일정이 내 구글 캘린더의 <b>학교 할 일</b>, <b>학교 알림</b>에 표시됩니다. 휴대폰에서도 업무 날짜와 알림을 볼 수 있어요. 연결은 선택이며 언제든 해제할 수 있습니다.</p>
+    </section>
+
+    <section class="chap" id="ai">
+      <div class="num">07</div>
+      <h2>AI에게 맡기기</h2>
+      <p>계획서 초안처럼 손이 많이 가는 일은 Codex나 Claude Code에게 맡길 수 있습니다. 이 PC에 둘 중 하나가 설치돼 있어야 해요.</p>
+      <ol class="steps">
+        <li><span>쪽지에서 <span class="ui">프로젝트에서 시작</span>을 누릅니다.</span></li>
+        <li><span>맡길 AI와 프로젝트, 함께 보낼 첨부를 고르고 요청을 적습니다.</span></li>
+        <li><span>Codex는 새 채팅에 초안을 엽니다. 첫 메시지를 확인하고 보내세요. Claude Code는 고른 프로젝트에서 작업을 시작합니다.</span></li>
+      </ol>
+      <h3>AI 채팅에서 찾은 업무를 달력에 넣기</h3>
+      <p><span class="ui">설정</span> → <span class="ui">에이전트</span>에서 <span class="ui">MCP 연결 요청 복사</span>를 누르고 Codex나 Claude Code 채팅에 붙여 넣습니다. 채팅에서 브리티 캘린더 또는 GOE 캘린더로 업무를 보내 달라고 요청하세요.</p>
+      <p>캘린더 위쪽 <span class="ui">AI 박스</span>에서 받은 업무의 날짜·시간·조건을 확인합니다. 필요한 업무만 고른 뒤 <span class="ui">달력에 넣기</span>를 누르세요. 예전 <code>calendar</code> 연결에서 AI 박스로 보내려면 연결 요청을 다시 복사해 브리티 캘린더 또는 GOE 캘린더 이름으로 연결하세요.</p>
+    </section>
+
+    <section class="chap" id="look">
+      <div class="num">08</div>
+      <h2>보기와 꾸미기</h2>
+      <p>달력 위에서 <span class="ui">월간</span>과 <span class="ui">목록</span>을 바꿉니다. 달력 위 보기 설정 단추에서 <b>달력 칸 크기</b>를 <b>업무 많은 주는 넓게</b>로 고르면 일정이 많은 주에 더 넓은 칸을 씁니다. 글씨가 작으면 오른쪽 위의 글자 크기에서 원하는 숫자를 고르세요.</p>
+      <p><span class="ui">설정</span> → <span class="ui">화면·알림</span>의 <b>화면 꾸미기</b>에서 열세 가지 꾸미기와 글꼴을 고를 수 있어요.</p>
+      <div class="skins">
+        <figure><img src="사용-설명서-파일/img/skin-cute.webp" alt="파스텔 고양이 꾸미기" loading="lazy"><figcaption>파스텔 고양이</figcaption></figure>
+        <figure><img src="사용-설명서-파일/img/skin-evening.webp" alt="밤하늘 꾸미기" loading="lazy"><figcaption>밤하늘</figcaption></figure>
+        <figure><img src="사용-설명서-파일/img/skin-woodland.webp" alt="숲속 수첩 꾸미기" loading="lazy"><figcaption>숲속 수첩</figcaption></figure>
+        <figure><img src="사용-설명서-파일/img/skin-chalk.webp" alt="칠판 꾸미기" loading="lazy"><figcaption>칠판</figcaption></figure>
+        <figure><img src="사용-설명서-파일/img/skin-news.webp" alt="신문 꾸미기" loading="lazy"><figcaption>신문</figcaption></figure>
+        <figure><img src="사용-설명서-파일/img/skin-minimal.webp" alt="미니멀 꾸미기" loading="lazy"><figcaption>미니멀(처음 모습)</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="chap" id="keep">
+      <div class="num">09</div>
+      <h2>업데이트와 옮기기</h2>
+      <h3>새 판 받기</h3>
+      <p>새 판이 나오면 앱이 알려 줍니다. <span class="ui">업데이트</span>를 누르면 자료는 그대로 둔 채 새 판으로 다시 열려요. 달라진 점은 그때 창으로 보여 줍니다.</p>
+      <div class="tip"><b>학교망에서 업데이트가 안 되면</b> 다른 PC에서 새 전체 ZIP을 받아 USB로 옮긴 뒤, 같은 폴더에 덮어 푸세요.</div>
+      <h3>다른 PC로 옮기기</h3>
+      <p><span class="ui">설정</span> → <span class="ui">백업·정보</span>에서 <span class="ui">백업 만들기</span>를 누르고, 새 PC의 캘린더에서 <span class="ui">백업에서 되돌리기</span>로 불러오면 업무와 쪽지가 그대로 옮겨집니다.</p>
+      <h3>더 막히면</h3>
+      <p>앱의 <span class="ui">의견</span> 단추로 알려 주세요. 자주 묻는 것은 <a href="https://rndosd.github.io/calendar/#faq" style="text-decoration:underline">도움말</a>에 있어요.</p>
+    </section>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="links"><a href="https://rndosd.github.io/calendar/privacy.html">개인정보처리방침</a><a href="https://rndosd.github.io/calendar/terms.html">이용약관</a><span>교육청·메신저 회사와 관계없는 개인 제작 앱</span></div>
+  </div>
+</footer>
+
+<script>
+// 지금 읽는 장을 목차에 표시
+const links = [...document.querySelectorAll('.toc a[href^="#"]')];
+const io = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return;
+  links.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id));
+}), { rootMargin: '-30% 0px -60% 0px' });
+document.querySelectorAll('.chap').forEach(s => io.observe(s));
+links[0].classList.add('on');
+</script>
+</body>
+</html>

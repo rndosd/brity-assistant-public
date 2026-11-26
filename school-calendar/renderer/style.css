@@ -74,6 +74,9 @@ button:disabled { cursor: default; opacity: .5; }
 .connection .small-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .connection strong { font-size: 12.5px; white-space: nowrap; }
 .header-actions { display: flex; gap: 4px; margin-left: auto; }
+.ai-inbox-button { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ai-inbox-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ai-inbox-button .badge { font-variant-numeric: tabular-nums; }
 /* 의견 보내기(2026-11-15): 단추 바로 아래 작은 칸. 창을 덮지 않고, 바깥을 누르거나 Esc로 닫으면 쓴 글은 남는다. */
 .feedback { position: relative; }
 .feedback-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 320px; word-break: keep-all; overflow-wrap: anywhere; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--ink); background: var(--sheet); color: var(--ink); box-shadow: 0 6px 18px #1f1d1a26; }
@@ -260,6 +263,7 @@ button:disabled { cursor: default; opacity: .5; }
 .legend .disc { width: 7px; height: 7px; }
 .legend .ring { width: 8px; height: 8px; }
 .legend .ref-label { color: var(--muted-text); }
+.lesson-timetable-open { flex: none; white-space: nowrap; }
 .calendar-controls { display: flex; gap: 2px; padding-bottom: 1px; }
 .calendar-controls .button { min-height: 26px; padding: 1px 9px; }
 @container (max-width: 560px) {
@@ -515,9 +519,12 @@ button:disabled { cursor: default; opacity: .5; }
 .attachment-label, .attachment-name { display: flex; min-width: 0; white-space: nowrap; }
 .attachment-base { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .attachment-ext { flex: none; }
-.attachment-item .attachment-folder { flex: none; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.attachment-item .attachment-folder { flex: none; }
 .attachment-item .text-button:hover { text-decoration: underline; background: none; }
 .attachment-item .small-note { flex: none; }
+.attachment-item:has(.attachment-recovery) { flex-wrap: wrap; }
+.attachment-recovery { display: flex; flex: 0 0 100%; flex-wrap: wrap; gap: 4px 12px; }
+.attachment-recovery .text-button { flex: none; font-size: 12px; color: var(--ink-2); }
 .attachment-name { flex: 1 1 auto; font-size: 14px; color: var(--ink-2); }
 #attachment-status { margin-top: 6px; }
 #attachment-status.error { color: var(--red); }
@@ -534,6 +541,7 @@ button:disabled { cursor: default; opacity: .5; }
 #note-recipient-list { white-space: pre-line; }
 .original { font-size: 15px; line-height: 1.8; letter-spacing: -.005em; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; user-select: text; }
 .original::selection, .original *::selection { background: var(--today); }
+.original .note-evidence { background: color-mix(in srgb, #efc548 36%, transparent); color: inherit; border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .note-link { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; word-break: break-all; cursor: pointer; }
 .note-link:hover { background: var(--hover); }
 .note-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
@@ -558,6 +566,41 @@ dialog::backdrop { background: #1f1d1a66; }
 dialog form, .dialog-body { padding: 20px 22px; display: grid; gap: 14px; }
 dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--rule-strong); }
 .dialog-actions { display: flex; justify-content: end; gap: 6px; }
+#attachment-summaries { display: grid; gap: 8px; margin-top: 12px; }
+#attachment-summary-list, .attachment-summary-items { list-style: none; margin: 0; padding: 0; }
+.attachment-summary-card { min-width: 0; padding: 10px 0; display: grid; gap: 5px; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
+.attachment-summary-file { font-size: 14px; }
+.attachment-summary-text, .attachment-summary-evidence { line-height: 1.55; }
+.attachment-summary-details { justify-self: start; padding-inline: 0; }
+#attachment-summary-dialog { width: min(680px, calc(100% - 24px)); overflow: hidden; }
+#attachment-summary-dialog[open] { display: flex; flex-direction: column; }
+.attachment-summary-dialog-head {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px clamp(14px, 4vw, 24px) 12px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.attachment-summary-dialog-head h2 { padding: 0; border: 0; }
+#attachment-summary-dialog-file { margin-top: 4px; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+#attachment-summary-dialog-close { flex: none; }
+#attachment-summary-dialog-body {
+  min-height: 0;
+  padding: 16px clamp(14px, 4vw, 24px) 20px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
+}
+#attachment-summary-dialog-requests { margin-bottom: 5px; font-size: 13px; color: var(--ink-2); }
+#attachment-summary-dialog-items .attachment-summary-item { padding: 10px 0; }
+.attachment-summary-item { padding: 5px 0; }
+.attachment-summary-item + .attachment-summary-item { border-top: 1px solid var(--rule); }
+.attachment-summary-retry { padding-inline: 0; }
+.attachment-summary-retry { justify-self: start; }
+.attachment-summary-evidence { color: var(--ink-2); font-size: 13px; }
+.attachment-summary-status.error { color: var(--red); }
 #batch-dialog { width: min(800px, calc(100% - 24px)); overflow: hidden; }
 #batch-dialog .dialog-body { display: flex; flex-direction: column; max-height: calc(100vh / var(--zoom, 1) - 26px); min-height: 0; gap: 12px; }
 .batch-range { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -601,7 +644,7 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 /* 탭을 바꿔도 창이 출렁이지 않게 높이를 고정한다(짧은 묶음은 아래가 빈다). */
 #settings-dialog { width: min(600px, calc(100% - 32px)); height: min(760px, calc(100vh / var(--zoom, 1) - 30px)); max-height: calc(100vh / var(--zoom, 1) - 30px); overflow: hidden; }
 /* 설정 묶음 탭: 눌린 칸만 떠오르는 분할 단추. 색은 스킨 변수를 따른다. */
-.settings-tabs { flex: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: column; gap: 2px; margin: 12px 20px 2px; padding: 3px; border-radius: 8px; background: var(--hover); }
+.settings-tabs { flex: none; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-flow: column; gap: 2px; margin: 12px 20px 2px; padding: 3px; border-radius: 8px; background: var(--hover); }
 .settings-tabs button { min-width: 0; min-height: 34px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; }
 .agent-install-row span { color: var(--ink-2); font-size: 13px; }
@@ -1047,6 +1090,16 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .google-points { margin: 6px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
 .google-state { margin: 4px 0 8px; }
 
+#ai-inbox-dialog { width: min(460px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; }
+#ai-inbox-dialog h2, #ai-inbox-status { margin: 0; }
+#ai-inbox-batches { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+#ai-inbox-batches li { border-bottom: 1px solid var(--rule); }
+.ai-inbox-pick { display: grid; justify-content: stretch; text-align: left; gap: 4px; width: 100%; padding: 10px 8px; overflow-wrap: anywhere; white-space: normal; border: 0; background: transparent; }
+.ai-inbox-pick:hover { background: var(--hover); }
+.ai-inbox-pick .small-note { font-variant-numeric: tabular-nums; }
+.memo-inbox-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+#memo-inbox-source, .memo-inbox-note { min-width: 0; overflow-wrap: anywhere; }
+.memo-inbox-note-field { grid-column: 1 / -1; }
 #create-dialog { width: min(680px, calc(100% - 24px)); max-height: calc(100vh / var(--zoom, 1) - 24px); overflow: auto; container-type: inline-size; }
 #create-dialog form { display: grid; gap: 14px; }
 #create-dialog h2, #create-dialog h3, #create-dialog p { margin: 0; }
@@ -1056,7 +1109,8 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 .create-mode-tabs button[aria-selected="true"] { background: var(--sheet); color: var(--ink); font-weight: 700; }
 #memo-source { display: grid; gap: 8px; }
 #create-dialog .field-hint { font-size: 12px; line-height: 1.5; color: var(--ink-2); }
-#memo-form textarea { width: 100%; resize: vertical; min-height: 220px; padding: 12px; font: inherit; line-height: 1.8; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); }
+#memo-form textarea { width: 100%; resize: vertical; padding: 8px; font: inherit; line-height: 1.5; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); }
+#memo-form #memo-text { min-height: 220px; padding: 12px; line-height: 1.8; }
 .memo-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .memo-review-header h3 { font-size: 14px; }
 .memo-review-header:has(h3[hidden]) { display: none; }
@@ -1082,6 +1136,244 @@ dialog h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 2px solid var(-
 }
 @media (max-width: 520px) {
   .memo-proposal-head { gap: 7px; }
+  [data-create-inbox="true"] .memo-proposal-head { grid-template-columns: 18px minmax(0, 1fr); }
+  [data-create-inbox="true"] .memo-date-toggle { grid-column: 2; justify-self: start; }
   .memo-date-toggle { max-width: 128px; padding: 5px; }
   .memo-proposal-dates { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 수업 탭(2026-11-25, 진행-정리.md "수업 캘린더 이어받기") ──
+   같은 달력 틀에서 칸 안만 조용하게. 교시 숫자는 흐리게, 과목은 왼쪽 색 막대로 구분한다.
+   점을 여러 개 모아 두면 거북할 수 있어(11/25 사용자) 점 대신 이어지는 막대를 쓴다. */
+.main-tabs { display: flex; gap: 4px; }
+.app-header .main-tabs .button[aria-pressed="true"] { background: var(--selected); border-color: var(--ink-3); color: var(--ink); font-weight: 700; }
+.lesson-empty { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; padding: 8px 10px; border: 1px dashed var(--ink-3); border-radius: 6px; color: var(--ink-2, var(--ink)); }
+.lesson-month .day-plus { display: none; }
+.lesson-month .day-items { gap: 0; }
+#month.lesson-month .item { line-height: 1.15; padding-top: 0; padding-bottom: 0; padding-left: 5px; min-height: 0;
+  border-left: 3px solid var(--subject); border-radius: 0; }
+#month.lesson-month .item .disc { display: none; }
+/* 그날만 바꾼 수업: 과목 색을 옅게 깔고 굵게. 메모·자료가 있으면 과목 뒤에 작은 점(11/26 점검). */
+#month.lesson-month .item.changed { background: color-mix(in srgb, var(--subject) 16%, transparent); }
+#month.lesson-month .item.changed .item-title { font-weight: 700; }
+#month.lesson-month .item.has-note .item-title::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 4px; border-radius: 50%; background: var(--ink-3); vertical-align: middle; }
+.lesson-month .lesson-period { display: inline-block; min-width: 0.9em; color: var(--ink-3); font-size: 0.85em; font-variant-numeric: tabular-nums; }
+#month.lesson-month .item-title:has(.lesson-class) { display: flex; gap: 4px; min-width: 0; white-space: nowrap; }
+.lesson-month .lesson-class { flex: none; font-variant-numeric: tabular-nums; }
+.lesson-month .lesson-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2, var(--ink)); }
+
+.lesson-detail { display: grid; gap: 10px; padding: 4px 0 12px; }
+.lesson-detail .disc { display: inline-block; width: 4px; height: 1.1em; background: var(--subject); }
+.lesson-detail-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.15em; font-weight: 700; }
+.lesson-detail .when { margin: -4px 0 0; color: var(--ink-3); }
+.lesson-detail h3 { margin: 0 0 4px; }
+.lesson-detail textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font: inherit; resize: vertical; }
+.lesson-detail [data-error], .lesson-file-status:not(:empty) { color: var(--red); }
+.lesson-files { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; }
+.lesson-file { display: flex; align-items: center; gap: 4px; }
+.lesson-file-name { flex: 1; min-width: 0; text-align: left; padding: 3px 4px; border: 0; background: none; color: var(--ink); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-file-name:hover { text-decoration: underline; }
+.lesson-file-remove { color: var(--ink-3); }
+.lesson-drop { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; padding: 10px; border: 1px dashed var(--ink-3); color: var(--ink-3); font-size: 0.92em; }
+.lesson-drop.over { border-color: var(--subject); color: var(--ink); background: var(--selected); }
+.lesson-past { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lesson-past-link { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; text-align: left; padding: 5px 4px; border: 0; border-bottom: 1px solid var(--rule); background: none; color: var(--ink); cursor: pointer; }
+.lesson-past-link:hover { background: var(--selected); }
+.lesson-past-bare { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 5px 4px; color: var(--ink-3); font-size: 0.92em; }
+.lesson-past-date { font-variant-numeric: tabular-nums; }
+.lesson-changed-note { margin: -6px 0 0; color: var(--ink-2, var(--ink)); font-size: 0.92em; }
+.lesson-past-when { color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lesson-past-memo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-past-memo.empty { color: var(--ink-3); }
+/* 바로 지난 수업 자료(11/26): 지난 수업 목록 위, 이름을 누르면 바로 열린다. */
+.lesson-prev-files { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid var(--subject); background: var(--paper); }
+.lesson-prev-files[hidden] { display: none; }
+.lesson-prev-label { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 2px; color: var(--ink-3); font-size: 12px; }
+.lesson-prev-go { flex: none; font-size: 12px; }
+.lesson-prev-file { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 0; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 2px; cursor: pointer; }
+.lesson-prev-file:hover { text-decoration-color: currentColor; }
+.lesson-prev-status:empty { display: none; }
+.lesson-prev-status:not(:empty) { margin: 2px 0 0; color: var(--red); }
+.lesson-view :is(.legend, #calendar-view-settings) { display: none; }
+/* 크게 보는 주(11/26): 누른 주가 달력(요일 줄 아래)을 덮는다. 칸은 달력 요일 칸과 같은 7칸. */
+.calendar.lesson-view { position: relative; }
+.calendar.lesson-view.zooming { overflow: hidden; }
+#month.lesson-month .day-hit { cursor: zoom-in; }
+.week-zoom { position: absolute; z-index: 3; display: flex; flex-direction: column; box-sizing: border-box; background: var(--sheet); border: 1px solid var(--rule-strong); box-shadow: 0 12px 32px #0000002e; }
+.week-zoom[hidden] { display: none; }
+.wz-import { min-width: 0; }
+.wz-import-bar { display: flex; align-items: center; gap: 8px; }
+.wz-base-restore { white-space: nowrap; }
+.wz-import-source { display: flex; align-items: center; flex: 1 1 200px; min-width: 0; max-width: 360px; border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--sheet); }
+.wz-import-source:focus-within, .wz-import-source.drop-target { outline: 1px solid var(--ink); outline-offset: 0; }
+.wz-import-source.drop-target { background: var(--selected); }
+.wz-import-paste { flex: 1; min-width: 0; box-sizing: border-box; height: 28px; padding: 5px 7px; border: 0; resize: none; color: var(--ink); background: transparent; font: inherit; font-size: 12px; outline: none; }
+.wz-import-paste::placeholder { color: var(--ink-2, var(--ink)); }
+.wz-import-file { display: grid; place-items: center; flex: none; width: 29px; height: 28px; padding: 0; border: 0; border-left: 1px solid var(--rule); background: none; color: var(--ink-2, var(--ink)); cursor: pointer; }
+.wz-import-file .icon { width: 15px; height: 15px; }
+.wz-import-file:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.wz-import-file:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+@container (max-width: 365px) {
+  .wz-import-bar { gap: 5px; }
+  .wz-import-bar .button { padding-inline: 5px; }
+}
+.wz-import-status { margin: 4px 0 0; }
+.wz-import-status.error { color: var(--red); }
+.week-zoom-head { flex: none; display: flex; align-items: center; gap: 9px; padding: 9px 12px 9px 15px; border-bottom: 1px solid var(--rule); }
+.week-zoom-head h3 { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; outline: none; font-variant-numeric: tabular-nums; }
+.wz-badge { color: var(--ink-3); font-size: 11px; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
+.wz-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.wz-nav { flex: none; display: inline-flex; align-items: stretch; height: 30px; }
+.wz-nav button { display: grid; place-items: center; min-width: 32px; padding: 0 8px; border: 0; background: none; color: var(--ink-2, var(--ink)); font: inherit; font-size: 12.5px; cursor: pointer; transition: background-color .12s, color .12s; }
+.wz-nav .wz-nav-today { padding: 0 6px; }
+.wz-nav button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.wz-nav button:disabled { color: var(--ink-3); opacity: .6; cursor: default; }
+.wz-actions { display: flex; align-items: center; gap: 4px; }
+.wz-pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 7px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--ink); white-space: nowrap; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background-color .12s, border-color .12s; }
+.wz-pill:hover { background: var(--hover); }
+.wz-pill.primary { border-color: var(--ink); background: var(--ink); color: var(--sheet); }
+.wz-pill.primary:hover { opacity: .88; background: var(--ink); }
+.wz-close { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); cursor: pointer; transition: background-color .12s, color .12s; }
+.wz-close:hover { background: var(--hover); color: var(--ink); }
+.wz-close .wz-icon { width: 15px; height: 15px; }
+@container (max-width: 470px) {
+  .week-zoom-head { gap: 5px; padding-inline: 8px; }
+  .week-zoom-head h3 { font-size: 14px; gap: 4px; }
+  .week-zoom-head .wz-badge { display: none; }
+  .wz-nav button { min-width: 25px; padding-inline: 4px; }
+  .wz-pill { gap: 3px; padding-inline: 4px; }
+  .wz-close { width: 25px; }
+}
+@container (max-width: 340px) {
+  .week-zoom-head h3 { flex: 1; line-height: 1.25; }
+  .wz-nav .wz-nav-today { display: none; }
+}
+:is(.wz-nav button, .wz-pill, .wz-close):focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+/* 왼쪽 시간 열 + 7일. 토·일은 달력 한 칸 폭(자세히가 그 자리를 덮는다), 월~금이 시간 열만큼 좁아진다. */
+.week-zoom-days { flex: 1; min-height: 0; display: grid; grid-template-columns: 62px repeat(5, minmax(0, 1fr)) repeat(2, calc(100% / 7)); align-content: stretch; overflow: auto; }
+/* 좁은 창에서는 자세히가 어차피 겹쳐 뜨므로, 수업이 없는 토·일을 좁혀 평일 칸을 넓힌다(11/26 점검). */
+.narrow .week-zoom-days { grid-template-columns: 56px repeat(5, minmax(0, 1fr)) repeat(2, 52px); }
+.narrow .week-zoom-days .week-zoom-date { padding-left: 4px; padding-right: 4px; }
+.week-zoom-corner, .week-zoom-date { position: sticky; top: 0; z-index: 1; background: var(--sheet); border-bottom: 1px solid var(--rule); }
+.week-zoom-date { display: flex; align-items: baseline; gap: 4px; margin: 0; padding: 7px 6px; font-size: 12px; color: var(--ink-2, var(--ink)); }
+.week-zoom-date b { font-size: 15px; color: var(--ink); }
+.week-zoom-date.saturday :is(b, span) { color: var(--blue); }
+.week-zoom-date.sunday :is(b, span) { color: var(--red); }
+.week-zoom-date.is-today b { padding: 0 6px; background: var(--today); }
+.week-zoom-time { display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-start; margin: 0; padding: 8px 7px 6px 4px; border-bottom: 1px solid var(--rule); color: var(--ink-3); font-size: 11.5px; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.week-zoom-time b { color: var(--ink); font-size: 12.5px; }
+.week-zoom-slot { display: flex; min-width: 0; padding: 4px; border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.week-zoom-slot.weekend { background: var(--paper); }
+.week-zoom-lesson { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 5px 7px 7px; border: 0; border-left: 2px solid var(--subject); border-radius: 2px; background: var(--sheet); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.week-zoom-lesson:hover { background: var(--hover); }
+.week-zoom-lesson.selected { background: var(--selected); outline: 2px solid var(--ink); outline-offset: -1px; }
+.wz-open { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wz-open:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.wz-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; line-height: 1.3; }
+.week-zoom-lesson.changed:not(.selected) { background: color-mix(in srgb, var(--subject) 10%, var(--sheet)); }
+.wz-subject:has(.wz-changed) { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 4px; white-space: normal; }
+.wz-subject-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wz-changed { flex: none; display: inline-block; padding: 0 4px; border: 1px solid var(--subject); border-radius: 3px; color: var(--ink-2, var(--ink)); font-size: 11px; font-weight: 400; line-height: 1.35; vertical-align: 2px; }
+/* 빈 교시: 마우스를 올리면 + 가 보이고, 누르면 그 칸에 수업을 넣는다. */
+.wz-add { flex: 1; min-height: 28px; padding: 0; border: 1px dashed transparent; border-radius: 4px; background: none; color: transparent; font: inherit; font-size: 18px; cursor: pointer; }
+.wz-add:hover, .wz-add:focus-visible { border-color: var(--rule-strong); color: var(--ink-3); background: var(--hover); }
+.wz-add:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.wz-memo { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: pre-line; color: var(--ink-2, var(--ink)); font-size: 12px; line-height: 1.4; }
+/* 자료: 카드 아래쪽에 파일 이름 단추. 누르면 바로 열린다. */
+.wz-files { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; margin-top: auto; padding-top: 4px; min-width: 0; }
+.wz-file { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 4px 1px 0; border: 0; background: none; color: var(--ink-2, var(--ink)); font: inherit; font-size: 12px; text-align: left; text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 2px; cursor: pointer; }
+.wz-file:hover { color: var(--ink); text-decoration-color: currentColor; }
+.wz-more { text-decoration: none; color: var(--ink-3); }
+
+/* 크게 보는 주에서 시간표 고치기(11/26): 범위 고르기·과목 칠하기·두 칸 맞바꾸기. */
+.wz-tools { flex: none; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 9px; padding: 6px 10px 6px 13px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.wz-tools .wz-import { flex: 1 1 235px; }
+.wz-chip { padding: 3px 9px 3px 7px; border: 1px solid var(--rule); border-left: 4px solid var(--subject, var(--rule-strong)); border-radius: 4px; background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.wz-chip.empty { border-left-style: dashed; color: var(--ink-3); }
+.wz-chip:hover:not(:disabled) { background: var(--hover); }
+.wz-chip[aria-current="true"] { background: var(--selected); font-weight: 700; opacity: 1; cursor: default; }
+.wz-custom { width: 100%; box-sizing: border-box; padding: 4px 7px; border: 1px solid var(--rule); border-radius: 4px; background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; }
+.wz-hint { flex: 1 1 100%; margin: 0; color: var(--ink-2, var(--ink)); font-size: 12.5px; }
+.wz-hint.error { color: var(--red); }
+.wz-hint.picking { color: var(--ink); font-weight: 700; }
+.wz-empty { flex: 1; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; color: var(--ink-2, var(--ink)); font-size: 13px; }
+/* 칸을 누르면 그 칸 옆에 뜨는 작은 메뉴(11/26 사용자 "과목이 많아지면 위에 보기가 어지럽다"). */
+.wz-menu { position: absolute; z-index: 4; display: flex; flex-direction: column; gap: 8px; width: 264px; max-width: calc(100% - 8px); box-sizing: border-box; padding: 10px; border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--sheet); color: var(--ink); box-shadow: 0 10px 28px #00000033; }
+.wz-menu-head { margin: 0; color: var(--ink-2, var(--ink)); font-size: 12.5px; }
+.wz-menu-head b { color: var(--ink); font-size: 13.5px; }
+.wz-menu-subjects { display: flex; flex-wrap: wrap; gap: 4px; }
+.wz-menu-actions { display: flex; flex-wrap: wrap; gap: 2px 10px; padding-top: 6px; border-top: 1px solid var(--rule); }
+.week-zoom-slot.editable { position: relative; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; margin: 0; padding: 6px 8px; border-top: 0; border-right: 0; border-radius: 0; background: var(--sheet); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.week-zoom-slot.editable::before { content: ""; position: absolute; inset: 4px; border: 1px dashed var(--rule); border-radius: 4px; pointer-events: none; }
+.week-zoom-slot.editable:has(.wz-edit-cell)::before { border: 1px solid var(--rule); border-left: 4px solid var(--subject); background: var(--paper); z-index: 0; }
+.week-zoom-slot.editable > * { position: relative; z-index: 1; padding-left: 4px; }
+.week-zoom-slot.editable:hover::before { background: var(--hover); }
+.week-zoom-slot.editable:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.week-zoom-slot.editable.picked::before { outline: 2px solid var(--ink); outline-offset: 0; background: var(--selected); }
+.week-zoom-slot.editable.drop-target::before { border: 2px solid var(--ink); background: var(--selected); }
+/* 바꾼 칸은 테두리를 진하게 하되 왼쪽 과목 색 띠는 그대로(11/26 점검: 회색으로 덮였다). */
+.week-zoom-slot.editable.changed::before { border-style: solid; border-top-color: var(--rule-strong); border-right-color: var(--rule-strong); border-bottom-color: var(--rule-strong); border-left-color: var(--subject, var(--rule-strong)); }
+.wz-edit-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; line-height: 1.3; }
+.wz-edit-empty { color: var(--ink-3); font-size: 12px; text-decoration: line-through; }
+.lesson-past-files { color: var(--ink-3); font-size: 0.9em; white-space: nowrap; }
+
+.subject-chips { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 4px 0; }
+.subject-chip { white-space: nowrap; }
+.subject-extra { width: 220px; max-width: 100%; padding: 3px 6px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font: inherit; }
+.lesson-mode-note { color: var(--ink); }
+
+/* 시간표 창: 묶음마다 선으로 나누고, 제목 옆에 붙여넣기. 표는 교시 칸을 좁게, 요일 칸을 고르게. */
+.timetable-dialog { width: min(660px, calc(100vw - 40px)); max-width: none; }
+.timetable-dialog .settings-head { border-radius: 0; background: var(--sheet); border-bottom: 1px solid var(--rule); }
+.timetable-dialog .settings-body { padding-top: 12px; }
+.lesson-view-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; flex-wrap: wrap; margin: 0; color: var(--ink-2, var(--ink)); font-size: 13px; }
+.lesson-view-line b { color: var(--ink); }
+.tt-head { margin: 15px 0 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.tt-extra { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 13px; }
+.tt-extra summary { width: fit-content; padding: 4px 0; color: var(--ink-2, var(--ink)); cursor: pointer; }
+.tt-extra-content { display: grid; gap: 8px; padding: 6px 0 2px; }
+.tt-extra-content h3, .tt-extra-content p { margin: 0; }
+#term-status:empty { display: none; }
+.tt-head h3 { margin: 0; }
+.lesson-settings .section-note { margin: 2px 0 10px; }
+.lesson-grid-wrap { overflow-x: auto; }
+.lesson-grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.lesson-grid th { padding: 4px 2px; color: var(--ink-3); font-weight: 400; text-align: center; }
+.lesson-grid thead th { color: var(--ink-2, var(--ink)); font-weight: 600; }
+.lesson-grid thead th:first-child { width: 48px; }
+.lesson-grid tbody th { line-height: 1.1; }
+.lesson-grid .grid-period { display: block; color: var(--ink); font-variant-numeric: tabular-nums; }
+.lesson-grid .grid-time { display: block; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.lesson-grid td { height: 34px; padding: 0; border: 1px solid var(--rule); }
+.lesson-grid input { width: 100%; height: 100%; box-sizing: border-box; padding: 4px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: center; }
+.lesson-grid input::placeholder { color: var(--ink-3); opacity: 0.55; }
+.lesson-grid input::-webkit-calendar-picker-indicator, .wz-custom::-webkit-calendar-picker-indicator { display: none !important; }
+.lesson-grid input:hover:not([readonly]) { background: var(--hover); }
+.lesson-grid input:focus { outline: 2px solid var(--ink); outline-offset: -2px; background: var(--paper); }
+#lesson-add-period { margin-top: 4px; }
+.tt-paste { display: grid; gap: 5px; }
+.tt-import-field { display: flex; align-items: center; min-width: 0; border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--paper); }
+.tt-import-field:focus-within, .tt-paste.drop-target .tt-import-field { outline: 1px solid var(--ink); }
+.tt-paste.drop-target .tt-import-field { background: var(--selected); }
+.tt-import-field textarea { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; padding: 7px 9px; border: 0; background: transparent; color: var(--ink); font: inherit; resize: none; outline: none; }
+.tt-import-field textarea::placeholder { color: var(--ink-2, var(--ink)); }
+.tt-import-file { display: grid; place-items: center; flex: none; width: 35px; height: 34px; padding: 0; border: 0; border-left: 1px solid var(--rule); background: none; color: var(--ink-2, var(--ink)); cursor: pointer; }
+.tt-import-file .icon { width: 16px; height: 16px; }
+.tt-import-file:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.tt-import-file:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.tt-paste-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tt-paste-actions .small-note { flex: 1; min-width: 160px; }
+.tt-paste-actions:has(> [role=status][hidden]):not(:has(> button:not([hidden]))) { display: none; }
+.lesson-grid.drop-target { outline: 2px dashed var(--ink); outline-offset: -2px; }
+.tt-paste.busy .tt-paste-actions .small-note::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; border: 2px solid var(--rule-strong); border-top-color: var(--ink); border-radius: 50%; vertical-align: -1px; animation: tt-spin .8s linear infinite; }
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tt-paste.busy .tt-paste-actions .small-note::after { animation: none; } }
+.period-times { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 245px), 1fr)); gap: 5px 16px; }
+.period-time { display: flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.period-time .period-name { flex: none; width: 3.2em; color: var(--ink); }
+.period-time.suggested input { border-style: dashed; color: var(--ink-3); }
+.period-time input { flex: 1; min-width: 0; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }
+.term-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.term-row input { width: min(11.5em, 100%); box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; }
+#term-status:empty { display: none; }
+.form-grid .field .subject-chips input { width: 15px; height: 15px; min-height: 0; padding: 0; margin: 0; }

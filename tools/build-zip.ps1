@@ -84,6 +84,8 @@ function Copy-Guides([string]$destination) {
     }
     [IO.File]::WriteAllText((Join-Path $destination $name), $guide, (New-Object Text.UTF8Encoding($false)))
   }
+  Copy-Item -LiteralPath (Join-Path $app '사용-설명서.html') -Destination $destination
+  Copy-Item -LiteralPath (Join-Path $app '사용-설명서-파일') -Destination $destination -Recurse
 }
 
 # 앱 코드(자료·inbox·.qa·.demo·시험·캐시 없음). 전체 ZIP과 패치가 같은 내용을 쓴다.
@@ -91,10 +93,19 @@ function Copy-AppCode([string]$appOut) {
   New-Item -ItemType Directory -Force $appOut | Out-Null
   $files = 'ai-provider.js','anthropic-api.js','backup.js','chat-batches.js','chat-decisions.js','claude-cli.js','codex-cli.js','collector-link.js','demo.js','feedback.js','main.js','neis.js','note-text.js','preload.js','refine.js','store.js','updater.js','work-prompt.js',
            'resolve-codex.ps1','update-apply.ps1','refinement-schema.json','memo.js','memo-schema.json','rules-seed.md','CHANGES.json','mcp-share.js','codex-work.js','claude-work.js','note-work.js',
-           'reply-draft.js','reply-schema.json','privacy.js','project-handoff.js'
+           'reply-draft.js','reply-schema.json','privacy.js','project-handoff.js','file-track.js','file-monitor.js','file-watch.ps1'
+  $files += 'hwpx-text.js','hwpx-summary.js','hwpx-summary-schema.json','document-text.js','xlsx-tables.js'
+  $files += 'timetable-file.js','timetable-schema.json','pdf-to-png.ps1'  # 시간표 파일·그림 읽기(11/26)
   if ($Goe) { $files += 'collector-link-goe.ps1' }
   else { $files += 'chat-journal.ps1','collect-chats.ps1','collector-link.ps1' }
   foreach ($f in $files) { Copy-Item (Join-Path $app $f) $appOut }
+  # PDF 글자 읽기에 필요한 배포 파일만 포함한다. PDF 렌더링용 네이티브 모듈은 쓰지 않는다.
+  $pdfJs = Join-Path $app 'node_modules\pdfjs-dist'
+  $pdfOut = Join-Path $appOut 'node_modules\pdfjs-dist'
+  New-Item -ItemType Directory -Force (Join-Path $pdfOut 'legacy\build') | Out-Null
+  foreach ($item in 'LICENSE','package.json','legacy\build\pdf.mjs','legacy\build\pdf.worker.mjs','cmaps','standard_fonts') {
+    Copy-Item -LiteralPath (Join-Path $pdfJs $item) -Destination (Join-Path $pdfOut $item) -Recurse
+  }
   # 구글 캘린더에 보이기(2026-11-20). 앱 번호 파일은 저장소에 없고 이 PC에만 있다. 없으면 그 판에서는 설정의 구글 탭이 숨겨진다.
   Copy-Item (Join-Path $app 'google-calendar.js') $appOut
   $googleClient = Join-Path $app 'google-client.json'
@@ -201,6 +212,7 @@ $readme = @"
 5. 2단계: 브리티 메신저에 로그인한 뒤 앱 위쪽의 '브리티 연결'을 누릅니다.
    브리티는 원 뷰로 써 주세요(브리티 환경설정 › 일반 › 뷰 모드). 클래식 뷰에서는 쪽지를 놓칠 수 있습니다.
    자세한 순서는 처음-시작-안내.html과 AI-SETUP.txt에 있습니다.
+   매일 쓰는 법은 사용-설명서.html(앱 위쪽 '설명서' 단추)에 있습니다.
 6. 배포한 곳에서 새 ZIP을 받을 수 있습니다. 설정의 '백업 만들기'로 기존 업무와 쪽지를 옮길 수 있습니다.
 
 실행에 필요한 파일이 모두 들어 있어 Node.js 설치 없이 열립니다.

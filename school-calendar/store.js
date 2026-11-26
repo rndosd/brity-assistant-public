@@ -4,13 +4,17 @@ const fs = require('node:fs/promises');
 const { constants, createReadStream } = require('node:fs');
 const path = require('node:path');
 const { randomUUID, createHash } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const backup = require('./backup');
 const { readyChatBatches } = require('./chat-batches');
 const chatDecisions = require('./chat-decisions');
-const { restoreNoteAnswer, withMaskingContext } = require('./note-text');
+const { restoreNoteAnswer, withMaskingContext, resolveNoteEvidence, noteEvidenceView } = require('./note-text');
+const { fileTrack, validTrack } = require('./file-track');
+const { FileMonitor, resolveFileLink, sameTrack } = require('./file-monitor');
 
 const model = require('./renderer/task-model');
 const { receivedDay } = require('./renderer/periods');
+const lessonModel = require('./renderer/lesson-model');
 const { TYPES } = model;
 const TOOLS = ['claude', 'codex'];
 const NOTE_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/i;
@@ -26,13 +30,29 @@ const REFINE_RETRY_DELAY = 60_000;
 
 class CalendarError extends Error {}
 
+async function existingLessonFile(filePath) {
+  if (!path.isAbsolute(filePath)) return null;
+  const track = await fileTrack(filePath);
+  if (track) return { track };
+  const stat = await fs.stat(filePath).catch(() => null);
+  return stat?.isFile() ? {} : null;
+}
+
+async function newLessonFile(filePath) {
+  let file;
+  try { file = lessonModel.cleanFile({ path: filePath }); } catch (error) { throw new CalendarError(error.message); }
+  const current = await existingLessonFile(file.path);
+  if (!current) throw new CalendarError('자료 파일을 찾지 못했습니다. 파일을 확인해 주세요.');
+  return { ...file, ...current };
+}
+
 // AI 연결 자체가 막힌 오류(키·크레딧·권한·로그인·설치). 쪽지마다 다시 보내 봐야 같은 결과라 자동 분류를 멈춘다.
 function aiStopError(message) {
   return Object.assign(new CalendarError(message), { aiStop: true });
 }
 
 // 백업에 넣는 것(이름을 정해 둔다). 브라우저 캐시(profile)와 이전 백업은 넣지 않는다.
-const BACKUP_DATA_FILES = ['tasks.json', 'settings.json', 'message-views.json', '정리-기준.md', 'chat-choices.jsonl'];
+const BACKUP_DATA_FILES = ['tasks.json', 'settings.json', 'message-views.json', '정리-기준.md', 'chat-choices.jsonl', 'lessons.json'];
 const BACKUP_DATA_FOLDERS = ['chats'];
 const BACKUP_INBOX_FILES = ['state.json', 'latest.json', 'digest.md'];
 const BACKUP_INBOX_FOLDERS = ['notes', 'files'];
@@ -202,7 +222,8 @@ function memoValue(value) {
 // 2026-11-12 사용자: 초·중·고 교사와 교육청 공무원·장학사가 쓴다. 예전 설정(학교급 없음)은 초등 학교로 읽는다.
 const WORKPLACES = ['학교', '교육청'];
 const SCHOOL_LEVELS = ['초등', '중학교', '고등학교'];
-const SCHOOL_ROLES = { 초등: ['담임', '전담', '그 밖'], 중학교: ['담임', '비담임', '그 밖'], 고등학교: ['담임', '비담임', '그 밖'] };
+// 중고등은 부담임도 흔해서 더한다(2026-11-25 사용자).
+const SCHOOL_ROLES = { 초등: ['담임', '전담', '그 밖'], 중학교: ['담임', '부담임', '비담임', '그 밖'], 고등학교: ['담임', '부담임', '비담임', '그 밖'] };
 const OFFICE_TYPES = ['시도교육청', '교육지원청'];
 const POSITIONS = ['장학관·장학사', '연구관·연구사', '일반직', '그 밖'];
 
@@ -261,6 +282,11 @@ function profileInput(input) {
 function answerOf(task) {
   const dates = task.type === '없음' ? [] : (task.dates || []);
   return { type: task.type, dates: dates.map(({ date, end, label, kind }) => ({ date, ...(end && { end }), label, kind })), reply: task.reply === true };
+}
+
+function noteEvidenceTaskHash(task) {
+  const dates = (task.dates || []).map(({ date, end, time, label, kind, appliesTo }) => [date, end, time, label, kind, appliesTo]);
+  return textHash(JSON.stringify([task.type, task.title, dates]));
 }
 
 async function readJson(file) {
@@ -359,6 +385,10 @@ function readGoeAttachments(note, attachments) {
   const count = Number.isSafeInteger(note.attachCount) && note.attachCount >= 0 ? note.attachCount : attachments.length;
   const status = GOE_ATTACHMENT_STATES.has(note.attachStatus) ? note.attachStatus : count ? 'not-requested' : 'none';
   return { count, status };
+}
+
+function attachmentSummaryKey(note, item, index) {
+  return createHash('sha256').update(JSON.stringify([note.id, item.name, index])).digest('hex');
 }
 
 async function fileDigest(file) {
@@ -499,6 +529,11 @@ class CalendarStore {
     this.messageViewsPath = path.join(this.dataDir, 'message-views.json');
     this.schoolSchedulePath = path.join(this.dataDir, 'school-schedule.json');
     this.schoolSchedule = null;
+    // 수업 탭: 기초 시간표(담임·교과)·교시 시각·적용 기간·수업마다 메모와 자료 연결.
+    this.lessonsPath = path.join(this.dataDir, 'lessons.json');
+    this.lessons = lessonModel.emptyPlan();
+    this.lessonFileKeys = new WeakMap();
+    this.fileLinks = new Map();
     this.rulesPath = path.join(this.dataDir, '정리-기준.md');
     this.ruleSeed = ruleSeed;
     this.tasks = [];
@@ -568,12 +603,103 @@ class CalendarStore {
       const saved = await readJson(this.schoolSchedulePath);
       if (saved && typeof saved.code === 'string' && Array.isArray(saved.events)) this.schoolSchedule = saved;
     } catch {}
+    // 수업: 없으면 빈 채로. 깨졌으면 지우지 않고 알린다(선생님이 넣은 시간표·메모라서).
+    try {
+      this.lessons = lessonModel.cleanPlan(await readJson(this.lessonsPath), validTrack);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw new CalendarError('수업 기록을 읽지 못했습니다. lessons.json을 확인해 주세요.');
+      this.lessons = lessonModel.emptyPlan();
+    }
     if (this.ruleSeed) {
       await fs.copyFile(this.ruleSeed, this.rulesPath, constants.COPYFILE_EXCL).catch(error => {
         if (error.code !== 'EEXIST') throw error;
       });
       await this.checkRules();
     }
+    if (this.fileMonitor) await this.syncFileTracking();
+  }
+
+  startFileTracking() {
+    if (process.platform !== 'win32' || this.fileMonitor) return;
+    this.fileMonitor = new FileMonitor(key => {
+      if (!this.fileMonitor) return;
+      void this.serialize(() => this.saveObservedFile(key)).catch(() => {});
+    });
+    return this.syncFileTracking();
+  }
+
+  async stopFileTracking() {
+    const monitor = this.fileMonitor;
+    if (!monitor) return;
+    await monitor.drain();
+    monitor.flushChanges();
+    await this.queue;
+    this.fileMonitor = null;
+    await monitor.close();
+  }
+
+  lessonFileKey(file) {
+    let key = this.lessonFileKeys.get(file);
+    if (!key) {
+      key = randomUUID();
+      this.lessonFileKeys.set(file, key);
+    }
+    return key;
+  }
+
+  downloadKey(id, source) {
+    return id + '\n' + source;
+  }
+
+  async downloadPath(task, copy) {
+    if (typeof copy?.source !== 'string' || typeof copy.name !== 'string' || !fileName(copy.name)) return null;
+    const folder = typeof copy.folder === 'string' && path.isAbsolute(copy.folder) ? copy.folder : this.downloadsDir;
+    if (!folder) return null;
+    if (copy.atRoot !== true && (typeof task.noteId !== 'string' || !fileName(task.noteId))) return null;
+    const relative = copy.atRoot === true ? copy.name : path.join(LEGACY_DOWNLOAD_FOLDER, task.noteId, copy.name);
+    if (validTrack(copy.track)) return path.join(folder, relative);
+    const real = await fs.realpath(folder).catch(() => null);
+    if (!real) return null;
+    const result = await realDescendant(real, path.join(real, relative), 'file').catch(() => null);
+    return result && path.relative(real, result.real) === relative ? result.real : null;
+  }
+
+  async syncFileTracking() {
+    if (!this.fileMonitor) return;
+    const links = new Map();
+    for (const [id, record] of Object.entries(this.lessons.records)) {
+      for (const file of record.files) links.set(this.lessonFileKey(file), {
+        id, file, lesson: true, path: file.path, track: file.track
+      });
+    }
+    await Promise.all(this.tasks.flatMap(task =>
+      (Array.isArray(task.downloadedAttachments) ? task.downloadedAttachments : []).map(async copy => {
+        const filePath = await this.downloadPath(task, copy);
+        if (filePath) links.set(this.downloadKey(task.id, copy.source), {
+          id: task.id, file: copy, path: filePath, track: copy.track
+        });
+      })));
+    this.fileLinks = links;
+    return this.fileMonitor?.sync(links);
+  }
+
+  trackedLink(key, filePath, track, drain = true) {
+    return this.fileMonitor ? this.fileMonitor.resolve(key, filePath, track, drain) : resolveFileLink(filePath, track);
+  }
+
+  async saveObservedFile(key) {
+    const binding = this.fileLinks.get(key);
+    if (!binding || !this.fileMonitor) return;
+    const current = await this.trackedLink(key, binding.path, binding.track, false);
+    if (!current || (current.path === binding.path && sameTrack(current.track, binding.track))) return;
+    if (binding.lesson) {
+      const record = this.lessonRecord(binding.id);
+      const next = this.lessonFileReplacement(binding.file, current);
+      await this.writeLessonRecord(binding.id, { ...record, files: record.files.map(file => file === binding.file ? next : file) });
+    } else {
+      await this.writeDownload(binding.id, binding.file.source, current);
+    }
+    this.onFileTrackingChange?.();
   }
 
   // 정리 기준 판 맞추기(7단계). 설치한 기준을 선생님이 고치지 않았으면 새 판으로 바로 갈고,
@@ -751,8 +877,11 @@ class CalendarStore {
       return task.id !== old.id || task.title !== old.title || task.noteId !== old.noteId ||
         task.chatSource?.roomTitle !== old.chatSource?.roomTitle || task.chatSource?.observedAt !== old.chatSource?.observedAt;
     })) this.invalidateSearch();
+    const downloadsChanged = this.fileMonitor && (tasks.length !== this.tasks.length || tasks.some((task, i) =>
+      task.downloadedAttachments !== this.tasks[i]?.downloadedAttachments));
     this.tasks = tasks;
     this.chatProgress = chatProgress;
+    if (downloadsChanged) await this.syncFileTracking();
     this.onCommit?.(); // 구글 캘린더 보내기 예약(main.js)
   }
 
@@ -770,7 +899,7 @@ class CalendarStore {
 
   taskView(task) {
     const note = this.notes.get(task.noteId);
-    const { autoPending, awaitingNoteBody, categoryCorrection, correction, aiAnswer, downloadedAttachments, chatSource, privacyHold, candidate, ...record } = task;
+    const { autoPending, awaitingNoteBody, categoryCorrection, correction, aiAnswer, downloadedAttachments, attachmentSummaries, chatSource, privacyHold, candidate, noteEvidence, ...record } = task;
     return {
       ...record,
       ...(candidate && { candidate: {
@@ -805,6 +934,7 @@ class CalendarStore {
       collectorFirstImportPending: this.settings.collectorFirstImportPending === true,
       brityView: this.settings.brityView === 'classic' ? 'classic' : this.settings.brityView === 'one' ? 'one' : null,
       profile: this.settings.profile ?? null,
+      lessons: this.lessons,
       ...this.schoolView(),
       deadlineAlerts: this.settings.deadlineAlerts !== false,
       showMeal: this.settings.showMeal !== false,
@@ -1145,7 +1275,11 @@ class CalendarStore {
     });
   }
 
-  registerMemo(input) {
+  registeredAiInbox(id) {
+    return this.tasks.filter(task => task.aiInboxImport === true && task.memoImportId === id).map(task => this.taskView(task));
+  }
+
+  registerMemo(input, { aiInbox = false } = {}) {
     return this.serialize(async () => {
       const { validateDraft, normalizeProposals } = require('./memo');
       let draft, items;
@@ -1155,7 +1289,7 @@ class CalendarStore {
       } catch (error) { throw new CalendarError(error.message); }
       if (!items.length) throw new CalendarError('달력에 넣을 업무를 하나 이상 골라 주세요.');
       const fingerprint = textHash(JSON.stringify({ draft, items }));
-      const existing = this.tasks.filter(task => task.memoImportId === draft.id);
+      const existing = this.tasks.filter(task => task.memoImportId === draft.id && (task.aiInboxImport === true) === aiInbox);
       if (existing.length) {
         if (existing.some(task => task.memoImportHash !== fingerprint)) throw new CalendarError('이미 넣은 메모입니다. 새 메모로 적어 주세요.');
         return existing.map(task => this.taskView(task));
@@ -1170,7 +1304,9 @@ class CalendarStore {
           ...(item.kind === '기간' && { end: item.end })
         };
         const dates = model.normalizeDates([entry], item.title, true);
-        return { ...newTask(null, item.title, dates), memo: memoValue(draft.text), memoImportId: draft.id, memoImportHash: fingerprint, memoReferenceDate: draft.referenceDate };
+        const memo = aiInbox ? ['AI 박스 · ' + draft.text, item.note].filter(Boolean).join('\n\n') : draft.text;
+        return { ...newTask(null, item.title, dates), memo: memoValue(memo), memoImportId: draft.id, memoImportHash: fingerprint,
+          memoReferenceDate: draft.referenceDate, ...(aiInbox ? { aiInboxImport: true } : {}) };
       });
       await this.commit([...this.tasks, ...added]);
       return added.map(task => this.taskView(task));
@@ -1784,7 +1920,7 @@ class CalendarStore {
           const same = await Promise.all([fileDigest(source), fileDigest(original.real)])
             .then(([left, right]) => left === right, () => false);
           if (same) {
-            downloaded.push({ source: attachment.path, name: path.basename(original.real), atRoot: true, folder });
+            downloaded.push({ source: attachment.path, name: path.basename(original.real), atRoot: true, folder, track: await fileTrack(original.real) });
             continue;
           }
         }
@@ -1793,7 +1929,7 @@ class CalendarStore {
         const name = index === 1 ? parsed.base : `${parsed.name} (${index})${parsed.ext}`;
         try {
           await fs.copyFile(source, path.join(folder, name), constants.COPYFILE_EXCL);
-          downloaded.push({ source: attachment.path, name, atRoot: true, folder });
+          downloaded.push({ source: attachment.path, name, atRoot: true, folder, track: await fileTrack(path.join(folder, name)) });
           break;
         } catch (error) {
           if (error.code !== 'EEXIST' && error.code !== 'EISDIR') break;
@@ -1803,21 +1939,30 @@ class CalendarStore {
     return downloaded;
   }
 
-  async displayAttachmentPath(task, note, attachment) {
+  async attachmentLocation(task, note, attachment, archive = false) {
     const copy = Array.isArray(task.downloadedAttachments)
       ? task.downloadedAttachments.find(item => item?.source === attachment.path)
       : null;
-    if (this.downloadsDir && copy && typeof copy.name === 'string' && fileName(copy.name)) {
-      // 사본마다 저장한 폴더를 기억한다(폴더를 바꿔도 예전 사본을 연다). 기록이 없는 옛 사본은 기본 다운로드 폴더.
-      const saved = typeof copy.folder === 'string' && path.isAbsolute(copy.folder) ? copy.folder : this.downloadsDir;
-      const folder = await fs.realpath(saved).catch(() => null);
-      if (folder) {
-        const relative = copy.atRoot === true ? copy.name : path.join(LEGACY_DOWNLOAD_FOLDER, note.id, copy.name);
-        const result = await realDescendant(folder, path.join(folder, relative), 'file').catch(() => null);
-        if (result && path.relative(folder, result.real) === relative) return result.real;
-      }
+    if (archive || !copy) return { path: await this.attachmentPath(note, attachment) };
+    const filePath = await this.downloadPath(task, copy);
+    const current = filePath && await this.trackedLink(this.downloadKey(task.id, copy.source), filePath, copy.track, false);
+    if (!current) return { path: null, recovery: { archiveAvailable: !!await this.attachmentPath(note, attachment) } };
+    if (current.path !== filePath || !sameTrack(current.track, copy.track)) {
+      // 첨부는 이미 serialize 안에서 읽힐 수 있어 위치 기록은 다음 저장 순서에 둔다.
+      void this.serialize(async () => {
+        const latest = this.getTask(task.id);
+        if (latest.downloadedAttachments?.includes(copy)) await this.writeDownload(task.id, copy.source, current);
+      }).catch(() => {});
     }
-    return this.attachmentPath(note, attachment);
+    return { path: current.path, name: path.basename(current.path) };
+  }
+
+  async writeDownload(id, source, current) {
+    const task = this.getTask(id);
+    const copies = task.downloadedAttachments.map(copy => copy.source === source
+      ? { ...copy, folder: path.dirname(current.path), name: path.basename(current.path), atRoot: true, track: current.track }
+      : copy);
+    await this.commit(this.tasks.map(item => item === task ? { ...task, downloadedAttachments: copies } : item));
   }
 
   // 같은 첨부(2026-11-17 사용자 "표창 메시지가 어제꺼랑 오늘거 동일하게 온게 있는데 첨부파일이 겹쳐서"):
@@ -1839,9 +1984,9 @@ class CalendarStore {
     return sources[0] || null;
   }
 
-  async sharedAttachmentPath(source, attachment) {
+  sharedAttachmentLocation(source, attachment) {
     const owner = this.tasks.find(item => item.noteId === source.id) || {};
-    return this.displayAttachmentPath(owner, source, attachment);
+    return this.attachmentLocation(owner, source, attachment);
   }
 
   invalidateSearch() {
@@ -1908,25 +2053,34 @@ class CalendarStore {
       };
     }
     const attachments = await Promise.all(note.attachments.map(async (item, index) => {
-      const location = await this.displayAttachmentPath(task, note, item);
-      return { index, name: item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+      const { path: location, name, recovery } = await this.attachmentLocation(task, note, item);
+      return { index, name: name || item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()), recovery,
+        ...(task.attachmentSummaries?.[attachmentSummaryKey(note, item, index)] && { summarySaved: true }) };
     }));
     const view = { ...note, attachments };
+    const detailView = (noteView) => {
+      const current = this.getTask(id);
+      const stored = current.noteEvidence;
+      const evidence = stored && stored.taskHash === noteEvidenceTaskHash(current) ? noteEvidenceView(note, stored) : null;
+      return { task: this.taskView(current), note: { ...noteView, evidence } };
+    };
     const shared = note.goeAttachments && this.inbox.status === 'ready' && this.sharedGoeAttachments(note);
     if (shared) {
       const borrowed = await Promise.all(shared.attachments.filter(item => item.path).map(async (item, index) => {
-        const location = await this.sharedAttachmentPath(shared, item);
-        return { index: SHARED_ATTACHMENT_BASE + index, name: item.name, available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+        const { path: location, name, recovery } = await this.sharedAttachmentLocation(shared, item);
+        return { index: SHARED_ATTACHMENT_BASE + index, name: name || item.name,
+          available: !!location, direct: !!location && SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()), recovery,
+          ...(task.attachmentSummaries?.[attachmentSummaryKey(shared, item, SHARED_ATTACHMENT_BASE + index)] && { summarySaved: true }) };
       }));
-      if (borrowed.every(item => item.available)) {
+      if (borrowed.every(item => item.available || item.recovery || item.summarySaved)) {
         const goeAttachments = { count: note.goeAttachments.count, status: 'shared', canRetry: false, sharedFrom: { datetime: shared.datetime, sender: shared.sender } };
-        return { task: this.taskView(this.getTask(id)), note: { ...view, attachments: borrowed, goeAttachments } };
+        return detailView({ ...view, attachments: borrowed, goeAttachments });
       }
     }
     if (note.goeAttachments) {
       const { count, status } = note.goeAttachments;
       const sentAt = Date.parse(note.datetime.replace(' ', 'T'));
-      const available = attachments.filter(item => item.available).length;
+      const available = attachments.filter(item => item.available || item.recovery?.archiveAvailable).length;
       // 보관 기간은 보낸 날짜로만 정한다. 7일이 안 된 쪽지에 남은 'expired'는 옛 수집기의 잘못된 판정이라(2026-11-18,
       // 하루 지난 쪽지 4건) 확인 필요로 보이고 다시 받기를 눌러 바로잡게 한다.
       const aged = Number.isFinite(sentAt) ? Date.now() - sentAt > GOE_ATTACHMENT_AGE : status === 'expired';
@@ -1935,23 +2089,68 @@ class CalendarStore {
       const hasMissing = available < count || (!count && ['review', 'failed', 'folder-not-configured', 'partial'].includes(shown));
       view.goeAttachments = { count, status: expired && hasMissing ? 'expired' : shown, canRetry: note.verified === true && !expired && hasMissing };
     }
-    return { task: this.taskView(this.getTask(id)), note: view };
+    return detailView(view);
   }
 
-  async attachment(id, index) {
-    const task = this.getTask(id);
-    const note = this.notes.get(task.noteId);
-    if (note && Number.isSafeInteger(index) && index >= SHARED_ATTACHMENT_BASE && this.inbox.status === 'ready') {
-      const shared = note.goeAttachments && this.sharedGoeAttachments(note);
-      const item = shared && shared.attachments.filter(entry => entry.path)[index - SHARED_ATTACHMENT_BASE];
-      const location = item && await this.sharedAttachmentPath(shared, item);
-      if (!location) throw new CalendarError('저장된 첨부 파일을 찾을 수 없습니다.');
-      return { path: location, direct: SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+  attachmentTarget(id, index) {
+    let task = this.getTask(id);
+    let note = this.notes.get(task.noteId);
+    if (!note || !Number.isSafeInteger(index) || this.inbox.status !== 'ready') return null;
+    if (index >= SHARED_ATTACHMENT_BASE) {
+      note = note.goeAttachments && this.sharedGoeAttachments(note);
+      if (!note) return null;
+      task = this.tasks.find(item => item.noteId === note.id) || {};
+      return { task, note, item: note.attachments.filter(entry => entry.path)[index - SHARED_ATTACHMENT_BASE] };
     }
-    const attachment = note && Number.isSafeInteger(index) && note.attachments[index];
-    const location = this.inbox.status === 'ready' && attachment && await this.displayAttachmentPath(task, note, attachment);
+    return { task, note, item: note.attachments[index] };
+  }
+
+  attachmentSummaryRecord(id, index) {
+    const target = this.attachmentTarget(id, index);
+    const owner = this.getTask(id);
+    const note = this.notes.get(owner.noteId);
+    if (!target?.item || note?.verified !== true) return null;
+    const key = attachmentSummaryKey(target.note, target.item, index);
+    const noteDigest = createHash('sha256').update(JSON.stringify([note.title, note.body, note.datetime])).digest('hex');
+    return { key, noteDigest, saved: owner.attachmentSummaries?.[key] };
+  }
+
+  saveAttachmentSummary(id, index, source, summary) {
+    return this.serialize(async () => {
+      const current = this.attachmentSummaryRecord(id, index);
+      if (current?.key !== source.key || current.saved !== source.saved || current.noteDigest !== source.noteDigest) {
+        throw new CalendarError('첨부 목록이 바뀌었어요. 파일을 다시 골라 주세요.');
+      }
+      const task = this.getTask(id);
+      const attachmentSummaries = { ...task.attachmentSummaries, [source.key]: summary };
+      await this.replace(task, { attachmentSummaries });
+    });
+  }
+
+  async attachment(id, index, { archive = false, recovery = false } = {}) {
+    if (this.fileMonitor) await this.fileMonitor.drain();
+    const target = this.attachmentTarget(id, index);
+    let result = target?.item && await this.attachmentLocation(target.task, target.note, target.item, archive);
+    if (result?.recovery) {
+      const current = this.attachmentTarget(id, index);
+      if (current?.item && current.task !== target.task) {
+        result = await this.attachmentLocation(current.task, current.note, current.item, archive);
+      }
+    }
+    if (recovery && result?.recovery) return { missing: true, ...result.recovery };
+    const location = result?.path;
     if (!location) throw new CalendarError('저장된 첨부 파일을 찾을 수 없습니다.');
     return { path: location, direct: SAFE_DOCUMENTS.has(path.extname(location).toLowerCase()) };
+  }
+
+  relinkAttachment(id, index, expected, filePath) {
+    return this.serialize(async () => {
+      const target = this.attachmentTarget(id, index);
+      const copy = target?.task.downloadedAttachments?.find(item => item.source === target.item?.path);
+      if (!copy || copy !== expected) throw new CalendarError('첨부 연결이 바뀌었습니다. 목록에서 다시 선택해 주세요.');
+      const file = await newLessonFile(filePath);
+      await this.writeDownload(target.task.id, copy.source, file);
+    });
   }
 
   setWorkProjectFolder(folder) {
@@ -2022,6 +2221,217 @@ class CalendarStore {
       await writeJson(this.settingsPath, settings);
       this.settings = settings;
       return this.snapshot();
+    });
+  }
+
+  captureLessonImport(before, after, input) {
+    if (input.weekSchedule) {
+      const { mode, weekStart } = input.weekSchedule;
+      const scope = { mode, weekStart };
+      const previous = lessonModel.weekOverrides(before, scope);
+      const applied = lessonModel.weekOverrides(after, scope);
+      return isDeepStrictEqual(previous, applied) ? null : { scope, previous, applied, base: after[mode], term: after.term };
+    }
+    const fields = [...('schedule' in input ? [input.mode] : []), ...('periodTimes' in input ? ['periodTimes'] : [])];
+    const previous = Object.fromEntries(fields.map(field => [field, before[field]]));
+    const applied = Object.fromEntries(fields.map(field => [field, after[field]]));
+    if (isDeepStrictEqual(previous, applied)) return null;
+    const pruned = 'schedule' in input ? Object.fromEntries(Object.entries(before.changes).filter(([id]) => !Object.hasOwn(after.changes, id))) : {};
+    return { previous, applied, pruned, term: after.term };
+  }
+
+  restoreLessonImport(next, entry) {
+    const fail = () => { throw new Error('가져온 뒤 시간표가 바뀌어서 이전 내용으로 되돌릴 수 없어요.'); };
+    if (!entry) fail();
+    const { scope, previous, applied } = entry;
+    if (scope) {
+      const current = lessonModel.weekOverrides(next, scope);
+      if (!isDeepStrictEqual(current, applied) || !isDeepStrictEqual(next[scope.mode], entry.base) || !isDeepStrictEqual(next.term, entry.term)) fail();
+      next.changes = { ...next.changes };
+      for (const id of Object.keys(current)) delete next.changes[id];
+      Object.assign(next.changes, previous);
+      return;
+    }
+    const prunedIds = Object.keys(entry.pruned);
+    if (Object.entries(applied).some(([field, value]) => !isDeepStrictEqual(next[field], value)) ||
+        (prunedIds.length && !isDeepStrictEqual(next.term, entry.term)) ||
+        prunedIds.some(id => Object.hasOwn(next.changes, id))) fail();
+    Object.assign(next, previous);
+    next.changes = { ...next.changes, ...entry.pruned };
+  }
+
+  // 수업 탭 기초 시간표·교시 시각·적용 기간. 들어온 항목만 바꾼다. mode는 homeroom(담임)·subject(교과).
+  setLessonPlan(input) {
+    return this.serialize(async () => {
+      const next = { ...this.lessons };
+      const captureImportUndo = input?.captureImportUndo === true;
+      let importUndo;
+      try {
+        if (input && 'undoLessonImport' in input) {
+          if (Object.keys(input).length !== 1) throw new Error('시간표 가져오기만 따로 되돌려 주세요.');
+          this.restoreLessonImport(next, this.lessonImportHistory?.get(input.undoLessonImport));
+        }
+        if (captureImportUndo && !('weekSchedule' in input) &&
+            (!Object.keys(input).every(key => ['captureImportUndo', 'mode', 'schedule', 'periodTimes'].includes(key)) ||
+              !('schedule' in input || 'periodTimes' in input))) throw new Error('가져올 시간표나 교시 시각을 확인해 주세요.');
+        if (input && 'weekSchedule' in input) {
+          if (Object.keys(input).length !== (captureImportUndo ? 2 : 1)) throw new Error('이번 주 시간표만 따로 저장해 주세요.');
+          next.changes = lessonModel.replaceWeekSchedule(next, input.weekSchedule);
+        }
+        if (input && 'schedule' in input) {
+          if (!['homeroom', 'subject'].includes(input.mode)) throw new Error('시간표 종류를 확인해 주세요.');
+          next[input.mode] = captureImportUndo ? lessonModel.cleanImportedSchedule(input.schedule) : lessonModel.cleanSchedule(input.schedule);
+          if (captureImportUndo && !next[input.mode]) throw new Error('가져올 시간표에 수업이 한 칸 이상 있어야 해요.');
+        }
+        if (input && 'periodTimes' in input) {
+          next.periodTimes = lessonModel.cleanTimes(input.periodTimes);
+          if (captureImportUndo && (!next.periodTimes?.length || [...next.periodTimes].some(pair => !pair))) {
+            throw new Error('가져올 교시 시각을 확인해 주세요.');
+          }
+        }
+        if (input && 'term' in input) next.term = lessonModel.cleanTerm(input.term);
+        // 그날만 바꾸기(11/26): { "모드|날짜|교시": 칸 글자 }. ''는 그날 수업 없음, null은 원래대로.
+        const validId = id => id in lessonModel.cleanChanges({ [id]: '' });
+        if (input && 'changes' in input) {
+          if (!input.changes || typeof input.changes !== 'object') throw new Error('바꿀 수업을 확인해 주세요.');
+          const changes = { ...(next.changes || {}) };
+          for (const [id, value] of Object.entries(input.changes)) {
+            if (!validId(id) || (value !== null && typeof value !== 'string')) throw new Error('바꿀 수업을 확인해 주세요.');
+            if (value === null) delete changes[id];
+            else changes[id] = lessonModel.cleanChanges({ [id]: value })[id];
+          }
+          next.changes = changes;
+        }
+        // 두 수업을 맞바꿀 때 메모·자료도 수업을 따라간다.
+        if (input && 'swapRecords' in input) {
+          const [a, b] = Array.isArray(input.swapRecords) ? input.swapRecords : [];
+          if (!validId(a) || !validId(b) || a === b) throw new Error('바꿀 수업을 확인해 주세요.');
+          const records = { ...next.records };
+          const [first, second] = [records[a], records[b]];
+          delete records[a];
+          delete records[b];
+          if (second) records[a] = second;
+          if (first) records[b] = first;
+          next.records = records;
+        }
+        next.changes = lessonModel.pruneChanges(next);
+        if (Object.keys(next.changes).length > 2000) throw new Error('그날만 바꾼 수업이 너무 많아요.');
+        if (captureImportUndo) importUndo = this.captureLessonImport(this.lessons, next, input);
+      } catch (error) { throw new CalendarError(error.message); }
+      await writeJson(this.lessonsPath, next);
+      this.lessons = next;
+      // 자료가 다른 수업으로 옮겨 갔으면 파일 따라가기 목록도 새로(따라가기가 있는 판에서만).
+      if (input && 'swapRecords' in input && typeof this.syncFileTracking === 'function') await this.syncFileTracking();
+      if (input && 'undoLessonImport' in input) this.lessonImportHistory.delete(input.undoLessonImport);
+      const snapshot = this.snapshot();
+      if (!captureImportUndo) return snapshot;
+      if (!importUndo) return { ...snapshot, lessonImportUndo: null };
+      this.lessonImportHistory ||= new Map();
+      const lessonImportUndo = randomUUID();
+      this.lessonImportHistory.set(lessonImportUndo, importUndo);
+      if (this.lessonImportHistory.size > 20) this.lessonImportHistory.delete(this.lessonImportHistory.keys().next().value);
+      return { ...snapshot, lessonImportUndo };
+    });
+  }
+
+  lessonRecord(id) {
+    if (typeof id !== 'string' || !/^(homeroom|subject)\|\d{4}-\d{2}-\d{2}\|\d{1,2}$/.test(id)) throw new CalendarError('수업을 확인해 주세요.');
+    return this.lessons.records[id] || { memo: '', files: [] };
+  }
+
+  async writeLessonRecord(id, record) {
+    const filesChanged = record.files !== this.lessons.records[id]?.files;
+    const records = { ...this.lessons.records };
+    if (record.memo || record.files.length) records[id] = record; else delete records[id];
+    const next = { ...this.lessons, records };
+    await writeJson(this.lessonsPath, next);
+    this.lessons = next;
+    if (filesChanged) await this.syncFileTracking();
+  }
+
+  lessonFileReplacement(file, current) {
+    const replacement = lessonModel.cleanFile({
+      path: current.path, name: current.path === file.path ? file.name : undefined, track: current.track
+    }, validTrack);
+    this.lessonFileKeys.set(replacement, this.lessonFileKey(file));
+    return replacement;
+  }
+
+  setLessonRecord(id, input) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      await this.writeLessonRecord(id, { ...record, memo: lessonModel.cleanRecord({ memo: input?.memo }).memo });
+    });
+  }
+
+  addLessonFiles(id, paths) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      if (!Array.isArray(paths)) throw new CalendarError('자료 파일을 확인해 주세요.');
+      const linked = new Set(record.files.map(file => file.path));
+      const fresh = [...new Set(paths.slice(0, 30))].filter(filePath => !linked.has(filePath)).slice(0, 30 - record.files.length);
+      if (!fresh.length) return false;
+      const files = await Promise.all(fresh.map(newLessonFile));
+      await this.writeLessonRecord(id, { ...record, files: [...record.files, ...files] });
+      return true;
+    });
+  }
+
+  lessonFile(record, index, expectedPath, expectedTrack) {
+    const file = Number.isInteger(index) ? record.files[index] : null;
+    if (file && file.path === expectedPath) return file;
+    // 수업 자세히를 연 직후 경로가 갱신돼도, 누른 자료와 같은 ID면 열 수 있다.
+    if (file && validTrack(expectedTrack) && (sameTrack(file.track, expectedTrack) ||
+        this.fileMonitor?.followsTrack(this.lessonFileKey(file), expectedTrack))) return file;
+    throw new CalendarError('자료 연결이 바뀌었습니다. 목록에서 다시 선택해 주세요.');
+  }
+
+  refreshLessonFileTracks(id) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      if (this.fileMonitor) await this.fileMonitor.drain();
+      const files = await Promise.all(record.files.map(async file => {
+        if (!/^[a-z]:[\\/]/i.test(file.path)) return file;
+        const current = await this.trackedLink(this.lessonFileKey(file), file.path, file.track, false);
+        return current && (current.path !== file.path || !sameTrack(current.track, file.track))
+          ? this.lessonFileReplacement(file, current) : file;
+      }));
+      if (files.every((file, index) => file === record.files[index])) return false;
+      await this.writeLessonRecord(id, { ...record, files });
+      return true;
+    });
+  }
+
+  resolveLessonFile(id, index, expectedPath, expectedTrack) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      const file = this.lessonFile(record, index, expectedPath, expectedTrack);
+      const current = await this.trackedLink(this.lessonFileKey(file), file.path, file.track);
+      if (!current) return null;
+      if (current.path === file.path && sameTrack(current.track, file.track)) return { path: file.path, changed: false };
+      const replacement = this.lessonFileReplacement(file, current);
+      const files = record.files.map((item, at) => at === index ? replacement : item);
+      await this.writeLessonRecord(id, { ...record, files });
+      return { path: replacement.path, changed: true };
+    });
+  }
+
+  relinkLessonFile(id, index, expectedPath, filePath) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      this.lessonFile(record, index, expectedPath);
+      if (record.files.some((file, at) => at !== index && file.path === filePath)) throw new CalendarError('이 수업에 이미 연결한 자료입니다.');
+      const replacement = await newLessonFile(filePath);
+      const files = record.files.map((file, at) => at === index ? replacement : file);
+      await this.writeLessonRecord(id, { ...record, files });
+    });
+  }
+
+  removeLessonFile(id, index, expectedPath) {
+    return this.serialize(async () => {
+      const record = this.lessonRecord(id);
+      this.lessonFile(record, index, expectedPath);
+      await this.writeLessonRecord(id, { ...record, files: record.files.filter((_, at) => at !== index) });
     });
   }
 
@@ -2106,13 +2516,19 @@ class CalendarStore {
     let stopped = false;
     try {
       const { attachments, ...note } = start.note;
-      const rawAnswer = await refiner({ ...note, attachmentNames: attachments.map(item => item.name) }, {
+      const source = { ...note, attachmentNames: attachments.map(item => item.name) };
+      const rawAnswer = await refiner(source, {
         rulesPath: this.rulesPath, codexExecutable: this.settings.codexExecutable, claudeExecutable: this.settings.claudeExecutable, profile: this.settings.profile ?? null
       });
       const answer = resultValue(restoreNoteAnswer(rawAnswer, note), start.task.title);
       if (rawAnswer?.summary === undefined) answer.summary = start.task.summary || '';
       // AI의 원래 답에는 확인 필요 표시도 남긴다(지침을 고칠 때 비교용).
-      result = { ...closePastDeadlines(withReceivedDay(answer, note.datetime), start.task.rangeImported), aiAnswer: { ...answerOf(answer), uncertain: answer.uncertain === true } };
+      const evidence = answer.type === '없음' ? null : resolveNoteEvidence(source, rawAnswer?.evidence);
+      const classified = closePastDeadlines(withReceivedDay(answer, note.datetime), start.task.rangeImported);
+      result = {
+        ...classified, aiAnswer: { ...answerOf(answer), uncertain: answer.uncertain === true },
+        noteEvidence: evidence ? { ...evidence, taskHash: noteEvidenceTaskHash(classified) } : undefined
+      };
     } catch (error) {
       failure = error instanceof CalendarError ? error.message : 'AI 정리를 완료하지 못했습니다. 다시 시도해 주세요.';
       stopped = error?.aiStop === true;

@@ -67,12 +67,26 @@
     },
     "uncertain": {
       "type": "boolean"
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "part": { "type": "integer" },
+          "quote": { "type": "string" }
+        },
+        "required": ["part", "quote"]
+      }
     }
   },
   "required": [
     "type",
     "title",
     "dates",
-    "uncertain"
+    "uncertain",
+    "evidence"
   ]
 }

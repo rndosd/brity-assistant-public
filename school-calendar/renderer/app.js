@@ -13,7 +13,7 @@ const typeLabels = { '할 일': '할 일', '알아 둘 것': '확인할 것', '�
 const aiNames = { claude: 'Claude Code · Haiku', codex: 'Codex', openai: 'OpenAI API · Luna', anthropic: 'Claude API · Haiku', factchat: '서룡 팩트챗 API · Luna' };
 const state = {
   snapshot: { tasks: [], messages: [], inbox: { status: 'loading', pending: 0 } },
-  messenger: { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, noteAction: 'reply' },
+  messenger: { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', calendarName: '브리티 캘린더', calendarServer: 'brity_calendar', supportsChats: true, noteAction: 'reply' },
   month: new Date(), dayKey: '', selected: null, detailToken: 0, detail: null,
   spanColors: new Map(), expandedForwarded: new Set(), selectedChat: null, forwardedDraft: null,
   chatLoaded: false, readingSelection: false, dirty: false, revision: null, saving: false,
@@ -34,14 +34,29 @@ function element(tag, className, text) {
 }
 
 // 원문 글을 넣으며 웹 주소는 링크로 만든다. 누르면 기본 브라우저로 연다(아래 클릭 처리).
-function setLinkedText(node, text) {
-  node.replaceChildren(...findLinks(text).map(part => {
-    if (!part.url) return part.text;
-    const link = element('a', 'note-link', part.text);
+function setLinkedText(node, text, evidence = []) {
+  let offset = 0;
+  node.replaceChildren(...findLinks(text).flatMap(part => {
+    const partStart = offset;
+    offset += part.text.length;
+    const content = [];
+    let cursor = 0;
+    for (const range of evidence) {
+      const start = Math.max(0, range.start - partStart);
+      const end = Math.min(part.text.length, range.end - partStart);
+      if (end <= start) continue;
+      if (cursor < start) content.push(part.text.slice(cursor, start));
+      content.push(element('mark', 'note-evidence', part.text.slice(start, end)));
+      cursor = end;
+    }
+    if (cursor < part.text.length) content.push(part.text.slice(cursor));
+    if (!part.url) return content;
+    const link = element('a', 'note-link');
+    link.append(...content);
     link.href = part.url;
     link.title = `${part.url}
 누르면 브라우저로 엽니다.`;
-    return link;
+    return [link];
   }));
   return node;
 }
@@ -260,29 +275,39 @@ function restoreFocus(focusKey) {
   focus?.focus({ preventScroll: true });
 }
 
+function detailListView() {
+  return $('view-search').hidden ? document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view : 'search';
+}
+
 // 처리하거나 건너뛰기 전의 목록 순서를 기억한다.
 function detailQueue(id) {
-  const view = document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view;
-  if (!['todo', 'reference'].includes(view)) return null;
+  const view = detailListView();
+  if (!['todo', 'reference', 'search'].includes(view)) return null;
   const rows = [...$(`view-${view}`).querySelectorAll('.row')];
   const current = rows.findIndex(row => row.classList.contains('selected'));
   if (current < 0 || id !== state.selected) return null;
   const ids = [...rows.slice(current + 1), ...rows.slice(0, current)].map(row => row.dataset.taskId);
-  return { id, view, ids: [...new Set(ids)].filter(next => next && next !== id) };
+  return { id, view, ids: [...new Set(ids)].filter(next => next && next !== id),
+    ...(view === 'search' && { searchToken: search.token }) };
 }
 
 function advanceInList(queue, closeWhenEmpty = false) {
   if (!queue || state.selected !== queue.id || state.dirty || state.saving ||
-      document.querySelector('.list-tabs [aria-selected="true"]')?.dataset.view !== queue.view) return;
+      detailListView() !== queue.view || (queue.view === 'search' && queue.searchToken !== search.token)) return;
   const rows = [...$(`view-${queue.view}`).querySelectorAll('.row')];
   const next = queue.ids.map(id => rows.find(row => row.dataset.taskId === id)).find(Boolean);
   if (!next) {
     if (closeWhenEmpty) closeDetail();
     return;
   }
+  const id = next.dataset.taskId;
   const pick = next.querySelector('.pick');
-  selectTask(next.dataset.taskId, pick?.dataset.focusKey);
-  next.scrollIntoView({ block: 'nearest' });
+  if (!selectTask(id, pick?.dataset.focusKey)) return;
+  $(`view-${queue.view}`).querySelector('.row.selected')?.scrollIntoView({ block: 'nearest' });
+  if (queue.view === 'search') {
+    const task = state.snapshot.tasks.find(item => item.id === id);
+    if (task) showTaskMonth(task);
+  }
 }
 
 const completingTasks = new Set();
@@ -1700,7 +1725,6 @@ function renderLists() {
   $('backlog-text').textContent = `AI 연결 전에 가져온 쪽지 ${backlog}건이 아직 정리되지 않았습니다.`;
   $('backlog-classify').disabled = !!state.backlogBusy;
   renderSearch();
-  updateDetailNext();
 }
 
 function aiNotConnected() {
@@ -2081,13 +2105,13 @@ function renderNote(note, reset) {
     review.textContent = note.readAttempts >= 3 ? `${observed} 세 차례 시도해 자동 열기를 멈췄습니다. 지난 쪽지 가져오기로 다시 시도할 수 있습니다.` : observed;
   }
   $('reply-section').hidden = !parts?.reply;
-  setLinkedText($('reply-body'), parts?.reply || '');
+  setLinkedText($('reply-body'), parts?.reply || '', note?.evidence?.reply);
   $('previous-note').hidden = !parts;
   $('previous-subject').hidden = !parts?.subject;
   $('previous-subject').textContent = parts?.subject || '';
-  setLinkedText($('previous-body'), parts?.message || '');
+  setLinkedText($('previous-body'), parts?.message || '', note?.evidence?.previous);
   $('original-body').hidden = !!parts;
-  setLinkedText($('original-body'), parts ? '' : note?.body ?? '쪽지 원문을 불러오지 못했습니다.');
+  setLinkedText($('original-body'), parts ? '' : note?.body ?? '쪽지 원문을 불러오지 못했습니다.', note?.evidence?.original);
   setLinkedText($('raw-note-body'), parts ? note.body : '');
   $('copy-note').hidden = !note?.body;
 }
@@ -2172,6 +2196,7 @@ function renderExternalAiWork(detail) {
   const canUseNote = visible && verifiedNote;
   $('show-external-ai-work').checked = visible;
   $('mcp-settings-actions').hidden = !visible;
+  $('guide-agent-video').hidden = !state.snapshot.agentGuideVideoAvailable;
   $('reply-polish-open').hidden = !verifiedNote;
   $('project-start-open').hidden = !canUseNote;
   $('work-section').hidden = !canUseNote || !detail?.task || !!detail.task.chatSource;
@@ -2481,39 +2506,253 @@ function goeAttachmentMessage(goe, available) {
   return { message: `첨부 ${goe.count}개를 아직 붙이지 못했습니다.${retry}`, error: false };
 }
 
+let attachmentSummarySession = null;
+let attachmentSummaryDetail = null;
+const runningAttachmentSummaries = new Map();
+const summaryFileFormat = /\.(?:hwpx|xlsx|pptx|pdf)$/i;
+const legacySummaryFormats = { hwp: 'hwpx', xls: 'xlsx', ppt: 'pptx' };
+
+function summaryAvailability({ name, available }) {
+  if (summaryFileFormat.test(name)) return available ? '' : '파일을 저장한 뒤 요약할 수 있어요.';
+  const extension = name.split('.').at(-1).toLowerCase();
+  const modern = Object.hasOwn(legacySummaryFormats, extension) && legacySummaryFormats[extension];
+  return modern ? '이전 형식이에요. .' + modern + '로 다시 저장해 주세요.' : '이 형식은 요약할 수 없어요.';
+}
+
+function attachmentSummaryItems(note) {
+  return (note?.attachments ?? []).filter(item => !note.goeAttachments || item.available || item.recovery || item.summarySaved);
+}
+
+function showAttachmentSummaries(expanded) {
+  const toggle = $('attachment-summary-toggle');
+  toggle.setAttribute('aria-expanded', String(expanded));
+  toggle.textContent = expanded ? '접기' : '요약';
+  $('attachment-summaries').hidden = !expanded;
+}
+
+function closeAttachmentSummary() {
+  attachmentSummarySession = null;
+  attachmentSummaryDetail = null;
+  if ($('attachment-summary-dialog').open) $('attachment-summary-dialog').close();
+  showAttachmentSummaries(false);
+  $('attachment-summary-list').replaceChildren();
+}
+
+function attachmentSummaryItem(item) {
+  const source = item.source === 'note' ? '쪽지 본문' : '첨부';
+  const row = element('li', 'attachment-summary-item');
+  row.append(element('strong', null, item.title));
+  if (item.detail) row.append(element('p', 'formatted', item.detail));
+  if (item.evidence) row.append(element('p', 'attachment-summary-evidence', source + ' · “' + item.evidence + '”'));
+  return row;
+}
+
+function openAttachmentSummaryDetail(session, entry) {
+  const dialog = $('attachment-summary-dialog');
+  const { item, result } = entry;
+  if (dialog.open || attachmentSummarySession !== session || !result?.items.length) return;
+  attachmentSummaryDetail = { session, entry };
+  $('attachment-summary-dialog-file').textContent = item.name;
+  $('attachment-summary-dialog-overview').textContent = result.summary;
+  $('attachment-summary-dialog-overview').hidden = !result.summary;
+  $('attachment-summary-dialog-stale').hidden = !result.stale;
+  $('attachment-summary-dialog-items').replaceChildren(...result.items.map(attachmentSummaryItem));
+  dialog.showModal();
+  $('attachment-summary-dialog-body').scrollTop = 0;
+}
+
+$('attachment-summary-dialog-close').addEventListener('click', () => $('attachment-summary-dialog').close());
+$('attachment-summary-dialog').addEventListener('close', () => {
+  if ($('attachment-summary-dialog').open) return;
+  const detail = attachmentSummaryDetail;
+  attachmentSummaryDetail = null;
+  $('attachment-summary-dialog-items').replaceChildren();
+  if (detail?.session === attachmentSummarySession && !document.querySelector('dialog[open]')) {
+    detail.entry.card.querySelector('.attachment-summary-details')?.focus();
+  }
+});
+
+function renderAttachmentSummaryCard(session, entry) {
+  if (attachmentSummarySession !== session || session.id !== state.selected) return;
+  const { card, item, result, unavailable, error, status, pending } = entry;
+  const heading = element('h4', 'attachment-summary-file', item.name);
+  heading.tabIndex = -1;
+  const restoreFocus = card.contains(document.activeElement);
+  const focusDetails = document.activeElement === card.querySelector('.attachment-summary-details');
+  card.replaceChildren(heading);
+  const message = error || status || unavailable;
+  if (message) {
+    const line = element('p', 'small-note attachment-summary-status', message);
+    line.setAttribute('role', 'status');
+    line.classList.toggle('error', !!error);
+    card.append(line);
+  }
+  if (result) {
+    if (result.stale) card.append(element('p', 'small-note attachment-summary-changed', '원문이 바뀌었거나 파일을 찾을 수 없어 저장된 이전 요약을 보여 드려요.'));
+    const overview = result.summary || (result.items.length ? '‘' + result.items[0].title + '’ 안내가 있어요.' : '');
+    if (overview) card.append(element('p', 'formatted attachment-summary-text', overview));
+    if (result.items.length) {
+      const details = button('button text-button small attachment-summary-details', '자세히');
+      details.setAttribute('aria-label', item.name + ' 자세히');
+      details.setAttribute('aria-haspopup', 'dialog');
+      details.addEventListener('click', () => openAttachmentSummaryDetail(session, entry));
+      card.append(details);
+    }
+  }
+  if (!unavailable && !pending && (error || result?.stale)) {
+    const retry = button('button text-button small attachment-summary-retry', '다시 요약');
+    retry.setAttribute('aria-label', item.name + ' 다시 요약');
+    retry.addEventListener('click', () => void runAttachmentSummary(session, entry));
+    card.append(retry);
+  }
+  if (restoreFocus) ((focusDetails && card.querySelector('.attachment-summary-details')) || heading).focus();
+}
+
+async function runAttachmentSummary(session, entry) {
+  if (entry.pending) return;
+  const { item } = entry;
+  entry.pending = true;
+  entry.error = '';
+  entry.status = '요약하고 있어요…';
+  session.inFlight++;
+  runningAttachmentSummaries.set(session.id, session);
+  renderAttachmentSummaryCard(session, entry);
+  try {
+    entry.result = await api.summarizeAttachment(session.id, item.index, item.name);
+    item.summarySaved = true;
+  } catch (error) {
+    entry.error = error.message || '첨부를 요약하지 못했어요.';
+  } finally {
+    entry.status = '';
+    entry.pending = false;
+    if (--session.inFlight === 0) runningAttachmentSummaries.delete(session.id);
+    renderAttachmentSummaryCard(session, entry);
+  }
+}
+
+async function loadAttachmentSummaryCache(session) {
+  for (const entry of session.entries) {
+    if (!entry.item.summarySaved || entry.pending) continue;
+    const { index, name } = entry.item;
+    entry.pending = true;
+    entry.status = '저장된 요약을 확인하고 있어요…';
+    renderAttachmentSummaryCard(session, entry);
+    try {
+      entry.result = await api.attachmentSummary(session.id, index, name);
+      entry.error = '';
+    } catch (error) {
+      entry.error = error.message || '저장된 요약을 불러오지 못했어요.';
+    } finally {
+      entry.status = '';
+      entry.pending = false;
+      renderAttachmentSummaryCard(session, entry);
+    }
+  }
+}
+
+async function runAttachmentSummaryBatch(session) {
+  session.inFlight++;
+  runningAttachmentSummaries.set(session.id, session);
+  try {
+    await loadAttachmentSummaryCache(session);
+    for (const entry of session.entries) {
+      if (!entry.unavailable && !entry.result && !entry.error) await runAttachmentSummary(session, entry);
+    }
+  } finally {
+    if (--session.inFlight === 0) runningAttachmentSummaries.delete(session.id);
+  }
+}
+
+$('attachment-summary-toggle').addEventListener('click', () => {
+  if (!$('attachment-summaries').hidden) {
+    showAttachmentSummaries(false);
+    return;
+  }
+  const id = state.selected;
+  const note = state.detail?.task.id === id && state.detail.note;
+  if (!note) return;
+  const running = runningAttachmentSummaries.get(id);
+  const items = attachmentSummaryItems(note);
+  const previous = attachmentSummarySession;
+  const sameAttachments = previous?.id === id && previous.entries.length === items.length && items.every((item, i) => {
+    const before = previous.entries[i].item;
+    return item.index === before.index && item.name === before.name && item.available === before.available;
+  });
+  if (previous?.id === id && (running || sameAttachments)) {
+    showAttachmentSummaries(true);
+    if (!running) void loadAttachmentSummaryCache(previous);
+    return;
+  }
+  const session = running || { id, inFlight: 0, entries: items.map(item => {
+    const unavailable = summaryAvailability(item);
+    return { item, unavailable, status: item.summarySaved ? '저장된 요약을 확인하고 있어요…' : unavailable ? '' : '요약을 기다리고 있어요…', card: element('li', 'attachment-summary-card') };
+  }) };
+  attachmentSummarySession = session;
+  $('attachment-summary-list').replaceChildren(...session.entries.map(entry => entry.card));
+  for (const entry of session.entries) renderAttachmentSummaryCard(session, entry);
+  showAttachmentSummaries(true);
+  if (!running) void runAttachmentSummaryBatch(session);
+});
+
 function renderAttachments(id, note) {
   const goe = note?.goeAttachments;
   // GOE에서 받지 못한 첨부의 이름은 화면에서 읽은 글자라 틀릴 수 있어 목록에 보이지 않는다(개수와 안내만).
-  const attachments = (note?.attachments || []).filter(item => !goe || item.available);
+  const attachments = attachmentSummaryItems(note);
   const count = goe?.count || attachments.length;
   const current = state.attachmentRetry?.id === id ? state.attachmentRetry : null;
-  const first = attachments.find(item => item.available);
   const latest = note?.verified === true ? splitReply(note.body ?? '')?.reply ?? note.body ?? '' : '';
   const mentioned = attachments.filter(item => item.name && latest.includes(item.name));
   $('attachments-section').hidden = !count && !attachments.length && !goe?.canRetry;
+  $('attachment-summary-toggle').hidden = !attachments.length;
   $('attachment-count').textContent = count;
   const retry = $('goe-attachment-retry');
   retry.hidden = !goe?.canRetry;
   retry.disabled = messengerBusy();
   retry.textContent = current?.pending ? '첨부 받는 중…' : '첨부만 다시 받기';
-  $('attachment-folder').hidden = !first;
-  $('attachment-folder').onclick = first ? () => openAttachment(id, first.index, true) : null;
   const rows = attachments.map(item => {
     const row = element('li', 'attachment-item');
     // 이름은 한 줄로 줄이고 마우스를 올리면 전체 이름을 보인다(2026-11-17 사용자 "미관상").
     if (!item.available) {
       const name = attachmentName('attachment-name', item.name);
       name.title = item.name;
-      row.append(name, element('span', 'small-note', '저장 파일 없음'));
+      row.append(name);
+      if (item.recovery) {
+        const actions = element('div', 'attachment-recovery');
+        const relink = button('button text-button small attachment-relink', '다시 연결');
+        relink.dataset.index = item.index;
+        relink.setAttribute('aria-label', item.name + ' 다시 연결');
+        relink.addEventListener('click', async () => {
+          relink.disabled = true;
+          try {
+            if (await api.relinkAttachment(id, item.index) && state.selected === id) {
+              await refreshDetail();
+              setMessage('detail-message', '');
+            }
+          } catch (error) {
+            if (state.selected === id) setMessage('detail-message', error.message, true);
+          } finally { relink.disabled = false; }
+        });
+        actions.append(relink);
+        if (item.recovery.archiveAvailable) {
+          const archive = button('button text-button small attachment-open-archive', '처음 받은 보관본 열기');
+          archive.addEventListener('click', () => openAttachment(id, item.index, false, true));
+          actions.append(archive);
+        }
+        row.append(element('span', 'small-note', '정리한 파일을 찾지 못했어요.'), actions);
+      } else {
+        row.append(element('span', 'small-note', '저장 파일 없음'));
+      }
     } else {
-      const open = button('button text-button small');
+      const open = button('button text-button small attachment-open');
       open.append(attachmentName('attachment-label', item.name));
       open.title = `${item.name}
 ${item.direct ? '누르면 첨부를 엽니다' : '누르면 폴더에서 보여 줍니다'}`;
       open.addEventListener('click', () => openAttachment(id, item.index, false));
       row.append(open);
-      const folder = button('button text-button small attachment-folder', '폴더 열기');
-      folder.setAttribute('aria-label', item.name + ' 저장 폴더 열기');
+      const folder = button('button icon-button attachment-folder');
+      folder.append($('attachment-folder-icon').content.cloneNode(true));
+      folder.title = item.name + ' 저장 폴더 열기';
+      folder.setAttribute('aria-label', folder.title);
       folder.addEventListener('click', () => openAttachment(id, item.index, true));
       row.append(folder);
     }
@@ -2556,9 +2795,13 @@ $('goe-attachment-retry').addEventListener('click', async () => {
   }
 });
 
-async function openAttachment(id, index, reveal) {
+async function openAttachment(id, index, reveal, archive) {
   try {
-    const result = await api.openAttachment(id, index, reveal);
+    const result = await api.openAttachment(id, index, reveal, archive);
+    if (result.missing && state.selected === id) {
+      await refreshDetail();
+      $('attachments').querySelector('.attachment-relink[data-index="' + index + '"]')?.focus();
+    }
     if (result.revealed) notice('탐색기에서 첨부를 표시했습니다.');
   } catch (error) {
     if (state.selected === id) setMessage('detail-message', error.message, true);
@@ -2612,6 +2855,7 @@ let lastFocus;
 function openDetail(taskId, chatId, focusKey) {
   if (state.dirty && !window.confirm('저장하지 않은 변경을 버리시겠어요?')) return false;
   closeNoteAi();
+  closeAttachmentSummary();
   watchAgentWork(null);
   if (!state.attachmentRetry?.pending) state.attachmentRetry = null;
   state.selected = taskId;
@@ -2761,6 +3005,7 @@ function closeDetail() {
   state.detailToken++;
   state.selected = null;
   closeNoteAi();
+  closeAttachmentSummary();
   state.selectedChat = null;
   state.forwardedDraft = null;
   arrangeForwardedDraft(false);
@@ -2816,6 +3061,7 @@ function sync(snapshot) {
   $('automatic').disabled = !!state.demo || snapshot.aiProvider === 'none' || !!state.savingAutomatic || !!state.testingAi;
   $('automatic').checked = snapshot.automatic;
   renderExternalAiWork(state.detail);
+  window.updateAiInboxVisibility?.();
   renderAiConnected();
   renderCollector();
   renderAutoRefresh();
@@ -3257,7 +3503,8 @@ function renderAiConnected() {
 // 설정 묶음 탭(2026-11-15 사용자 "설정에 정보가 좀 많아졌는데"): AI · 가져오기 · 화면 · 백업·정보.
 // 연결 전에는 AI부터 열고, 그 뒤에는 이 PC에서 마지막에 본 묶음으로 연다. 다른 코드가 구역을 숨기기도 하므로(샘플의 백업 등)
 // 탭은 hidden 대신 off-tab 클래스로 가린다.
-const SETTINGS_TABS = ['ai', 'agents', 'fetch', 'look', 'google', 'about'];
+// 내 역할은 쪽지 정리와 수업 보기가 함께 쓰므로 AI 탭에서 꺼냈다(2026-11-25).
+const SETTINGS_TABS = ['ai', 'role', 'agents', 'fetch', 'look', 'google', 'about'];
 let settingsTab = 'ai';
 try { const saved = localStorage.getItem('calendar-settings-tab'); if (SETTINGS_TABS.includes(saved)) settingsTab = saved; } catch {}
 
@@ -3315,13 +3562,15 @@ for (const page of ['codex-desktop', 'claude-setup']) {
   $('guide-' + page).addEventListener('click', () => void api.openAiGuide(page)
     .catch(error => setMessage('agent-guide-status', error.message, true)));
 }
-const connectionCopied = '연결 요청을 복사했습니다. Codex나 Claude Code 채팅에 붙여넣고 보내세요.';
+const connectionCopied = () => `${state.messenger.calendarName} 연결 요청을 복사했습니다. Codex나 Claude Code 채팅에 붙여넣고 보내세요.`;
+$('guide-agent-video').addEventListener('click', () => void api.openAiGuide('agent-video')
+  .catch(error => setMessage('mcp-copy-connect-status', error.message, true)));
 $('mcp-copy-connect').addEventListener('click', async () => {
   $('mcp-copy-connect').disabled = true;
   setMessage('mcp-copy-connect-status', '연결 요청을 준비하고 있습니다.');
   try {
     await api.mcpCopySetup('ai-request');
-    setMessage('mcp-copy-connect-status', connectionCopied);
+    setMessage('mcp-copy-connect-status', connectionCopied());
   } catch (error) { setMessage('mcp-copy-connect-status', error.message, true); }
   finally { $('mcp-copy-connect').disabled = false; }
 });
@@ -3330,7 +3579,7 @@ $('mcp-check').addEventListener('click', async () => {
   setMessage('mcp-check-status', '연결 프로그램을 확인하고 있습니다.');
   try {
     await api.checkMcpBridge();
-    setMessage('mcp-check-status', '캘린더 쪽 연결 프로그램이 준비됐습니다.');
+    setMessage('mcp-check-status', `${state.messenger.calendarName} 연결 프로그램이 준비됐습니다.`);
   } catch (error) { setMessage('mcp-check-status', error.message, true); }
   finally { $('mcp-check').disabled = false; }
 });
@@ -3338,6 +3587,7 @@ $('project-agent-guide').addEventListener('click', () => openSettings('agents'))
 
 function openSettings(tab) {
   setMessage('settings-error', '');
+  $('agent-mcp-heading').textContent = `${state.messenger.calendarName}를 AI 채팅에 연결`;
   const notConnected = !state.demo && (state.snapshot.aiProvider ?? 'none') === 'none';
   $('settings-ai-dot').hidden = !notConnected;
   showSettingsTab(typeof tab === 'string' ? tab : notConnected ? 'ai' : settingsTab);
@@ -4009,7 +4259,7 @@ $('downloads-open').addEventListener('click', async () => {
 });
 
 // 내 역할: 근무처(학교·교육청)에 따라 칸을 바꾼다. 역할 목록은 학교급마다 다르다(초등은 전담, 중·고는 비담임).
-const PROFILE_ROLES = { 초등: ['담임', '전담', '그 밖'], 중학교: ['담임', '비담임', '그 밖'], 고등학교: ['담임', '비담임', '그 밖'] };
+const PROFILE_ROLES = { 초등: ['담임', '전담', '그 밖'], 중학교: ['담임', '부담임', '비담임', '그 밖'], 고등학교: ['담임', '부담임', '비담임', '그 밖'] };
 function fillProfileRoles(selected) {
   const roles = PROFILE_ROLES[$('profile-school-level').value] || PROFILE_ROLES.초등;
   const select = $('profile-role');
@@ -4057,7 +4307,7 @@ $('profile-save').addEventListener('click', async () => {
 const KIND_NAMES = { 까지: '마감', 그날: '일정', 기간: '기간' };
 
 // 업무 추가 창: 날짜 고치기와 같은 칸(날짜·종류·끝 날짜·시간·교시)을 쓴다.
-function showCreate(date, mode = 'direct') {
+function showCreate(date, mode = 'direct', incoming = null) {
   if ($('create-dialog').open) { window.setCreateMode?.(mode);return; }
   $('create-form').reset();
   drawPriority($('create-important'), 0);
@@ -4067,9 +4317,9 @@ function showCreate(date, mode = 'direct') {
   updateCreateEnd();
   updateCreateOptions();
   setMessage('create-error', '');
-  window.prepareCreateDialog?.(mode);
+  window.prepareCreateDialog?.(mode, incoming);
   $('create-dialog').showModal();
-  ($('create-form').hidden ? $('memo-text') : $('create-title')).focus();
+  (incoming ? $('create-heading') : $('create-form').hidden ? $('memo-text') : $('create-title')).focus();
 }
 
 // 업무 추가 창의 더 넣는 날짜 한 줄: 날짜 | 마감·일정 | 이름(비우면 제목) | 지우기.
@@ -4120,7 +4370,7 @@ function updateCreateOptions() {
     input.disabled = loose;
     input.closest('label').hidden = loose;
   }
-  const repeatable = !reference && !extra && !loose && kind.value !== '기간';
+  const repeatable = !reference && !extra && (kind.value === '까지' || kind.value === '그날');
   const repeatEnabled = $('create-repeat-enabled');
   repeatEnabled.disabled = !repeatable;
   $('create-repeat-toggle').hidden = !repeatable;
@@ -4316,7 +4566,7 @@ $('settings-close').addEventListener('click', () => $('settings-dialog').close()
 $('day-close').addEventListener('click', () => $('day-dialog').close());
 $('settings-dialog').addEventListener('close', () => { $('ai-key').value = ''; });
 // 설정·바뀐 점·업무 추가 창은 창 바깥(어두운 곳)을 누르면 닫힌다. 창 안에서 끌다가 밖에서 놓은 것은 닫지 않는다.
-for (const id of ['settings-dialog', 'changes-dialog', 'create-dialog', 'day-dialog']) {
+for (const id of ['settings-dialog', 'changes-dialog', 'create-dialog', 'day-dialog', 'attachment-summary-dialog']) {
   const dialog = $(id);
   let downOutside = false;
   const outside = event => {
@@ -4446,6 +4696,10 @@ async function changeCollector(action) {
 $('collector-connect').addEventListener('click', () => void collectNow());
 $('ai-setup-open').addEventListener('click', () => openSettings('ai'));
 $('collector-ai').addEventListener('click', () => openSettings('ai'));
+$('manual-open').addEventListener('click', async () => {
+  try { await api.openAiGuide('manual'); }
+  catch (error) { $('collector-status').textContent = error.message; }
+});
 $('start-guide').addEventListener('click', async () => {
   try { await api.openAiGuide('start'); }
   catch (error) { $('collector-status').textContent = error.message; }
@@ -4736,6 +4990,7 @@ function appendMarked(node, text, pattern) {
 function searchRow(hit, today, pattern) {
   const task = state.snapshot.tasks.find(item => item.id === hit.id);
   const row = element('li', 'row search-row');
+  row.dataset.taskId = hit.id;
   row.classList.toggle('selected', hit.id === state.selected);
   const pick = button('pick search-pick');
   pick.dataset.focusKey = `search-${hit.id}`;
@@ -4770,7 +5025,10 @@ function renderSearch() {
   const on = !!search.query;
   $('calendar-list-pane').classList.toggle('searching', on);
   $('view-search').hidden = !on;
-  if (!on) return;
+  if (!on) {
+    updateDetailNext();
+    return;
+  }
   const result = search.result;
   const known = new Set(state.snapshot.tasks.map(task => task.id));
   const hits = result ? result.results.filter(hit => known.has(hit.id)) : [];
@@ -4786,6 +5044,7 @@ function renderSearch() {
   const today = key(new Date());
   const pattern = searchPattern(search.query);
   $('search-list').replaceChildren(...hits.map(hit => searchRow(hit, today, pattern)));
+  updateDetailNext();
 }
 
 async function runSearch(query, request) {
@@ -5170,11 +5429,11 @@ $('project-start').addEventListener('click', () => void runNoteAi('project', '�
 
 const mcpDialog = $('mcp-dialog');
 const mcpHelp = {
-  claude: '프로젝트 폴더의 .mcp.json에 추가하고 Claude Code를 다시 여세요. 연결 승인을 요청하면 확인한 뒤 /mcp에서 calendar를 확인하세요.',
-  json: 'Claude Desktop, Cursor, Antigravity 등은 MCP 설정의 mcpServers 안에 calendar 항목을 추가하세요. 새 설정 파일이라면 복사한 내용을 그대로 붙여 넣으세요.',
+  claude: '프로젝트 폴더의 .mcp.json에 추가하고 Claude Code를 다시 여세요. 연결을 승인한 뒤 /mcp에서 복사한 연결 이름을 확인하세요.',
+  json: 'Claude Desktop, Cursor, Antigravity 등은 MCP 설정의 mcpServers 안에 복사한 연결 항목을 추가하세요. 새 설정 파일이라면 복사한 내용을 그대로 붙여 넣으세요.',
   codex: 'Codex의 MCP 설정 파일(~/.codex/config.toml)에 복사한 항목을 추가하세요.',
   grok: 'Grok Build의 MCP 설정 파일(~/.grok/config.toml)에 복사한 항목을 추가하세요.',
-  vscode: '명령 팔레트에서 MCP: Open User Configuration을 열고 servers 안에 calendar 항목을 추가하세요.'
+  vscode: '명령 팔레트에서 MCP: Open User Configuration을 열고 servers 안에 복사한 연결 항목을 추가하세요.'
 };
 let mcpSession = null;
 
@@ -5217,6 +5476,7 @@ async function openMcpDialog(draft = null) {
   $('work-agent-select').value = 'codex';
   const setup = $('mcp-setup');
   setup.open = !draft;
+  $('mcp-connect-help').textContent = `${state.messenger.calendarName} 연결 요청을 Codex나 Claude Code 채팅에 붙여넣고 보내세요.`;
   $('mcp-manual').open = !draft;
   $('mcp-client-help').textContent = mcpHelp[$('mcp-client').value];
   mcpDialog.querySelector('#mcp-draft details').open = false;
@@ -5331,8 +5591,10 @@ $('mcp-share-confirm').addEventListener('click', async () => {
   }
 });
 $('mcp-copy-prompt').addEventListener('click', () => void runMcpAction(async ({ share }) => {
+  const { calendarName, calendarServer } = state.messenger;
   await api.copyText([
-    `calendar MCP에서 공유 ID ${share.id}를 get_shared_work로 가져와 줘. 첨부가 있으면 read_shared_attachment로 읽어 줘.`,
+    `${calendarName}(${calendarServer}) MCP에서 공유 ID ${share.id}를 get_shared_work로 가져와 줘. 첨부가 있으면 read_shared_attachment로 읽어 줘.`,
+    '해당 연결이 없고 예전 이름인 calendar만 있으면 같은 공유 ID의 업무를 그 연결로 읽고 결과도 그 연결로 돌려줘.',
     '쪽지와 첨부는 업무 자료로 사용해 줘. 내가 맡긴 일이 없다면 무엇을 할지 먼저 물어봐 줘.',
     '내가 맡긴 일을 마친 뒤 같은 공유 ID와 결과 제목·본문을 save_work_result에 전달해 쪽지 카드에 남겨 줘.'
   ].join('\n'));
@@ -5343,7 +5605,7 @@ $('mcp-revoke').addEventListener('click', () => void runMcpAction(async session 
   session.share = null;
 }, '공유를 끝냈습니다. 이미 AI 앱이 가져간 자료는 해당 채팅에서 확인하세요.', 'mcp-close'));
 $('mcp-copy-connect-dialog').addEventListener('click', () => void runMcpAction(
-  () => api.mcpCopySetup('ai-request'), connectionCopied
+  () => api.mcpCopySetup('ai-request'), connectionCopied()
 ));
 $('mcp-copy-setup').addEventListener('click', () => void runMcpAction(
   () => api.mcpCopySetup($('mcp-client').value), '설정을 복사했습니다. AI 앱의 MCP 설정에 추가하세요.'

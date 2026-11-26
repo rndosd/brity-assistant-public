@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["found", "rows", "times", "note"],
+  "properties": {
+    "found": { "type": "boolean" },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["period", "mon", "tue", "wed", "thu", "fri"],
+        "properties": {
+          "period": { "type": "integer" },
+          "mon": { "type": "string" },
+          "tue": { "type": "string" },
+          "wed": { "type": "string" },
+          "thu": { "type": "string" },
+          "fri": { "type": "string" }
+        }
+      }
+    },
+    "times": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["period", "start", "end"],
+        "properties": {
+          "period": { "type": "integer" },
+          "start": { "type": "string" },
+          "end": { "type": "string" }
+        }
+      }
+    },
+    "note": { "type": "string" }
+  }
+}

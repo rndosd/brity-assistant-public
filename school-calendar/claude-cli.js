@@ -125,7 +125,8 @@ function readClaudeResult({ code, output, errors }) {
   let reply;
   try { reply = JSON.parse(String(output).trim()); } catch { reply = null; }
   const text = `${reply?.result ?? ''} ${errors ?? ''}`;
-  if (/not logged in|\/login|invalid api key|oauth token|authentication/i.test(text)) throw aiStopError(LOGIN_MESSAGE);
+  // "Failed to authenticate: OAuth session expired"(로그인 만료)도 로그인 안내로(11/26 확인).
+  if (/not logged in|\/login|invalid api key|oauth (token|session)|failed to authenticate|authentication/i.test(text)) throw aiStopError(LOGIN_MESSAGE);
   if (/usage limit|rate limit|limit reached|5-hour limit|weekly limit/i.test(text)) {
     throw aiStopError('Claude 구독 사용 한도에 닿았습니다. 한도가 풀린 뒤 다시 정리하거나, 다른 연결 방식을 골라 주세요.');
   }
@@ -144,17 +145,27 @@ async function refineClaude(note, options) {
   return requestClaude(input, schemaText, SYSTEM_PROMPT, options);
 }
 
-async function requestClaude(input, schemaText, systemPrompt, { claudeExecutable, signal, env = process.env, run = runClaude }) {
+// images: 함께 볼 그림 파일(시간표 그림 읽기, 11/26). 그때만 Read 도구를 그 그림이 든 폴더에 한해 켠다.
+async function requestClaude(input, schemaText, systemPrompt, { claudeExecutable, signal, env = process.env, run = runClaude,
+  images = [], timeoutMs = 90_000, failure = 'Claude Code에서 정리를 받지 못했습니다. 로그인 상태와 버전을 확인한 뒤 다시 시도해 주세요.' }) {
   const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(new CalendarError('AI 정리가 90초 안에 끝나지 않았습니다. 다시 시도해 주세요.')), 90_000);
+  const timer = setTimeout(() => deadline.abort(new CalendarError(`AI가 ${Math.round(timeoutMs / 1000)}초 안에 끝내지 못했습니다. 다시 시도해 주세요.`)), timeoutMs);
   const execution = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   try {
     const executable = resolveClaude(claudeExecutable, env);
-    return readClaudeResult(await run(executable, claudeArgs(schemaText, systemPrompt), { input, signal: execution, env: claudeEnv(env) }));
+    let args = claudeArgs(schemaText, systemPrompt);
+    let prompt = input;
+    if (images.length) {
+      const at = args.indexOf('--tools');
+      const dirs = [...new Set(images.map(file => path.dirname(file)))];
+      args = [...args.slice(0, at), '--tools', 'Read', '--allowedTools', 'Read', ...dirs.flatMap(dir => ['--add-dir', dir]), ...args.slice(at + 2)];
+      prompt = `먼저 Read 도구로 다음 그림 파일을 보세요(다른 파일은 열지 않습니다):\n${images.join('\n')}\n\n${input}`;
+    }
+    return readClaudeResult(await run(executable, args, { input: prompt, signal: execution, env: claudeEnv(env) }));
   } catch (error) {
     if (error instanceof CalendarError) throw error;
     if (execution.aborted) throw execution.reason;
-    throw new CalendarError('Claude Code에서 정리를 받지 못했습니다. 로그인 상태와 버전을 확인한 뒤 다시 시도해 주세요.');
+    throw new CalendarError(failure);
   } finally {
     clearTimeout(timer);
   }

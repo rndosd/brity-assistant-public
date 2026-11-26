@@ -2,11 +2,12 @@
 
 const { app, BrowserWindow, ipcMain, shell, clipboard, safeStorage, dialog, Notification, Menu, Tray } = require('electron');
 const fs = require('node:fs');
+const { createHash } = require('node:crypto');
 const path = require('node:path');
 const os = require('node:os');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 const { CalendarStore, CalendarError } = require('./store');
-const { McpShare } = require('./mcp-share');
+const { McpShare, MCP_IDENTITIES } = require('./mcp-share');
 const { NoteWork } = require('./note-work');
 const { polishReply } = require('./reply-draft');
 const { openProjectHandoff, listWorkProjects } = require('./project-handoff');
@@ -26,9 +27,13 @@ const CHANGES = require('./CHANGES.json');
 const { spawn } = require('node:child_process');
 
 const goeEdition = process.env.SCHOOL_CALENDAR_GOE === '1';
-const messenger = goeEdition
-  ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, noteAction: 'original' }
-  : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, noteAction: 'reply' };
+const mcpProduct = goeEdition ? 'goe' : 'brity';
+const messenger = {
+  ...(goeEdition
+    ? { name: 'GOE 메신저', fullName: 'GOE 메신저', appName: 'GOE 메신저 캘린더', supportsChats: false, noteAction: 'original' }
+    : { name: '브리티', fullName: '브리티 메신저', appName: '브리티 메신저 캘린더', supportsChats: true, noteAction: 'reply' }),
+  ...MCP_IDENTITIES[mcpProduct]
+};
 const launcherName = goeEdition ? 'GOE Messenger Calendar.exe' : 'Brity Messenger Calendar.exe';
 const view = path.join(__dirname, 'renderer', 'index.html');
 const demo = process.argv.includes('--demo') ? require('./demo') : null;
@@ -51,6 +56,25 @@ let updateInterval;
 let draining = false;
 let closing = false;
 let testingAi = false;
+const attachmentSummaryInProgress = new Set();
+const attachmentSummaryExtensions = new Set(['.hwpx', '.xlsx', '.pptx', '.pdf']);
+const attachmentSummaryFileLimit = 30 * 1024 * 1024;
+
+async function attachmentSummaryDigest(file) {
+  const stat = await fs.promises.stat(file);
+  if (!stat.isFile()) throw new CalendarError('저장된 첨부를 찾을 수 없어요.');
+  if (stat.size > attachmentSummaryFileLimit) {
+    throw new CalendarError('첨부가 너무 커요. 필요한 부분만 새 파일로 저장한 뒤 요약해 주세요.');
+  }
+  const hash = createHash('sha256');
+  let size = 0;
+  for await (const chunk of fs.createReadStream(file)) {
+    size += chunk.length;
+    if (size > attachmentSummaryFileLimit) throw new CalendarError('첨부가 너무 커요. 필요한 부분만 새 파일로 저장한 뒤 요약해 주세요.');
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
 const repliesInProgress = new Set();
 const pickedProjectFolders = new Set();
 let collectorRun;
@@ -86,6 +110,8 @@ let whatsNew = null;
 const UPDATE_EVERY = 60 * 60 * 1000;
 
 function userDownloads() {
+  const isolated = process.env.SCHOOL_CALENDAR_DOWNLOADS_DIR;
+  if (isolated && path.isAbsolute(isolated)) return path.resolve(isolated);
   if (demo || process.env.SCHOOL_CALENDAR_INBOX_DIR) return undefined;
   try {
     return app.getPath('downloads');
@@ -98,7 +124,7 @@ const downloadsDir = userDownloads();
 const mcpShare = new McpShare(process.env.SCHOOL_CALENDAR_MCP_DIR || path.join(
   process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
   demo ? 'MessengerCalendar-MCP-Sample' : 'MessengerCalendar-MCP'
-), messenger.appName);
+), messenger.appName, mcpProduct);
 const collectorOptions = {
   scriptsDir: path.dirname(defaultInbox),
   goe: goeEdition,
@@ -112,6 +138,7 @@ const store = new CalendarStore({
   // 새로 설치하면 AI 연결 전이다. 연결 시험이 성공하면 자동 분류가 켜진다.
   aiDefault: process.env.SCHOOL_CALENDAR_AI_DEFAULT === 'codex' ? 'codex' : 'none'
 });
+store.onFileTrackingChange = publish;
 // 구글 캘린더로 보내기(한 방향). 앱 번호 파일이 없는 판·샘플에서는 숨긴다(google-calendar.js).
 const googleCalendar = new GoogleCalendarSync({
   dataDir,
@@ -137,7 +164,7 @@ const noteWork = new NoteWork({
 
 function snapshot() {
   const saved = store.snapshot();
-  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, google: googleCalendar.view(), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, unverified: collector.unverified ?? 0, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null, brityReason: collector.status === 'in-use' ? null : collector.brityReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
+  return { ...saved, messenger, appVersion: app.getVersion(), shortcutAvailable: !!launcherPath && fs.existsSync(launcherPath), loginStart: loginStartState(), feedback: { available: feedback.feedbackAvailable(), info: feedbackInfo() }, google: googleCalendar.view(), update: { enabled: updatesEnabled, status: update.status, version: update.version ?? null, changes: update.changes ?? [], error: update.error ?? null }, whatsNew, rangeImport, demo: !!demo, factchatOffered: factchatOffered(), factchatGuideAvailable, agentGuideVideoAvailable, collector: { status: collector.status, managed: collector.managed, checkedAt: collectorCheckedAt, imported: lastImported, unverified: collector.unverified ?? 0, busyReason: collector.status === 'in-use' ? collector.busyReason ?? null : null, goeReason: ['ready', 'in-use'].includes(collector.status) ? null : collector.goeReason ?? null, brityReason: collector.status === 'in-use' ? null : collector.brityReason ?? null }, activity, collectorAvailable: !demo && !store.inboxOverride, chatRefreshFailed, chatCollection: selectedChatCollection(saved.chatRooms) };
 }
 
 function publish() {
@@ -238,6 +265,11 @@ function savedApiKey(connection) {
 
 // 일반판과 소스 실행에서는 기존 팩트챗 연결만 유지한다.
 const seoryongEdition = process.env.SCHOOL_CALENDAR_SEORYONG === '1';  // GOE판과 함께 쓸 수 있다(GOE 서룡판)
+// 연결 안내 영상 주소를 확정하면 이 값 한 곳에 HTTPS 주소를 넣는다.
+const AGENT_GUIDE_VIDEO_URL = '';
+const agentGuideVideo = URL.parse(AGENT_GUIDE_VIDEO_URL);
+const agentGuideVideoAvailable = agentGuideVideo?.protocol === 'https:';
+
 const factchatGuideUrl = URL.canParse(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE)
   ? new URL(process.env.SCHOOL_CALENDAR_FACTCHAT_GUIDE) : null;
 const factchatGuideAvailable = seoryongEdition && factchatGuideUrl?.protocol === 'https:' &&
@@ -1009,12 +1041,16 @@ function bindHandlers() {
       if (failure) throw new CalendarError('안내서를 열지 못했습니다. 앱 폴더의 Claude-API-연결-안내.html을 직접 열어 주세요.');
       return;
     }
+    if (page === 'agent-video' && agentGuideVideoAvailable) {
+      await shell.openExternal(agentGuideVideo.href);
+      return;
+    }
     if (page === 'factchat' && factchatGuideAvailable) {
       await shell.openExternal(factchatGuideUrl.href);
       return;
     }
     // CLI 방식은 앱 폴더의 한국어 안내서를 연다(설치·로그인이 막혔을 때 따라 하는 순서).
-    const localGuides = { claude: 'Claude-연결-안내.html', codex: 'Codex-연결-안내.html', 'openai-guide': 'API-연결-안내.html', start: '처음-시작-안내.html' };
+    const localGuides = { claude: 'Claude-연결-안내.html', codex: 'Codex-연결-안내.html', 'openai-guide': 'API-연결-안내.html', start: '처음-시작-안내.html', manual: '사용-설명서.html' };
     if (Object.hasOwn(localGuides, page)) {
       const failure = await shell.openPath(path.join(__dirname, localGuides[page]));
       if (failure) throw new CalendarError(`안내서를 열지 못했습니다. 앱 폴더의 ${localGuides[page]}을 직접 열어 주세요.`);
@@ -1177,6 +1213,67 @@ function bindHandlers() {
   bind('changes', () => ({ version: app.getVersion(), changes: updater.changesBetween(CHANGES, null, app.getVersion()).slice(0, 5) }));
   bind('rules-resolve', async choice => changed(await store.resolveRules(choice)));
   bind('periods', async enabled => changed(await store.setShowPeriods(enabled)));
+  // 수업 탭: 시간표·교시 시각·적용 기간 저장, 수업 메모·자료 연결, 자료 고르기·열기.
+  bind('lessons-save', async input => changed(await store.setLessonPlan(input)));
+  bind('lesson-record', async (id, input) => {
+    await store.setLessonRecord(id, input);
+    publish();
+  });
+  // 시간표 파일·그림 읽기(11/26 사용자 "이미지 캡처나 pdf", "한글 파일"): .hwpx와 .xlsx는 앱이 직접, PDF·그림은 연결된 AI가 읽는다.
+  // 등록은 하지 않는다. 화면이 미리보기로 보여 주고 선생님이 확인한 뒤 등록한다.
+  bind('lesson-timetable-pick', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+      title: '시간표 파일 고르기', properties: ['openFile'],
+      filters: [{ name: '시간표(한글·엑셀·PDF·그림)', extensions: ['hwpx', 'hwp', 'xlsx', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'] }]
+    });
+    return canceled ? '' : filePaths[0];
+  });
+  bind('lesson-timetable-read', async source => {
+    if (demo) throw new CalendarError('샘플에서는 쓸 수 없습니다.');
+    const provider = store.aiProvider;
+    const connection = apiProviders.get(provider);
+    try {
+      return await require('./timetable-file').readTimetableSource(source, {
+        provider, apiKey: connection ? savedApiKey(connection) : undefined, codexExecutable: store.settings.codexExecutable,
+        claudeExecutable: store.settings.claudeExecutable, signal: lifetime.signal, requestCodex: require('./refine').requestCodex,
+        requestClaude: require('./claude-cli').requestClaude, requestApi: require('./ai-provider').requestApi, apiProviders
+      });
+    } catch (error) {
+      if (error instanceof CalendarError) throw error;
+      throw new CalendarError(error?.code ? '파일을 읽지 못했어요. 파일이 있는지 확인해 주세요.' : error.message);
+    }
+  });
+  bind('lesson-files-pick', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: '수업 자료 고르기', properties: ['openFile', 'multiSelections'] });
+    return canceled ? [] : filePaths.slice(0, 30);
+  });
+  bind('lesson-files-add', async (id, paths) => {
+    if (await store.addLessonFiles(id, paths)) publish();
+  });
+  bind('lesson-files-refresh', async id => {
+    if (await store.refreshLessonFileTracks(id)) publish();
+  });
+  bind('lesson-file-open', async (id, index, previousPath, reveal, track) => {
+    const result = await store.resolveLessonFile(id, index, previousPath, track);
+    if (!result) return { missing: true };
+    if (result.changed) publish();
+    const filePath = result.path;
+    if (reveal === true) { shell.showItemInFolder(filePath); return { revealed: true }; }
+    const error = await shell.openPath(filePath);
+    if (error) throw new CalendarError('자료를 열 수 없습니다. 연결 프로그램을 확인해 주세요.');
+    return { revealed: false };
+  });
+  bind('lesson-file-relink', async (id, index, previousPath) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: '다시 연결할 수업 자료 고르기', properties: ['openFile'] });
+    if (canceled || !filePaths[0]) return;
+    await store.relinkLessonFile(id, index, previousPath, filePaths[0]);
+    publish();
+    return true;
+  });
+  bind('lesson-file-remove', async (id, index, previousPath) => {
+    await store.removeLessonFile(id, index, previousPath);
+    publish();
+  });
   bind('external-ai-work-visibility', async enabled => {
     await store.setShowExternalAiWork(enabled);
     return changed(snapshot());
@@ -1215,7 +1312,7 @@ function bindHandlers() {
     return listWorkProjects(agent);
   });
   bind('pick-work-project', async () => {
-    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘쪽지에 AI 앱 작업 메뉴와 결과 보이기’를 켜 주세요.');
+    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘AI 작업 메뉴·결과와 AI 박스 보이기’를 켜 주세요.');
     const { canceled, filePaths } = await dialog.showOpenDialog(window, {
       title: 'AI 업무를 시작할 프로젝트 폴더', defaultPath: store.settings.workProjectFolder, properties: ['openDirectory']
     });
@@ -1227,7 +1324,7 @@ function bindHandlers() {
     return folder;
   });
   bind('start-work-project', async (id, input) => {
-    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘쪽지에 AI 앱 작업 메뉴와 결과 보이기’를 켜 주세요.');
+    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘AI 작업 메뉴·결과와 AI 박스 보이기’를 켜 주세요.');
     if (input?.agent === 'codex' && !app.getApplicationNameForProtocol('codex://threads/new')) {
       throw new CalendarError('Codex 새 채팅을 열 앱을 찾을 수 없습니다. 설정의 ‘에이전트’에서 설치 안내를 확인해 주세요.');
     }
@@ -1250,6 +1347,22 @@ function bindHandlers() {
     return { message: agent === 'codex' ? 'Codex 새 채팅에서 내용을 확인하고 전송하세요.'
       : '선택한 프로젝트에서 Claude Code 터미널을 시작했습니다.' };
   });
+  const requireAiInbox = () => {
+    if (store.settings.showExternalAiWork === false) throw new CalendarError('설정 → 에이전트에서 ‘AI 작업 메뉴·결과와 AI 박스 보이기’를 켜 주세요.');
+  };
+  bind('ai-inbox-list', () => store.settings.showExternalAiWork === false ? [] : mcpShare.listInbox(store));
+  bind('ai-inbox-read', id => {
+    requireAiInbox();
+    return mcpShare.getInbox(id, store);
+  });
+  bind('ai-inbox-register', async (id, items) => {
+    requireAiInbox();
+    return changed(await mcpShare.registerInbox(store, id, items));
+  });
+  bind('ai-inbox-dismiss', id => {
+    requireAiInbox();
+    return mcpShare.dismissInbox(store, id);
+  });
   bind('mcp-share', (id, attachments) => mcpShare.publish(store, id, attachments));
   bind('mcp-revoke', id => mcpShare.revoke(id));
   bind('mcp-open', async id => {
@@ -1268,8 +1381,88 @@ function bindHandlers() {
     return noteWork.start(id, input);
   });
   bind('agent-work-state', id => noteWork.state(id));
-  bind('attachment', async (id, index, reveal) => {
-    const attachment = await store.attachment(id, index);
+  async function attachmentForSummary(id, index, expectedName) {
+    if (!Number.isSafeInteger(index) || index < 0 || typeof expectedName !== 'string') {
+      throw new CalendarError('목록에서 요약할 첨부를 다시 골라 주세요.');
+    }
+    const source = store.attachmentSummaryRecord(id, index);
+    if (!source) throw new CalendarError('원문이 확인된 쪽지만 첨부를 요약할 수 있어요.');
+    const detail = await store.detail(id);
+    const selected = detail.note?.attachments.find(item => item.index === index);
+    if (selected?.name !== expectedName) throw new CalendarError('첨부 목록이 바뀌었어요. 파일을 다시 골라 주세요.');
+    return { source, selected };
+  }
+
+  async function savedAttachmentSummary(id, index, source, available = true) {
+    const current = store.attachmentSummaryRecord(id, index);
+    let stale = true;
+    if (available && current?.key === source.key && current.noteDigest === source.saved.noteDigest) {
+      try {
+        const attachment = await store.attachment(id, index, { recovery: true });
+        stale = attachment.missing || await attachmentSummaryDigest(attachment.path) !== source.saved.fileDigest;
+      } catch { /* 저장된 요약은 파일을 찾지 못해도 보여 준다. */ }
+    }
+    const latest = store.attachmentSummaryRecord(id, index);
+    const { summary, items } = source.saved.result;
+    return { summary, items: items.map(({ title, detail, evidence, source }) => ({ title, detail, evidence, source })),
+      stale: stale || latest?.key !== source.key || latest.noteDigest !== source.saved.noteDigest };
+  }
+
+  bind('attachment-summary', async (id, index, expectedName) => {
+    const { source, selected } = await attachmentForSummary(id, index, expectedName);
+    return source.saved ? savedAttachmentSummary(id, index, source, selected.available) : null;
+  });
+
+  bind('summarize-attachment', async (id, index, expectedName) => {
+    if (demo || store.aiProvider === 'none') throw new CalendarError('일반 실행기의 설정에서 AI를 연결한 뒤 첨부를 요약해 주세요.');
+    if (!Number.isSafeInteger(index) || index < 0 || typeof expectedName !== 'string' || !attachmentSummaryExtensions.has(path.extname(expectedName).toLowerCase())) {
+      throw new CalendarError('목록에서 요약할 첨부를 다시 골라 주세요.');
+    }
+    const note = store.notes.get(store.getTask(id).noteId);
+    const key = JSON.stringify([id, index]);
+    if (attachmentSummaryInProgress.has(key)) throw new CalendarError('이 첨부를 요약하고 있어요.');
+    attachmentSummaryInProgress.add(key);
+    try {
+      const provider = store.aiProvider;
+      const connection = apiProviders.get(provider);
+      const options = { provider, apiKey: connection ? savedApiKey(connection) : undefined, signal: lifetime.signal,
+        codexExecutable: store.settings.codexExecutable, claudeExecutable: store.settings.claudeExecutable };
+      const { source, selected } = await attachmentForSummary(id, index, expectedName);
+      if (!selected.available) throw new CalendarError('저장된 첨부를 찾을 수 없어요. 파일 위치를 확인해 주세요.');
+      const attachment = await store.attachment(id, index, { recovery: true });
+      if (attachment.missing) throw new CalendarError('저장된 첨부를 찾을 수 없어요. 파일 위치를 확인해 주세요.');
+      const extension = path.extname(attachment.path).toLowerCase();
+      if (extension !== path.extname(expectedName).toLowerCase()) {
+        throw new CalendarError('저장된 파일의 형식이 바뀌었어요. 첨부를 열어 확인해 주세요.');
+      }
+      const readText = extension === '.hwpx'
+        ? require('./hwpx-text').readHwpxText
+        : require('./document-text').readDocumentText;
+      let text, fileDigest;
+      try {
+        fileDigest = await attachmentSummaryDigest(attachment.path);
+        text = await readText(attachment.path);
+        if (await attachmentSummaryDigest(attachment.path) !== fileDigest) {
+          throw new CalendarError('읽는 동안 파일이 바뀌었어요. 저장한 뒤 다시 요약해 주세요.');
+        }
+      } catch (error) {
+        throw new CalendarError(error.code ? '첨부 파일을 읽을 수 없어요. 파일 위치를 확인해 주세요.' : error.message);
+      }
+      const current = store.attachmentSummaryRecord(id, index);
+      if (current?.key !== source.key || current.noteDigest !== source.noteDigest) {
+        throw new CalendarError('읽는 동안 원문이 바뀌었어요. 첨부를 다시 골라 주세요.');
+      }
+      const result = await require('./hwpx-summary').summarizeHwpx({ ...options, text, note: withMaskingContext(note, store.notes) });
+      const saved = { noteDigest: source.noteDigest, fileDigest, result };
+      await store.saveAttachmentSummary(id, index, source, saved);
+      return savedAttachmentSummary(id, index, { ...source, saved });
+    } finally {
+      attachmentSummaryInProgress.delete(key);
+    }
+  });
+  bind('attachment', async (id, index, reveal, archive) => {
+    const attachment = await store.attachment(id, index, { archive: archive === true, recovery: true });
+    if (attachment.missing) return attachment;
     if (reveal === true || !attachment.direct) {
       shell.showItemInFolder(attachment.path);
       return { revealed: true };
@@ -1277,6 +1470,16 @@ function bindHandlers() {
     const error = await shell.openPath(attachment.path);
     if (error) throw new CalendarError('첨부를 열 수 없습니다. 폴더에서 파일과 연결 프로그램을 확인해 주세요.');
     return { revealed: false };
+  });
+  bind('attachment-relink', async (id, index) => {
+    const target = store.attachmentTarget(id, index);
+    const expected = target?.task.downloadedAttachments?.find(copy => copy.source === target.item?.path);
+    if (!expected) throw new CalendarError('다시 연결할 첨부를 찾지 못했습니다.');
+    const result = await dialog.showOpenDialog(window, { title: '정리한 첨부 파일 고르기', properties: ['openFile'] });
+    if (result.canceled || !result.filePaths[0]) return false;
+    await store.relinkAttachment(id, index, expected, result.filePaths[0]);
+    publish();
+    return true;
   });
   // 쪽지 원문 링크(2026-11-17). http(s)만, 기본 브라우저로 연다.
   bind('open-link', async href => {
@@ -1408,8 +1611,9 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
-    if (fs.existsSync(mcpShare.command)) void mcpShare.installBridge().catch(() => {});
-    ready = (demo ? demo.seedDemo() : Promise.resolve()).then(() => store.init()).then(noteVersion).then(loadLastChatCollection).then(refresh);
+    void mcpShare.refreshInstalledBridges().catch(() => {});
+    ready = (demo ? demo.seedDemo() : Promise.resolve()).then(() => store.init())
+      .then(() => store.startFileTracking()).then(noteVersion).then(loadLastChatCollection).then(refresh);
     ready.catch(() => {});
     bindHandlers();
     createWindow();
@@ -1449,7 +1653,7 @@ if (!app.requestSingleInstanceLock()) {
     clearInterval(chatTimer);
     clearTimeout(retryTimer);
     lifetime.abort();
-    const pending = [collectorRun, messengerNoteRun, chatRun, ...noteWork.pending()].filter(Boolean);
+    const pending = [collectorRun, messengerNoteRun, chatRun, ...noteWork.pending(), store.fileMonitor && store.stopFileTracking()].filter(Boolean);
     if (pending.length) {
       event.preventDefault();
       void Promise.allSettled(pending).then(() => app.quit());
